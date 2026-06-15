@@ -1,0 +1,12 @@
+{
+  "name": "unboxing",
+  "version": "0.0.0",
+  "private": true,
+  "description": "택배 조회·배송 추적 앱 (Expo + Cloudflare Worker)",
+  "scripts": {
+    "typecheck": "npm --prefix app run typecheck && npm --prefix worker run typecheck",
+    "test": "npm --prefix app test && npm --prefix worker test",
+    "verify": "npm run typecheck && npm run test",
+    "install:all": "npm --prefix app install && npm --prefix worker install"
+  }
+}

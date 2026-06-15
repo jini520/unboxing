@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+*.log
+
+# personal / local (not shared)
+.claude.local.md
+.claude/settings.local.json

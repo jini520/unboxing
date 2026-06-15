@@ -1,0 +1,15 @@
+name = "unboxing-worker"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# 15분마다 배치 폴링 (docs/design.md: 적응형 폴링 주기, due 기반 단일 배치)
+[triggers]
+crons = ["*/15 * * * *"]
+
+# D1: 먼저 `npx wrangler d1 create unboxing` 실행 후 출력된 database_id를 채울 것
+[[d1_databases]]
+binding = "DB"
+database_name = "unboxing"
+database_id = "REPLACE_AFTER_d1_create"
+
+# 스마트택배 개발자 키는 시크릿으로 주입: `npx wrangler secret put SWEETTRACKER_API_KEY`

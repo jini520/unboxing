@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+      - name: Install (app)
+        run: npm --prefix app ci
+      - name: Install (worker)
+        run: npm --prefix worker ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm run test
