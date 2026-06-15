@@ -9,8 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 택배 조회·배송 추적 앱. 운송장 등록 시 **앱이 꺼져 있어도** 백그라운드 폴링 → 상태 변화 시 푸시.
 
-- **Phase 1 (MVP)**: 국내, 익명(로그인 없음), 스마트택배 API.
-- **Phase 2**: 해외(17TRACK 등), 계정/기기 간 동기화, 선택적 BYOK.
+- **Phase 1 (MVP)**: 국내, 익명(로그인 없음), tracker.delivery Tracking API(Free).
+- **Phase 2**: 해외(17TRACK 등), 계정/기기 간 동기화.
 
 ## 절대 제약 (깨지 말 것)
 
@@ -22,14 +22,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 [Expo 앱] ─등록/조회→ [Cloudflare D1] ←읽기─ [Cloudflare Workers Cron]
    ▲                   (송장·푸시토큰)         │ 주기 배치 폴링
-   └── Expo Push ← 상태변화 푸시 ──────────── [스마트택배 API]
+   └── Expo Push ← 상태변화 푸시 ──────── [tracker.delivery API]
 ```
 
 - **클라이언트**: Expo (React Native), iOS+Android 단일 코드베이스
 - **백그라운드**: Cloudflare Workers **Cron** — 단일 배치로 전체 활성 송장 폴링 (사용자별 타이머 ❌)
 - **저장**: Cloudflare D1 (SQLite, 무료) — Workers와 동일 생태계
 - **알림**: Expo Push (무료·무제한)
-- **데이터**: 스마트택배 개발자 키 내장 (BYOK는 Phase 2 선택)
+- **데이터**: tracker.delivery Tracking API(Free·GraphQL). 미지원 택배사는 딥링크 폴백
 
 → 설계 근거·등록 플로우·상태 정규화·폴링 주기·데이터 모델: **`docs/design.md`**
 
@@ -57,7 +57,7 @@ npm --prefix worker run deploy      # 배포
 # D1 최초 설정 (worker/ 에서 실행 — wrangler.toml 위치)
 npx wrangler d1 create unboxing                              # → database_id를 wrangler.toml에 기입
 npx wrangler d1 execute unboxing --file=schema.sql --remote # 스키마 적용
-npx wrangler secret put SWEETTRACKER_API_KEY                # 스마트택배 키
+npx wrangler secret put DELIVERY_TRACKER_CLIENT_ID    # + _CLIENT_SECRET (tracker.delivery)
 ```
 
 ## 테스트

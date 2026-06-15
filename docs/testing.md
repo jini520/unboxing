@@ -13,8 +13,8 @@
 
 ## 방식
 - 핵심 로직은 **test-first**.
-- 외부 의존(스마트택배 API, Expo Push)은 **mock** — 테스트에서 실제 호출 금지.
-- 시간 의존 로직은 `now`를 인자로 주입해 **고정 시계**로 결정론 보장(예: `isDue(stage, lastPolledAt, now, keyType)`).
+- 외부 의존(tracker.delivery API, Expo Push)은 **mock** — 테스트에서 실제 호출 금지.
+- 시간 의존 로직은 `now`를 인자로 주입해 **고정 시계**로 결정론 보장(예: `isDue(stage, lastPolledAt, now)`).
 - 강제 커버리지 숫자는 없음. 단 "필수" 로직은 비어 있으면 안 됨.
 
 ## 위치

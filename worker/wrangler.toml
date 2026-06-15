@@ -12,4 +12,4 @@ binding = "DB"
 database_name = "unboxing"
 database_id = "REPLACE_AFTER_d1_create"
 
-# 스마트택배 개발자 키는 시크릿으로 주입: `npx wrangler secret put SWEETTRACKER_API_KEY`
+# tracker.delivery 자격증명은 시크릿으로: `wrangler secret put DELIVERY_TRACKER_CLIENT_ID` (+ `..._CLIENT_SECRET`)
