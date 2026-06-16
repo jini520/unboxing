@@ -1,6 +1,13 @@
 {
   "phases": [
-    { "dir": "worker-backend", "status": "pending" },
-    { "dir": "app-ui", "status": "pending" }
+    {
+      "dir": "worker-backend",
+      "status": "completed",
+      "completed_at": "2026-06-16T18:57:54+0900"
+    },
+    {
+      "dir": "app-ui",
+      "status": "pending"
+    }
   ]
 }
