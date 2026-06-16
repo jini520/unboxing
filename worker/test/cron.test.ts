@@ -14,19 +14,27 @@ const DAY = 24 * 60 * MINUTE;
 interface FakeOpts {
   /** track 의 lastEvent.status.code (null 이면 데이터 없음=미등록). */
   trackStatus?: string | null;
+  /** track 의 lastEvent 를 null 로 두되 events 에는 이 코드를 채운다(lastEvent 누락 시 폴백 검증용). */
+  eventsOnlyStatus?: string;
+  /** track GraphQL 이 errors[] 를 반환(외부 오류 → 백오프 검증용). */
+  trackError?: boolean;
+  /** getReceipts 가 모든 ticket 에 대해 이 에러를 반환(예: DeviceNotRegistered). */
+  receiptError?: string;
 }
 
 interface FakeFetch {
   fetch: typeof fetch;
   graphqlCalls: number; // track(GraphQL) 호출 수 = 외부 subrequest(폴링)
   sendCalls: number; // Expo push/send 호출 수
-  sentMessages: { to: string; data: { shipment_id: string } }[];
+  receiptsCalls: number; // Expo push/getReceipts 호출 수
+  sentMessages: { to: string; body: string; data: { shipment_id: string } }[];
 }
 
 function makeFetch(opts: FakeOpts = {}): FakeFetch {
   const state: FakeFetch = {
     graphqlCalls: 0,
     sendCalls: 0,
+    receiptsCalls: 0,
     sentMessages: [],
     fetch: undefined as unknown as typeof fetch,
   };
@@ -37,18 +45,34 @@ function makeFetch(opts: FakeOpts = {}): FakeFetch {
     }
     if (url.includes("graphql")) {
       state.graphqlCalls++;
+      if (opts.trackError) {
+        return Response.json({ errors: [{ message: "boom", extensions: { code: "INTERNAL" } }] });
+      }
+      const mk = (code: string) => ({ time: new Date(NOW).toISOString(), status: { code }, description: "d" });
+      if (opts.eventsOnlyStatus) {
+        // lastEvent 는 null 이지만 events 에는 데이터가 있는 응답(폴백 경로 검증).
+        return Response.json({
+          data: { track: { lastEvent: null, events: { edges: [{ node: mk(opts.eventsOnlyStatus) }] } } },
+        });
+      }
       const code = opts.trackStatus;
-      const event =
-        code == null
-          ? null
-          : { time: new Date(NOW).toISOString(), status: { code }, description: "d" };
+      const event = code == null ? null : mk(code);
       return Response.json({
         data: { track: { lastEvent: event, events: { edges: event ? [{ node: event }] : [] } } },
       });
     }
+    if (url.includes("push/getReceipts")) {
+      state.receiptsCalls++;
+      const { ids } = JSON.parse(String(init?.body)) as { ids: string[] };
+      const data: Record<string, { status: string; details?: { error?: string } }> = {};
+      if (opts.receiptError) {
+        for (const id of ids) data[id] = { status: "error", details: { error: opts.receiptError } };
+      }
+      return Response.json({ data });
+    }
     if (url.includes("push/send")) {
       state.sendCalls++;
-      const batch = JSON.parse(String(init?.body)) as { to: string; data: { shipment_id: string } }[];
+      const batch = JSON.parse(String(init?.body)) as { to: string; body: string; data: { shipment_id: string } }[];
       state.sentMessages.push(...batch);
       return Response.json({ data: batch.map((_, i) => ({ status: "ok", id: `tk-${state.sendCalls}-${i}` })) });
     }
@@ -186,5 +210,53 @@ describe("cron — 배치 폴링", () => {
     expect(f.graphqlCalls).toBe(50);
     // 미처리 5건은 선점 갱신 안 됨(last_polled_at 여전히 null).
     expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE last_polled_at IS NULL")).toBe(5);
+  });
+
+  it("폴링 실패 → last_polled_at 원복 + 백오프(다음 fire 재시도)", async () => {
+    // 선점 갱신 후 외부 오류면 last_polled_at 을 원래대로 되돌려 전체 간격 지연을 막고 next_retry_at 으로 백오프.
+    const prevPoll = NOW - 2 * 60 * MINUTE;
+    await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: prevPoll });
+    const f = makeFetch({ trackError: true });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    const r = await env.DB.prepare(
+      "SELECT last_polled_at AS p, fail_count AS fc, next_retry_at AS nr FROM shipments WHERE id='S'",
+    ).first<{ p: number; fc: number; nr: number }>();
+    expect(r?.p).toBe(prevPoll); // 선점 갱신 원복
+    expect(r?.fc).toBe(1); // 실패 카운트 증가
+    expect(r?.nr).toBeGreaterThan(NOW); // 백오프 설정
+  });
+
+  it("lastEvent 누락 시 events 최신값으로 폴백(미등록 회귀 방지)", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: null, lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ eventsOnlyStatus: "INFORMATION_RECEIVED" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await statusOf("S")).toBe("등록"); // 미등록으로 회귀하지 않음
+    expect(f.sendCalls).toBe(1);
+  });
+
+  it("receipt sweep: DeviceNotRegistered → 토큰·ticket 정리", async () => {
+    // 15분 지난 ticket + 해당 device 시드(폴링할 송장은 없음 → sweep만 동작).
+    await env.DB.prepare(
+      "INSERT INTO devices (id, push_token, platform, created_at) VALUES ('d1','ExponentPushToken[BBB]','ios',?)",
+    )
+      .bind(NOW)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO push_tickets (ticket_id, push_token, created_at) VALUES ('tk1','ExponentPushToken[BBB]',?)",
+    )
+      .bind(NOW - 20 * MINUTE)
+      .run();
+    const f = makeFetch({ receiptError: "DeviceNotRegistered" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(f.receiptsCalls).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM devices WHERE push_token='ExponentPushToken[BBB]'")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM push_tickets")).toBe(0);
   });
 });

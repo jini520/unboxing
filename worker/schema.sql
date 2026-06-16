@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS push_tickets (
   created_at  INTEGER NOT NULL          -- epoch ms
 );
 
+-- 등록 레이트 throttle (ADR-008 silent throttle) — IP별 슬라이딩 윈도, 단일 행/IP. cron이 만료 행 정리.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  ip           TEXT PRIMARY KEY,
+  window_start INTEGER NOT NULL,        -- epoch ms
+  count        INTEGER NOT NULL
+);
+
 -- shipments 예고 컬럼 (docs/ARCHITECTURE.md "예고 컬럼") — 신규 적용 시 1회만 실행
 ALTER TABLE shipments ADD COLUMN last_event_time INTEGER;            -- 마지막 이벤트 시각(신선도)
 ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0;  -- 외부 오류 백오프 카운트

@@ -40,6 +40,11 @@ export const SCHEMA_STATEMENTS: string[] = [
   push_token  TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 )`,
+  `CREATE TABLE IF NOT EXISTS rate_limits (
+  ip           TEXT PRIMARY KEY,
+  window_start INTEGER NOT NULL,
+  count        INTEGER NOT NULL
+)`,
   `ALTER TABLE shipments ADD COLUMN last_event_time INTEGER`,
   `ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE shipments ADD COLUMN next_retry_at INTEGER`,

@@ -49,26 +49,51 @@ export interface PushDeps {
   expoAccessToken?: string;
 }
 
-/** 알림 대상 단계별 body 문구 (PRD "알림 정책"). 거래성/정보성만(ADR-018). */
+/** 알림 대상 단계별 body 문구 (PRD "알림 정책"). 거래성/정보성만(ADR-018). 배송출발은 KST 당일 여부로 분기(아래 bodyFor). */
 const STAGE_BODY: Partial<Record<Stage, string>> = {
   등록: "접수가 확인됐어요",
   집화: "택배사가 상품을 수거했어요",
-  배송출발: "오늘 도착 예정 — 배송이 시작됐어요",
   배송완료: "배송 완료 ✓",
   예외: "배송에 문제가 있어요(지연/반송) — 확인이 필요해요",
 };
+
+/** epoch ms → KST(UTC+9) 기준 yyyy-mm-dd 키. 날짜 경계 판정용(ARCHITECTURE: 날짜 판정은 KST). */
+function kstDayKey(ms: number): string {
+  const d = new Date(ms + 9 * 3_600_000);
+  return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+}
+
+/** 배송출발 문구: 출발 이벤트가 KST 기준 '오늘'일 때만 '오늘 도착'을 단정한다. 시각 불명이면 중립 문구. */
+function bodyFor(stage: Stage, ctx: { eventTimeMs?: number; nowMs?: number }): string | undefined {
+  if (stage === "배송출발") {
+    const sameDay =
+      ctx.eventTimeMs !== undefined &&
+      ctx.nowMs !== undefined &&
+      kstDayKey(ctx.eventTimeMs) === kstDayKey(ctx.nowMs);
+    return sameDay ? "오늘 도착 예정 — 배송이 시작됐어요" : "배송이 시작됐어요";
+  }
+  return STAGE_BODY[stage];
+}
 
 /**
  * 알림 대상 단계 → PushMessage 생성.
  * title 은 어떤 택배인지(택배사·끝4자리), body 는 무슨 일인지(단계 문구).
  * 비알림 단계(이동중·기타·미등록)는 null(step2 알림 규칙과 일관).
+ * 배송출발 '오늘 도착' 단정은 eventTimeMs/nowMs 로 KST 당일 여부를 확인한다(ARCHITECTURE 날짜=KST).
  */
 export function buildMessage(
   stage: Stage,
-  ctx: { token: string; shipmentId: string; carrier: string; last4: string },
+  ctx: {
+    token: string;
+    shipmentId: string;
+    carrier: string;
+    last4: string;
+    eventTimeMs?: number;
+    nowMs?: number;
+  },
 ): PushMessage | null {
   if (!NOTIFYING_STAGES.has(stage)) return null;
-  const body = STAGE_BODY[stage];
+  const body = bodyFor(stage, ctx);
   if (body === undefined) return null;
   return {
     to: ctx.token,
@@ -114,19 +139,30 @@ function headers(deps: PushDeps): Record<string, string> {
 }
 
 /**
- * send: 메시지를 배치(≤100)로 분할해 순서대로 발송하고 ticket 을 입력 순서대로 모은다.
- * Expo 는 요청 배열 순서와 같은 순서로 ticket 배열을 반환한다.
+ * send: 메시지를 배치(≤100)로 분할해 순서대로 발송하고 ticket 을 **입력 순서와 1:1 정렬**해 모은다.
+ * Expo 는 요청 배열 순서대로 ticket 을 반환하지만, 배치 응답이 짧거나(부분 실패) HTTP 오류로 data 가
+ * 비면 이후 인덱스가 밀려 ticket↔message 짝이 깨진다(잘못된 토큰 삭제). 그래서 **배치 메시지 수만큼**
+ * ticket 을 채우고, 부족분/실패분은 error ticket 으로 패딩해 `tickets[i] ↔ messages[i]` 를 보장한다.
  */
 export async function sendPush(messages: PushMessage[], deps: PushDeps): Promise<PushTicket[]> {
   const tickets: PushTicket[] = [];
   for (const batch of chunk(messages, SEND_BATCH)) {
-    const res = await deps.fetch(SEND_URL, {
-      method: "POST",
-      headers: headers(deps),
-      body: JSON.stringify(batch),
-    });
-    const json = (await res.json()) as { data?: PushTicket[] };
-    tickets.push(...(json.data ?? []));
+    let data: PushTicket[] = [];
+    try {
+      const res = await deps.fetch(SEND_URL, {
+        method: "POST",
+        headers: headers(deps),
+        body: JSON.stringify(batch),
+      });
+      const json = (await res.json()) as { data?: PushTicket[] };
+      data = json.data ?? [];
+    } catch {
+      data = []; // 네트워크 오류 → 전부 패딩(아래). 배치 실패가 다른 배치 정렬을 깨지 않게 한다.
+    }
+    // 정렬 보존: 배치 메시지 수만큼 ticket 을 채운다(부족분은 error 로 패딩 → classifyPushError=IGNORE).
+    for (let i = 0; i < batch.length; i++) {
+      tickets.push(data[i] ?? { status: "error", message: "no ticket returned" });
+    }
   }
   return tickets;
 }

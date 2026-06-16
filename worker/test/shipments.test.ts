@@ -155,6 +155,19 @@ describe("HTTP API — shipments", () => {
     expect(((await res.json()) as { code: string }).code).toBe("RATE_LIMITED");
   });
 
+  it("IP 등록 레이트 초과 → 429 (ADR-008 throttle, device_id 순환 방어)", async () => {
+    // 같은 IP에서 윈도(10분) 내 60회는 허용, 61회째 throttle (IP 기준 카운트).
+    const ip = "203.0.113.7";
+    const headers = { ...bearer("dev-A"), "Content-Type": "application/json", "cf-connecting-ip": ip };
+    const body = JSON.stringify({ push_token: TOKEN_A, platform: "ios" }); // 멱등 upsert (UNIQUE 충돌 회피)
+    for (let i = 0; i < 60; i++) {
+      const res = await SELF.fetch(`${BASE}/devices`, { method: "POST", headers, body });
+      expect(res.status).toBe(200);
+    }
+    const over = await SELF.fetch(`${BASE}/devices`, { method: "POST", headers, body });
+    expect(over.status).toBe(429);
+  });
+
   it("Bearer 없음 → 401", async () => {
     const res = await SELF.fetch(`${BASE}/shipments`, {
       method: "POST",

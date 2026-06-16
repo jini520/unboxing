@@ -71,6 +71,26 @@ describe("buildMessage", () => {
       expect(new TextEncoder().encode(m!.body).length).toBeLessThanOrEqual(4096);
     }
   });
+
+  it("배송출발: 출발이 KST 같은 날이면 '오늘 도착', 다른 날이면 중립 문구", () => {
+    const now = Date.parse("2026-06-16T05:00:00Z"); // KST 06-16 14:00
+    const sameDay = buildMessage("배송출발", {
+      ...baseCtx,
+      eventTimeMs: Date.parse("2026-06-16T02:00:00Z"), // KST 06-16 11:00
+      nowMs: now,
+    });
+    expect(sameDay!.body).toContain("오늘");
+    const otherDay = buildMessage("배송출발", {
+      ...baseCtx,
+      eventTimeMs: Date.parse("2026-06-14T02:00:00Z"), // KST 06-14
+      nowMs: now,
+    });
+    expect(otherDay!.body).not.toContain("오늘");
+  });
+
+  it("배송출발: 출발 시각 불명이면 '오늘' 도착을 단정하지 않는다", () => {
+    expect(buildMessage("배송출발", baseCtx)!.body).not.toContain("오늘");
+  });
 });
 
 describe("classifyPushError (전수)", () => {
@@ -103,6 +123,40 @@ describe("sendPush (배치 ≤100 분할 + 순서 보존)", () => {
     expect(tickets.map((t) => t.id)).toEqual(messages.map((m) => m.data.shipment_id));
     // 모두 send 엔드포인트
     expect(rec.calls.every((c) => c.url.includes("/push/send"))).toBe(true);
+  });
+
+  it("배치 응답이 짧아도 ticket↔message 정렬 보존(부족분 error 패딩)", async () => {
+    // 첫 배치(100건)가 99개만 반환(부분 응답) → 이후 배치 인덱스가 밀리면 잘못된 토큰을 삭제하게 된다.
+    const rec = recorder((_url, body: PushMessage[]) => {
+      const data = body.map((m) => ({ status: "ok", id: m.data.shipment_id }));
+      return { data: body.length === 100 ? data.slice(0, 99) : data };
+    });
+    const messages = Array.from({ length: 150 }, (_, i) => msg(i));
+
+    const tickets = await sendPush(messages, { fetch: rec.fetch });
+
+    expect(tickets).toHaveLength(150); // 메시지와 1:1 정렬 유지
+    expect(tickets[99].status).toBe("error"); // 부족분은 error 로 패딩(잘못된 토큰 삭제 방지)
+    expect(tickets[100].id).toBe("s100"); // 두 번째 배치 첫 ticket 이 밀리지 않는다
+  });
+
+  it("배치 fetch 실패해도 다른 배치 정렬을 깨지 않는다(전부 error 패딩)", async () => {
+    let n = 0;
+    const fetchFn = (async () => {
+      n++;
+      if (n === 1) throw new Error("network"); // 첫 배치 네트워크 오류
+      return new Response(JSON.stringify({ data: [{ status: "ok", id: "ok-2" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const messages = Array.from({ length: 101 }, (_, i) => msg(i));
+
+    const tickets = await sendPush(messages, { fetch: fetchFn });
+
+    expect(tickets).toHaveLength(101);
+    expect(tickets.slice(0, 100).every((t) => t.status === "error")).toBe(true); // 실패 배치 전부 패딩
+    expect(tickets[100].id).toBe("ok-2"); // 두 번째 배치 정상 ticket 정렬 유지
   });
 
   it("EXPO_ACCESS_TOKEN 주입 시 Authorization 헤더 존재", async () => {

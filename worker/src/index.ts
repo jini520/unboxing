@@ -22,6 +22,9 @@ export interface Env {
 
 /** 디바이스당 활성 구독 상한 (ADR-008 남용 방어). 초과 시 429. */
 const MAX_ACTIVE_PER_DEVICE = 100;
+/** IP별 등록 레이트 throttle 윈도/상한 (ADR-008 silent throttle). device_id 순환 우회 방어. */
+const RATE_WINDOW_MS = 10 * 60_000;
+const RATE_MAX_PER_WINDOW = 60;
 /** 택배사 id 형식(예: kr.cjlogistics). 명백히 잘못된 값만 거른다(실제 지원목록 대조는 후속). */
 const CARRIER_RE = /^[a-z]{2,}\.[a-z0-9_.-]+$/i;
 /** 국내 운송장: 공백·하이픈 제거 후 9~14자리 숫자 (app tracking.ts와 동일 규칙, 서버 재검증). */
@@ -73,6 +76,59 @@ async function parseBody(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
+/** shipments 컬럼 단일 출처(반복 SELECT 리스트 제거). alias 지정 시 prefix 부착. */
+const SHIPMENT_FIELDS = [
+  "id",
+  "carrier",
+  "tracking_no",
+  "last_normalized_status",
+  "last_polled_at",
+  "active",
+  "created_at",
+] as const;
+function shipmentCols(alias = ""): string {
+  const p = alias ? `${alias}.` : "";
+  return SHIPMENT_FIELDS.map((f) => p + f).join(", ");
+}
+
+/**
+ * IP별 등록 레이트 제한(POST /devices·/shipments). cf-connecting-ip 없으면(로컬/테스트) 통과.
+ * device_id 순환으로 활성 상한(MAX_ACTIVE_PER_DEVICE)을 우회하는 대량 등록을 silent throttle 한다.
+ * 슬라이딩 윈도: IP당 단일 행. 분산 공격은 Cloudflare WAF로 Phase-2 에스컬레이션(ADR-008).
+ */
+async function enforceIpRateLimit(env: Env, request: Request): Promise<void> {
+  const ip = request.headers.get("cf-connecting-ip");
+  if (!ip) return; // Cloudflare 뒤에선 항상 존재. 없으면(직접 호출 불가 환경) throttle 생략.
+  const now = Date.now();
+  const row = await env.DB.prepare("SELECT window_start AS ws, count AS c FROM rate_limits WHERE ip = ?")
+    .bind(ip)
+    .first<{ ws: number; c: number }>();
+  if (row && now - row.ws < RATE_WINDOW_MS) {
+    if (row.c >= RATE_MAX_PER_WINDOW) {
+      throw new ApiError(429, "RATE_LIMITED", "잠시 후 다시 시도해 주세요");
+    }
+    await env.DB.prepare("UPDATE rate_limits SET count = count + 1 WHERE ip = ?").bind(ip).run();
+  } else {
+    // 새 윈도 시작(없거나 만료).
+    await env.DB.prepare(
+      "INSERT INTO rate_limits (ip, window_start, count) VALUES (?, ?, 1) " +
+        "ON CONFLICT(ip) DO UPDATE SET window_start = excluded.window_start, count = 1",
+    )
+      .bind(ip, now)
+      .run();
+  }
+}
+
+/** 구독이 0이 된 shipment(orphan)면 삭제. DELETE /shipments/:id·/me 공용. */
+async function deleteIfOrphan(env: Env, shipmentId: string): Promise<void> {
+  const r = await env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE shipment_id = ?")
+    .bind(shipmentId)
+    .first<{ c: number }>();
+  if ((r?.c ?? 0) === 0) {
+    await env.DB.prepare("DELETE FROM shipments WHERE id = ?").bind(shipmentId).run();
+  }
+}
+
 function serializeShipment(row: ShipmentRow) {
   return {
     id: row.id,
@@ -106,6 +162,7 @@ async function tryTrack(env: Env, carrier: string, trackingNo: string): Promise<
 
 /** POST /devices — 푸시 토큰 등록/갱신(upsert). id = Bearer device_id. */
 async function handleRegisterDevice(request: Request, env: Env, deviceId: string): Promise<Response> {
+  await enforceIpRateLimit(env, request);
   const body = await parseBody(request);
   const pushToken = typeof body.push_token === "string" ? body.push_token : "";
   const platform = typeof body.platform === "string" ? body.platform : "";
@@ -126,6 +183,7 @@ async function handleRegisterDevice(request: Request, env: Env, deviceId: string
 
 /** POST /shipments — dedupe + 구독 + 즉시 1회 track(best-effort). 신규 201 / 기존 구독 200(멱등). */
 async function handleCreateShipment(request: Request, env: Env, deviceId: string): Promise<Response> {
+  await enforceIpRateLimit(env, request);
   // 구독은 등록된 device 만(subscriptions FK). 미등록 device_id 는 인증 실패로 본다.
   const dev = await env.DB.prepare("SELECT 1 FROM devices WHERE id = ?").bind(deviceId).first();
   if (!dev) throw new ApiError(401, "UNAUTHORIZED", "기기를 먼저 등록해 주세요");
@@ -146,8 +204,7 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
 
   // 이미 이 기기가 같은 송장을 구독 중이면 새 행 없이 멱등 200.
   const existing = await env.DB.prepare(
-    "SELECT s.id, s.carrier, s.tracking_no, s.last_normalized_status, s.last_polled_at, s.active, s.created_at " +
-      "FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id " +
+    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE s.carrier = ? AND s.tracking_no = ? AND sub.device_id = ?",
   )
     .bind(carrier, trackingNo, deviceId)
@@ -168,34 +225,43 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   }
 
   // dedupe: 기존 (carrier, tracking_no) 가 있으면 그 행을 쓰고, 없으면 새로 만든다.
+  const id = crypto.randomUUID();
   const now = Date.now();
   const ins = await env.DB.prepare(
     "INSERT INTO shipments (id, carrier, tracking_no, active, created_at) VALUES (?, ?, ?, 1, ?) " +
       "ON CONFLICT(carrier, tracking_no) DO NOTHING",
   )
-    .bind(crypto.randomUUID(), carrier, trackingNo, now)
+    .bind(id, carrier, trackingNo, now)
     .run();
   const isNewShipment = (ins.meta.changes ?? 0) === 1;
 
-  const shipment = (await env.DB.prepare(
-    "SELECT id, carrier, tracking_no, last_normalized_status, last_polled_at, active, created_at " +
-      "FROM shipments WHERE carrier = ? AND tracking_no = ?",
-  )
-    .bind(carrier, trackingNo)
-    .first<ShipmentRow>())!;
-
-  // 즉시 1회 조회(best-effort) — 새로 만든 송장만. 외부 실패는 흡수(미등록 유지).
+  let shipment: ShipmentRow;
   if (isNewShipment) {
+    // 새 행 — 값이 전부 메모리에 있으므로 재SELECT 불필요(등록 핫패스 round-trip 절약).
+    shipment = {
+      id,
+      carrier,
+      tracking_no: trackingNo,
+      last_normalized_status: null,
+      last_polled_at: null,
+      active: 1,
+      created_at: now,
+    };
+    // 즉시 1회 조회(best-effort): 응답 표시용으로만 단계를 채우고 **DB에는 저장하지 않는다**.
+    // last_normalized_status/last_polled_at 을 NULL로 둬야 cron 첫 폴링이 단계를 '처음 잡아' 최초 알림을
+    // 보낸다(ARCHITECTURE: 등록 알림은 폴링이 데이터를 처음 잡은 시점에 발송). 저장하면 그 알림이 유실된다.
     const result = await tryTrack(env, carrier, trackingNo);
     if (result) {
-      const stage = normalizeStatus(result.lastEvent?.statusCode);
-      await env.DB.prepare(
-        "UPDATE shipments SET last_normalized_status = ?, last_polled_at = ? WHERE id = ?",
-      )
-        .bind(stage, now, shipment.id)
-        .run();
-      shipment.last_normalized_status = stage;
+      const ev = result.lastEvent ?? result.events[result.events.length - 1];
+      shipment.last_normalized_status = normalizeStatus(ev?.statusCode); // 응답 전용(미저장)
     }
+  } else {
+    // dedupe 적중 — 기존 행을 읽는다.
+    shipment = (await env.DB.prepare(
+      `SELECT ${shipmentCols()} FROM shipments WHERE carrier = ? AND tracking_no = ?`,
+    )
+      .bind(carrier, trackingNo)
+      .first<ShipmentRow>())!;
   }
 
   await env.DB.prepare(
@@ -210,8 +276,7 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
 /** GET /shipments — 내 송장 목록 + 정규화 상태. */
 async function handleListShipments(env: Env, deviceId: string): Promise<Response> {
   const { results } = await env.DB.prepare(
-    "SELECT s.id, s.carrier, s.tracking_no, s.last_normalized_status, s.last_polled_at, s.active, s.created_at " +
-      "FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id " +
+    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE sub.device_id = ? ORDER BY s.created_at DESC",
   )
     .bind(deviceId)
@@ -222,8 +287,7 @@ async function handleListShipments(env: Env, deviceId: string): Promise<Response
 /** GET /shipments/:id — 인가 확인 후 실시간 track 타임라인(best-effort, 미저장 ADR-011). */
 async function handleGetShipment(env: Env, deviceId: string, id: string): Promise<Response> {
   const row = await env.DB.prepare(
-    "SELECT s.id, s.carrier, s.tracking_no, s.last_normalized_status, s.last_polled_at, s.active, s.created_at " +
-      "FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id " +
+    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE s.id = ? AND sub.device_id = ?",
   )
     .bind(id, deviceId)
@@ -255,14 +319,7 @@ async function handleDeleteShipment(env: Env, deviceId: string, id: string): Pro
   await env.DB.prepare("DELETE FROM subscriptions WHERE shipment_id = ? AND device_id = ?")
     .bind(id, deviceId)
     .run();
-  const remaining = await env.DB.prepare(
-    "SELECT COUNT(*) AS c FROM subscriptions WHERE shipment_id = ?",
-  )
-    .bind(id)
-    .first<{ c: number }>();
-  if ((remaining?.c ?? 0) === 0) {
-    await env.DB.prepare("DELETE FROM shipments WHERE id = ?").bind(id).run();
-  }
+  await deleteIfOrphan(env, id);
   return new Response(null, { status: 204 });
 }
 
@@ -277,16 +334,16 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
   // device 삭제 → subscriptions CASCADE, push_token 도 함께 폐기.
   await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(deviceId).run();
 
-  // 구독이 0이 된 shipment(orphan) 정리.
-  for (const { shipment_id } of results) {
-    const r = await env.DB.prepare(
-      "SELECT COUNT(*) AS c FROM subscriptions WHERE shipment_id = ?",
+  // 이 기기가 보던 송장 중 구독이 0이 된 orphan을 한 문장으로 정리(순차 루프 제거).
+  const ids = results.map((r) => r.shipment_id);
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => "?").join(", ");
+    await env.DB.prepare(
+      `DELETE FROM shipments WHERE id IN (${placeholders}) ` +
+        "AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE shipment_id = shipments.id)",
     )
-      .bind(shipment_id)
-      .first<{ c: number }>();
-    if ((r?.c ?? 0) === 0) {
-      await env.DB.prepare("DELETE FROM shipments WHERE id = ?").bind(shipment_id).run();
-    }
+      .bind(...ids)
+      .run();
   }
   return new Response(null, { status: 204 });
 }
