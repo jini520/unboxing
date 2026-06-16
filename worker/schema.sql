@@ -1,5 +1,6 @@
 -- unboxing D1 schema (Phase 1) — docs/ARCHITECTURE.md "데이터 모델"
 -- 적용: npx wrangler d1 execute unboxing --file=./schema.sql --remote
+-- DDL 변경 시 src/schema.ts(SCHEMA_STATEMENTS)도 함께 수정 — 통합 테스트가 그 배열로 테스트 D1을 구성한다.
 
 CREATE TABLE IF NOT EXISTS devices (
   id          TEXT PRIMARY KEY,        -- 기기 식별자
@@ -28,3 +29,29 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 -- due 폴링 조회용
 CREATE INDEX IF NOT EXISTS idx_shipments_due ON shipments (active, last_polled_at);
+
+-- tracker.delivery access token 캐시 (ADR-013) — 단일 행
+CREATE TABLE IF NOT EXISTS tracker_token (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  access_token TEXT NOT NULL,
+  expires_at   INTEGER NOT NULL         -- epoch ms
+);
+
+-- Expo Push ticket 임시 보관 → receipt 확인 후 삭제 (ADR-010)
+CREATE TABLE IF NOT EXISTS push_tickets (
+  ticket_id   TEXT PRIMARY KEY,
+  push_token  TEXT NOT NULL,            -- receipt가 무효 토큰일 때 정리용
+  created_at  INTEGER NOT NULL          -- epoch ms
+);
+
+-- 등록 레이트 throttle (ADR-008 silent throttle) — IP별 슬라이딩 윈도, 단일 행/IP. cron이 만료 행 정리.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  ip           TEXT PRIMARY KEY,
+  window_start INTEGER NOT NULL,        -- epoch ms
+  count        INTEGER NOT NULL
+);
+
+-- shipments 예고 컬럼 (docs/ARCHITECTURE.md "예고 컬럼") — 신규 적용 시 1회만 실행
+ALTER TABLE shipments ADD COLUMN last_event_time INTEGER;            -- 마지막 이벤트 시각(신선도)
+ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0;  -- 외부 오류 백오프 카운트
+ALTER TABLE shipments ADD COLUMN next_retry_at INTEGER;             -- 백오프 재시도 기준 시각
