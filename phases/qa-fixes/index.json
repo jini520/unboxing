@@ -7,7 +7,8 @@
       "name": "register-fix",
       "status": "completed",
       "started_at": "2026-06-17T05:22:47+0900",
-      "summary": "기기 등록을 push_token 에서 분리(nullable) — 토큰 없이 POST /devices {platform} + 앱 ensureDeviceRegistered 부트스트랩으로 푸시 거부 사용자 등록 데드락 해소; cron subscriberTokens NULL 토큰 제외(C1) · UNIQUE 충돌 흡수(E1). fixes #3 (#6 자동 해소)"
+      "summary": "기기 등록을 push_token 에서 분리(nullable) — 토큰 없이 POST /devices {platform} + 앱 ensureDeviceRegistered 부트스트랩으로 푸시 거부 사용자 등록 데드락 해소; cron subscriberTokens NULL 토큰 제외(C1) · UNIQUE 충돌 흡수(E1). fixes #3 (#6 자동 해소)",
+      "completed_at": "2026-06-17T05:36:00+0900"
     },
     {
       "step": 1,
