@@ -37,7 +37,10 @@
     {
       "step": 4,
       "name": "app-flows",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T03:19:10+0900",
+      "summary": "앱 로직 플로우 QA(app/src/lib/__qa__/flows.test.ts, 주입 mock·여정 단위 조합) + 정적 감사(grep): device_id 영속·재사용(같은 Bearer·생성1회·URL 미포함), 에러 매트릭스 완전성(401/403/404/409/422/429/500/502→ApiError status·code 보존, NETWORK), 오프라인 읽기 라운드트립(api NETWORK→캐시 폴백), wipe 오케스트레이션(서버→캐시→device_id 순·성공시 새 id·서버실패시 로컬보존·재사용), routeForNotification 딥링크, theme resolveTokens+다크 5단계색. 정적감사 5종 CLEAN(안티패턴 0건·하드코딩hex tokens.ts만·색단독금지 StageBadge 색+글리프+라벨·에러코드 비노출·EXPO_PUBLIC URL만)을 FINDINGS '정적 감사 결과(Step 4)' 표에 기록. QA-001 앱측 원인(푸시 토큰 없이 device 등록 익명 경로 부재 — registerDevice push_token 필수·호출처3곳 토큰가드) 확인·연결 기록 + it.todo. verify green(app 76+1todo·worker 110+7todo·harness 51).",
+      "completed_at": "2026-06-17T03:30:00+0900"
     },
     {
       "step": 5,
