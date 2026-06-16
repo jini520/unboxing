@@ -7,7 +7,8 @@
       "name": "schema-evolution",
       "status": "completed",
       "started_at": "2026-06-16T17:54:09+0900",
-      "summary": "D1 스키마에 tracker_token·push_tickets 테이블 + shipments 백오프/신선도 컬럼(last_event_time·fail_count·next_retry_at) 추가, 테스트용 단일 출처 src/schema.ts(SCHEMA_STATEMENTS) 신설, Env에 EXPO_ACCESS_TOKEN?·DEMO_TRACKING_NUMBER? optional 확장"
+      "summary": "D1 스키마에 tracker_token·push_tickets 테이블 + shipments 백오프/신선도 컬럼(last_event_time·fail_count·next_retry_at) 추가, 테스트용 단일 출처 src/schema.ts(SCHEMA_STATEMENTS) 신설, Env에 EXPO_ACCESS_TOKEN?·DEMO_TRACKING_NUMBER? optional 확장",
+      "completed_at": "2026-06-16T17:57:49+0900"
     },
     {
       "step": 1,
