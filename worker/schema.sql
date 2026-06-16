@@ -3,8 +3,8 @@
 -- DDL 변경 시 src/schema.ts(SCHEMA_STATEMENTS)도 함께 수정 — 통합 테스트가 그 배열로 테스트 D1을 구성한다.
 
 CREATE TABLE IF NOT EXISTS devices (
-  id          TEXT PRIMARY KEY,        -- 기기 식별자
-  push_token  TEXT NOT NULL UNIQUE,    -- Expo push token
+  id          TEXT PRIMARY KEY,        -- 기기 식별자(=secret device_id, ADR-007)
+  push_token  TEXT UNIQUE,             -- Expo push token. NULL 허용(푸시 거부/미허용도 기기 등록 — QA-001). UNIQUE는 NULL 중복 허용.
   platform    TEXT NOT NULL,           -- ios | android
   created_at  INTEGER NOT NULL         -- epoch ms
 );

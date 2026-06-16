@@ -2,11 +2,15 @@ import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach } from "vitest";
 import { applySchema } from "../helpers";
 import { call } from "./scenario";
+import { runPollingBatch } from "../../src/cron";
 
 /**
  * 등록 사용자 여정 E2E — 앱이 실제로 하는 HTTP 호출 순서 그대로(지름길 없음, scenario.call 만 사용).
  * device 를 임의 INSERT 하지 않는다(그 지름길이 QA-001 데드락을 통합 테스트가 놓친 원인이다).
  * 발견한 갭은 verify 를 빨갛게 만들지 않는다: 사양 미충족은 it.todo("QA-NNN: …") + docs/QA_FINDINGS.md.
+ *
+ * QA-001(#3) 수정 후: 기기 등록을 push_token 에서 분리 — 토큰 없이 POST /devices {platform} 가 되고,
+ * 그 device 로 POST /shipments 가 201. 푸시 거부 사용자도 등록 가능(데드락 해소).
  */
 
 const TOKEN_A = "ExponentPushToken[AAAAAAAAAAAAAAAAAAAAAA]";
@@ -17,7 +21,7 @@ async function count(table: string): Promise<number> {
   return row?.c ?? 0;
 }
 
-/** 앱이 하듯 device 를 HTTP(POST /devices)로 선등록한다 — DB 직접 INSERT(지름길) 금지. */
+/** 앱이 하듯 device 를 HTTP(POST /devices)로 선등록한다(토큰 포함) — DB 직접 INSERT(지름길) 금지. */
 async function registerDevice(deviceId: string, token: string): Promise<void> {
   const res = await call("POST", "/devices", {
     deviceId,
@@ -26,27 +30,90 @@ async function registerDevice(deviceId: string, token: string): Promise<void> {
   expect(res.status).toBe(200);
 }
 
+/** 앱 부트스트랩처럼 토큰 없이 device 만 등록(푸시 거부/미허용 경로). */
+async function ensureDevice(deviceId: string): Promise<void> {
+  const res = await call("POST", "/devices", { deviceId, json: { platform: "ios" } });
+  expect(res.status).toBe(200);
+}
+
+/**
+ * 주입용 fake fetch — track 은 지정 status 의 lastEvent 를 돌려주고, Expo push send 호출 수를 센다.
+ * C1(NULL 토큰 device 가 폴링 전환돼도 push 안 감) 검증용 최소 fake.
+ */
+function makeFetch(status: string): { fetch: typeof fetch; sendCalls: () => number } {
+  let sends = 0;
+  const fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.includes("oauth2/token")) return Response.json({ access_token: "tok", expires_in: 3600 });
+    if (url.includes("graphql")) {
+      const node = { time: new Date().toISOString(), status: { code: status } };
+      return Response.json({ data: { track: { lastEvent: node, events: { edges: [{ node }] } } } });
+    }
+    if (url.includes("push/send")) {
+      sends++;
+      return Response.json({ data: [{ status: "ok", id: `tk-${sends}` }] });
+    }
+    if (url.includes("push/getReceipts")) return Response.json({ data: {} });
+    throw new Error(`unexpected url: ${url}`);
+  }) as typeof fetch;
+  return { fetch, sendCalls: () => sends };
+}
+
 describe("E2E 등록 여정 — 지름길 없이 사용자 순서 그대로", () => {
   beforeEach(async () => {
     await applySchema(env.DB);
   });
 
-  // ── 1. (P0 재확인) 푸시 거부 → device 미등록 → 등록 데드락 (QA-001) ──
-  it("[QA-001 재현] device 선등록 없이 POST /shipments → 401 데드락", async () => {
-    // 푸시를 거부하면 앱은 registerDevice 를 호출하지 않는다(onboarding.tsx: 토큰 있을 때만 등록).
-    // device_id(Bearer)는 로컬 생성되어 헤더엔 있으나 서버 devices 행이 없다 → handleCreateShipment 가 401.
+  // ── 1. (QA-001 #3) 푸시 거부(토큰 없음)여도 등록 가능 — 데드락 해소 ──
+  it("[QA-001 해소] 토큰 없이 POST /devices {platform} → 그 device 로 POST /shipments 201", async () => {
+    // 푸시를 거부한 사용자도 앱이 토큰 없이 device 를 부트스트랩한다 → 운송장 등록이 401 이 아니라 201.
+    await ensureDevice("qa001-no-token");
     const res = await call("POST", "/shipments", {
-      deviceId: "qa001-no-device",
+      deviceId: "qa001-no-token",
+      json: { carrier: "kr.cjlogistics", tracking_no: "123456789012" },
+    });
+    expect(res.status).toBe(201); // 데드락 해소(이전엔 401).
+    expect(await count("shipments")).toBe(1);
+    // device 는 등록됐으나 push_token 은 NULL(알림만 비활성).
+    expect(await count("devices")).toBe(1);
+    const tok = await env.DB.prepare("SELECT push_token AS t FROM devices WHERE id = ?")
+      .bind("qa001-no-token")
+      .first<{ t: string | null }>();
+    expect(tok?.t).toBeNull();
+  });
+
+  it("기기 선등록 계약 유지 — POST /devices 생략 시 POST /shipments 는 여전히 401", async () => {
+    // 앱은 항상 ensureDevice 를 선행하지만, 서버 계약(미등록 device_id → 401)은 그대로 유지한다.
+    const res = await call("POST", "/shipments", {
+      deviceId: "truly-unregistered",
       json: { carrier: "kr.cjlogistics", tracking_no: "123456789012" },
     });
     expect(res.status).toBe(401);
     expect((res.body as { code: string }).code).toBe("UNAUTHORIZED");
-    // 송장도 안 생긴다 — 알림 없이 추적만 원하는 사용자가 등록 자체 불가(P0 데드락).
     expect(await count("shipments")).toBe(0);
   });
 
-  // 사양(PRD 핵심 플로우 5·NFR): 푸시를 거부해도 등록·조회는 가능해야 한다 — 아직 미충족.
-  it.todo("QA-001: 푸시 거부(토큰 없음)여도 운송장 등록이 가능해야 한다 — 현재 401 데드락 (issue #3)");
+  it("[C1] NULL 토큰 device 구독 송장이 전환돼도 그 device 엔 push 안 감(오발송 방지)", async () => {
+    await ensureDevice("dev-null"); // 토큰 없는 device.
+    await call("POST", "/shipments", {
+      deviceId: "dev-null",
+      json: { carrier: "kr.cjlogistics", tracking_no: "123456789012" },
+    });
+    // 배송출발(알림 단계)로 전환되는 폴링을 돌려도 NULL 토큰이라 subscriberTokens 가 걸러 send 0.
+    const f = makeFetch("OUT_FOR_DELIVERY");
+    await runPollingBatch(env, { now: Date.now(), fetch: f.fetch });
+    expect(f.sendCalls()).toBe(0);
+  });
+
+  it("이중 등록 멱등 — 토큰 없이 등록 후 토큰으로 재등록 → device 1행·push_token 갱신", async () => {
+    await ensureDevice("dev-up"); // 1) 토큰 없이.
+    await registerDevice("dev-up", TOKEN_A); // 2) 토큰으로 upsert(같은 device_id).
+    expect(await count("devices")).toBe(1); // 새 행 없이 1행 유지.
+    const tok = await env.DB.prepare("SELECT push_token AS t FROM devices WHERE id = ?")
+      .bind("dev-up")
+      .first<{ t: string | null }>();
+    expect(tok?.t).toBe(TOKEN_A); // NULL → 토큰으로 갱신.
+  });
 
   // ── 2. 정상 등록 여정 ──
   it("device 등록 → 운송장 201 → 같은 기기 재등록 멱등 200(shipments 1행)", async () => {

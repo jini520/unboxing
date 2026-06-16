@@ -160,24 +160,51 @@ async function tryTrack(env: Env, carrier: string, trackingNo: string): Promise<
   }
 }
 
-/** POST /devices — 푸시 토큰 등록/갱신(upsert). id = Bearer device_id. */
+/**
+ * POST /devices — 기기 등록/갱신(upsert). id = Bearer device_id (ADR-007).
+ * push_token 은 **선택** — 푸시를 거부/미허용한 기기(시뮬레이터 포함)도 등록되게 한다(QA-001 데드락 해소).
+ * 토큰이 없으면 NULL 로 행만 만들고(기존 토큰은 덮어쓰지 않음), 있으면 검증 후 저장한다.
+ */
 async function handleRegisterDevice(request: Request, env: Env, deviceId: string): Promise<Response> {
   await enforceIpRateLimit(env, request);
   const body = await parseBody(request);
-  const pushToken = typeof body.push_token === "string" ? body.push_token : "";
   const platform = typeof body.platform === "string" ? body.platform : "";
-  if (!pushToken || (platform !== "ios" && platform !== "android")) {
-    throw new ApiError(400, "INVALID_BODY", "push_token·platform이 필요해요");
+  if (platform !== "ios" && platform !== "android") {
+    throw new ApiError(400, "INVALID_BODY", "platform이 필요해요");
   }
-  if (!EXPO_TOKEN_RE.test(pushToken)) {
-    throw new ApiError(422, "INVALID_TOKEN", "푸시 토큰 형식이 올바르지 않아요");
+  // push_token 선택: 없으면(undefined/null) 토큰 없이 부트스트랩, 있으면 형식 검증.
+  const rawToken = body.push_token;
+  let pushToken: string | null = null;
+  if (rawToken !== undefined && rawToken !== null) {
+    if (typeof rawToken !== "string" || !EXPO_TOKEN_RE.test(rawToken)) {
+      throw new ApiError(422, "INVALID_TOKEN", "푸시 토큰 형식이 올바르지 않아요");
+    }
+    pushToken = rawToken;
   }
-  await env.DB.prepare(
-    "INSERT INTO devices (id, push_token, platform, created_at) VALUES (?, ?, ?, ?) " +
-      "ON CONFLICT(id) DO UPDATE SET push_token = excluded.push_token, platform = excluded.platform",
-  )
-    .bind(deviceId, pushToken, platform, Date.now())
-    .run();
+
+  const now = Date.now();
+  if (pushToken === null) {
+    // 토큰 없는 부트스트랩 — 기존 push_token 을 NULL 로 덮어쓰지 않는다(platform 만 갱신).
+    await env.DB.prepare(
+      "INSERT INTO devices (id, push_token, platform, created_at) VALUES (?, NULL, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET platform = excluded.platform",
+    )
+      .bind(deviceId, platform, now)
+      .run();
+  } else {
+    // 토큰 등록/갱신 — 같은 토큰을 보유한 다른 기기(재설치/복원)의 토큰을 먼저 NULL 로 정리해
+    // UNIQUE(push_token) 충돌을 흡수한다(E1). 토큰은 전역 유일을 유지한다.
+    await env.DB.batch([
+      env.DB.prepare("UPDATE devices SET push_token = NULL WHERE push_token = ? AND id != ?").bind(
+        pushToken,
+        deviceId,
+      ),
+      env.DB.prepare(
+        "INSERT INTO devices (id, push_token, platform, created_at) VALUES (?, ?, ?, ?) " +
+          "ON CONFLICT(id) DO UPDATE SET push_token = excluded.push_token, platform = excluded.platform",
+      ).bind(deviceId, pushToken, platform, now),
+    ]);
+  }
   return Response.json({ device_id: deviceId });
 }
 

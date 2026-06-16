@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { deleteMe, registerDevice } from "../src/lib/api";
+import { resetDeviceRegistered } from "../src/lib/bootstrap";
 import { apiDeps, PLATFORM } from "../src/lib/deps";
 import { cacheStore, clearCache } from "../src/lib/cache";
 import { deleteDeviceId, deviceStorage } from "../src/lib/device";
@@ -76,6 +77,8 @@ export default function SettingsScreen() {
         deleteDeviceId: () => deleteDeviceId({ storage: deviceStorage }),
       });
       // device_id 가 폐기됐다 — 다음 api 호출이 새 device_id 를 생성한다(getDeviceId 멱등).
+      // 부트스트랩 캐시를 비워 새 device_id 가 다음 등록 시 재등록되게 한다(QA-001 데드락 재발 방지).
+      resetDeviceRegistered();
       // OS 권한이 남아 있으면 새 device_id 에 push_token 을 즉시 재등록한다(앱 재시작 전까지 푸시 누락 방지).
       try {
         const perm = await pushDeps.getPermissions();

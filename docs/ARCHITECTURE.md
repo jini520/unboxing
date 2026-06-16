@@ -49,7 +49,7 @@ unboxing/
 
 원본 스키마: `worker/schema.sql`.
 
-- `devices`: `id`(=secret device_id, PK), `push_token`(UNIQUE), `platform`(ios|android), `created_at`.
+- `devices`: `id`(=secret device_id, PK), `push_token`(UNIQUE, **nullable** — 푸시 거부/미허용도 기기 등록, QA-001), `platform`(ios|android), `created_at`.
 - `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`. `UNIQUE(carrier, tracking_no)` = dedupe 키.
 - `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거.
 - 인덱스 `idx_shipments_due (active, last_polled_at)` — due 조회용.
@@ -74,7 +74,7 @@ unboxing/
 | 메서드 · 경로 | 설명 | 요청 | 성공 응답 | 주요 에러 |
 |---|---|---|---|---|
 | `GET /health` | 스모크 | — | `200 {ok:true}` | — |
-| `POST /devices` | 푸시 토큰 등록/갱신(upsert) | `{push_token, platform}` | `200 {device_id}` (없으면 신규 발급 가능) | `400 INVALID_BODY`, `422 INVALID_TOKEN` |
+| `POST /devices` | 기기 등록/갱신(upsert) — `push_token` 은 **선택**(없으면 토큰 없이 부트스트랩, QA-001) | `{platform, push_token?}` | `200 {device_id}` | `400 INVALID_BODY`(platform 누락), `422 INVALID_TOKEN` |
 | `POST /shipments` | 운송장 등록(dedupe + 구독 + 즉시 1회 조회) | `{carrier, tracking_no}` | `201 {shipment}` / 이미 구독 시 `200 {shipment}`(멱등) | `400`, `422 INVALID_TRACKING`, `401`, `429 RATE_LIMITED`, `409 CARRIER_UNSUPPORTED`(딥링크 안내) |
 | `GET /shipments` | 내 송장 목록 + 정규화 상태 | — | `200 {shipments:[...]}` | `401` |
 | `GET /shipments/:id` | 상세 = 실시간 track 타임라인 (→ ADR-011) | — | `200 {shipment, timeline:[...]}` | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |

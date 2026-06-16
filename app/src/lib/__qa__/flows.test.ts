@@ -12,7 +12,7 @@ import { getDeviceId, deleteDeviceId } from "../device";
 import type { KeyValueStore } from "../cache";
 import { cacheShipments, clearCache, readCachedShipments } from "../cache";
 import type { ApiDeps, Shipment } from "../api";
-import { ApiError, createShipment, listShipments } from "../api";
+import { ApiError, createShipment, ensureDevice, listShipments } from "../api";
 import { wipeAllData } from "../wipe";
 import { routeForNotification } from "../push";
 import { resolveTokens, tokens } from "../../theme/tokens";
@@ -247,11 +247,25 @@ describe("여정: theme resolveTokens", () => {
   });
 });
 
-// ── QA-001 후속(앱측 원인) — 데드락의 앱측 뿌리 ────────────────────────────────────────────
-// registerDevice(api.ts)는 push_token 을 필수 인자로 받고, 호출처(usePushNotifications·onboarding·settings)는
-// 모두 'token' in result / perm.granted 가드 뒤에서만 호출한다. 즉 푸시 거부 시 device 가 서버에 등록되지 않아
-// 첫 createShipment 의 Bearer<device_id> 가 미등록 → 서버 401(QA-001 데드락). 앱에는 '푸시 없이 device 등록'
-// 익명 경로가 없다. (정적 감사: grep registerDevice → 3 호출처 전부 토큰 가드.) 수정 금지 — FINDINGS QA-001 '앱측 원인'에 기록.
-describe("QA-001 후속: 앱측 원인(푸시 없는 익명 device 등록 경로 부재)", () => {
-  it.todo("QA-001: 앱이 push_token 없이 device 를 등록하는 익명 경로를 가져야 한다(현재 없음 → 401 데드락)");
+// ── QA-001 해소(앱측) — 푸시 없는 익명 device 등록 경로 ──────────────────────────────────────
+// 데드락의 앱측 뿌리(registerDevice 가 push_token 필수 → 거부 시 device 미등록)를 ensureDevice(토큰 없이
+// {platform} 만) 로 끊는다. register 화면이 createShipment 전 ensureDeviceRegistered() 를 선행해 device 를
+// 보장하므로, 푸시 거부 사용자도 등록이 401 이 아니라 진행된다(#3). bootstrap.test.ts 가 캐시·재시도를 별도 검증.
+describe("QA-001 해소: 앱이 push_token 없이 device 를 등록하는 익명 경로(ensureDevice)", () => {
+  it("ensureDevice → createShipment 여정이 토큰 없이 완료된다(Bearer 일관)", async () => {
+    const { storage } = memSecure();
+    const deviceDeps = { storage, randomBytes: seqRandomBytes(7) };
+    const { fetch, calls } = recordingFetch((_url, method) =>
+      method === "POST" ? res(201, { shipment: RAW }) : res(200, {}),
+    );
+    const deps: ApiDeps = { fetch, getDeviceId: () => getDeviceId(deviceDeps), baseUrl: BASE };
+
+    await ensureDevice("ios", deps); // 푸시 토큰 없이 device 부트스트랩.
+    await createShipment("kr.cjlogistics", "123456789012", deps);
+
+    const id = await getDeviceId(deviceDeps);
+    expect(calls[0].url).toBe(`${BASE}/devices`);
+    expect(calls[0].authorization).toBe(`Bearer ${id}`);
+    expect(calls[1].url).toBe(`${BASE}/shipments`); // 등록까지 도달(데드락 없음).
+  });
 });

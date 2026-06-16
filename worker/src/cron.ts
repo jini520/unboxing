@@ -214,10 +214,15 @@ async function casStage(env: Env, id: string, prev: string | null, next: Stage):
   return (r.meta.changes ?? 0) === 1;
 }
 
-/** 송장 구독자들의 push_token (device_id·push_token은 로그 금지). */
+/**
+ * 송장 구독자들의 push_token (device_id·push_token은 로그 금지).
+ * push_token IS NOT NULL 만 — 토큰이 nullable(QA-001) 이 된 뒤 토큰 없는 구독자에게
+ * sendPush({to: null}) 로 오발송/에러 내지 않도록 거른다(C1 회귀 방지).
+ */
 async function subscriberTokens(env: Env, shipmentId: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
-    "SELECT d.push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id WHERE sub.shipment_id = ?",
+    "SELECT d.push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id " +
+      "WHERE sub.shipment_id = ? AND d.push_token IS NOT NULL",
   )
     .bind(shipmentId)
     .all<{ push_token: string }>();
@@ -307,7 +312,7 @@ async function sweepReceipts(env: Env, deps: CronDeps): Promise<void> {
  * 발송 + ticket 보관 + 무효 토큰 정리.
  * sendPush(step5)는 입력 순서와 1:1 정렬된 ticket을 반환 → messages[i] 와 짝이 보장된다(배치 패딩).
  * ok ticket은 receipt 확인 대기로 push_tickets에 보관(ADR-010, sweepReceipts가 확인·폐기).
- * DeviceNotRegistered → 해당 토큰의 device 정리(push_token NOT NULL이라 행 삭제, ARCHITECTURE 토큰 위생).
+ * DeviceNotRegistered → 해당 토큰을 가진 device 행 삭제(무효 토큰 정리, ARCHITECTURE 토큰 위생).
  */
 async function deliver(env: Env, deps: CronDeps, messages: PushMessage[]): Promise<void> {
   if (messages.length === 0) return;

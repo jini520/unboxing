@@ -14,6 +14,7 @@
       "dir": "qa-mvp",
       "status": "completed",
       "completed_at": "2026-06-17T03:33:11+0900"
-    }
+    },
+    { "dir": "qa-fixes", "status": "pending" }
   ]
 }

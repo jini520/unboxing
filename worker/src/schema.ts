@@ -9,7 +9,7 @@
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS devices (
   id          TEXT PRIMARY KEY,
-  push_token  TEXT NOT NULL UNIQUE,
+  push_token  TEXT UNIQUE,
   platform    TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 )`,
