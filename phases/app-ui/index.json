@@ -7,7 +7,8 @@
       "name": "foundation",
       "status": "completed",
       "started_at": "2026-06-16T20:24:44+0900",
-      "summary": "expo-router 전환(main=expo-router/entry, app.json scheme=unboxing·userInterfaceStyle=automatic·plugins), app/app/_layout·index 라우트, 시맨틱 토큰 테마 시스템(tokens·resolveTokens·ThemeProvider·useTheme), config.ts(EXPO_PUBLIC_API_URL)·.env.example. App.tsx/index.ts orphan 제거. verify green."
+      "summary": "expo-router 전환(main=expo-router/entry, app.json scheme=unboxing·userInterfaceStyle=automatic·plugins), app/app/_layout·index 라우트, 시맨틱 토큰 테마 시스템(tokens·resolveTokens·ThemeProvider·useTheme), config.ts(EXPO_PUBLIC_API_URL)·.env.example. App.tsx/index.ts orphan 제거. verify green.",
+      "completed_at": "2026-06-16T20:30:14+0900"
     },
     {
       "step": 1,
