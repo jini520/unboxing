@@ -53,7 +53,10 @@
     {
       "step": 6,
       "name": "http-api",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T18:10:47+0900",
+      "summary": "index.ts fetch 핸들러에 HTTP API 구현 — POST /devices(upsert), POST /shipments(dedupe ON CONFLICT+구독+즉시1회 track best-effort, 신규201/기존200 멱등), GET /shipments(내 송장만), GET/:id(인가 후 실시간 타임라인·미저장 ADR-011), DELETE/:id(마지막 구독시 orphan 정리), DELETE /me(device+CASCADE+orphan ADR-017). Bearer device_id 인증(없으면 401), 미소유/없음 404 통일, 활성상한 100 초과 429(ADR-008), carrier 형식 409·운송장 ^\\d{9,14}$ 재검증 422. 모든 쿼리 .bind() prepared, device_id/push_token 무로그, 타임라인/수령인 미저장. test/helpers.ts(applySchema·bearer) + test/shipments.test.ts 9케이스(멱등·dedupe·인가404·throttle·삭제·401). vitest.config outboundService로 테스트 외부 실호출 차단. scheduled(cron)은 step7.",
+      "completed_at": "2026-06-16T18:49:00+0900"
     },
     {
       "step": 7,
