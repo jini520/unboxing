@@ -48,7 +48,7 @@
       "status": "completed",
       "started_at": "2026-06-16T20:50:05+0900",
       "summary": "목록/상세 라우트 + 공용 컴포넌트. time.ts(relativeTime '방금'·'N분/시간/일 전'·absoluteKST '+9h 벽시계', now 주입 순수)+10 tests, sort.ts(sortShipments: 배송출발>예외>진행중>완료>비활성, createdAt desc, 비파괴)+3 tests. StageBadge(색 토큰+글리프+한글 라벨, 색단독 금지)·Timeline(세로 점·현재강조·KST 상대+절대, 실시간 events만 ADR-011)·ShipmentCard(PanResponder 좌스와이프 삭제+탭→상세, 단계별 요약, destructive=예외색 텍스트). app/index.tsx 목록: 캐시 우선 렌더→sync, 당겨서 새로고침, 마지막 업데이트, 오프라인 배너, 빈 상태(가치제안+등록 CTA), 낙관적 삭제+Undo 토스트(창 만료 후 서버 반영, 언마운트 flush), useFocusEffect 재동기화. app/shipment/[id].tsx 상세: useLocalSearchParams→캐시로 배지 즉시+getShipment 실시간 타임라인, 당겨서 새로고침, 삭제 Alert 확인, 에러 친근 카피(offline/notfound/unavailable, 코드 비노출). gesture-handler 대신 RN 코어(새 의존성 0). verify green(app 50·worker 82·harness 51).",
-      "completed_at": "2026-06-16T20:59:30+0900"
+      "completed_at": "2026-06-16T21:01:05+0900"
     },
     {
       "step": 6,
