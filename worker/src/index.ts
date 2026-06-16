@@ -7,6 +7,7 @@
 
 import { normalizeStatus } from "./lib/normalize";
 import { track, d1TokenStore, type TrackResult } from "./tracker";
+import { runPollingBatch } from "./cron";
 
 export interface Env {
   DB: D1Database;
@@ -331,14 +332,8 @@ export default {
     }
   },
 
-  // cron 트리거 (*/15 * * * *) — due 기반 단일 배치 폴링
-  async scheduled(controller: ScheduledController, _env: Env, _ctx: ExecutionContext): Promise<void> {
-    // TODO 배치 폴링:
-    //   1. due 조회: active AND now >= last_polled_at + interval(stage)   (적응형 폴링 표)
-    //   2. 청크(외부호출 ≤50/실행) 단위로 tracker.delivery(GraphQL) 폴링
-    //   3. 원문 상태 → 표준 단계 정규화(매핑 테이블)
-    //   4. last_normalized_status 변경 시에만 Expo Push (멱등) — '이동중'은 무알림
-    //   5. 배송완료 → 알림 후 삭제 / 미등록·예외 7일·전체 30일 만료
-    console.log("scheduled tick:", controller.cron, new Date(controller.scheduledTime).toISOString());
+  // cron 트리거 (*/15 * * * *) — due 기반 단일 배치 폴링(배선은 ./cron). now·fetch 주입.
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runPollingBatch(env, { now: controller.scheduledTime, fetch }));
   },
 } satisfies ExportedHandler<Env>;
