@@ -10,6 +10,10 @@ export interface Env {
   /** tracker.delivery 자격증명 (wrangler secret) */
   DELIVERY_TRACKER_CLIENT_ID: string;
   DELIVERY_TRACKER_CLIENT_SECRET: string;
+  /** Expo Push 서버 발송 인증 (ADR-010, 선택·권장) */
+  EXPO_ACCESS_TOKEN?: string;
+  /** 심사용 데모 분기 — 실폴링 우회 (ADR-019, 선택) */
+  DEMO_TRACKING_NUMBER?: string;
 }
 
 export default {

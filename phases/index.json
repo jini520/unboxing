@@ -1,3 +1,5 @@
 {
-  "phases": []
+  "phases": [
+    { "dir": "worker-backend", "status": "pending" }
+  ]
 }
