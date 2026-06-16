@@ -1,5 +1,6 @@
 {
   "phases": [
-    { "dir": "worker-backend", "status": "pending" }
+    { "dir": "worker-backend", "status": "pending" },
+    { "dir": "app-ui", "status": "pending" }
   ]
 }
