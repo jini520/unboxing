@@ -61,7 +61,10 @@
     {
       "step": 7,
       "name": "onboarding-settings",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T21:07:38+0900",
+      "summary": "온보딩·설정 화면 + 모든 데이터 삭제 오케스트레이션. wipe.ts(wipeAllData: 서버 DELETE /me → 로컬 clearCache → deleteDeviceId 순, 서버 먼저라 실패 시 로컬 보존·재시도 가능)+2 tests(순서·실패 전파). device.ts에 deleteDeviceId(STORAGE_KEY 캡슐화 유지) 추가. app/onboarding.tsx: 푸시 priming(가치 안내→registerForPush, 허용 시 registerDevice)·'나중에' 스킵·거부 graceful(강제 금지·광고 없음). app/settings.tsx: 알림(권한 상태 표시→미허용 켜기 요청·허용 시 시스템 설정 안내, OS 권한 앱서 못 끔)·테마 시스템/라이트/다크 setPreference(선택=색+✓)·개인정보처리방침 Linking.openURL·모든 데이터 삭제(예외 색·Alert 확인·복구불가 명시→wipeAllData→빈상태 복귀, 실패 친근 카피)·버전(Constants.expoConfig.version). index.tsx 헤더에 설정 진입점 추가. 색 토큰만. verify green(app 57·worker 82·harness 51).",
+      "completed_at": "2026-06-16T21:14:03+0900"
     }
   ],
   "created_at": "2026-06-16T20:24:44+0900"

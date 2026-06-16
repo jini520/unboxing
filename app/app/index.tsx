@@ -136,7 +136,17 @@ export default function ListScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.text.primary }]}>택배</Text>
+        <View style={styles.headerRow}>
+          <Text style={[styles.title, { color: tokens.text.primary }]}>택배</Text>
+          <Pressable
+            onPress={() => router.push("/settings")}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="설정"
+          >
+            <Text style={[styles.settings, { color: tokens.text.secondary }]}>설정</Text>
+          </Pressable>
+        </View>
         {lastUpdated !== null && (
           <Text style={[styles.freshness, { color: tokens.text.secondary }]}>
             마지막 업데이트 {relativeTime(new Date(lastUpdated).toISOString(), now)}
@@ -212,6 +222,8 @@ function EmptyState() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  settings: { fontSize: 15 },
   title: { fontSize: 30, fontWeight: "600" },
   freshness: { fontSize: 12, marginTop: 4 },
   banner: { marginHorizontal: 16, marginVertical: 8, padding: 12, borderRadius: 8 },

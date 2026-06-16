@@ -51,6 +51,11 @@ export async function getDeviceId(deps: {
   return id;
 }
 
+/** 저장된 device_id 폐기(모든 데이터 삭제 — ADR-017). 다음 getDeviceId 는 새 id 를 발급한다. */
+export async function deleteDeviceId(deps: { storage: SecureStorage }): Promise<void> {
+  await deps.storage.deleteItem(STORAGE_KEY);
+}
+
 /** 운영용 기본 저장소 인스턴스(expo-secure-store, Keychain/Keystore-backed). */
 export const deviceStorage: SecureStorage = {
   getItem: (key) => SecureStore.getItemAsync(key),
