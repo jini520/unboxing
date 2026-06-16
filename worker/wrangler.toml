@@ -1,6 +1,6 @@
 name = "unboxing-worker"
 main = "src/index.ts"
-compatibility_date = "2025-01-01"
+compatibility_date = "2026-06-16"
 
 # 15분마다 배치 폴링 (docs/design.md: 적응형 폴링 주기, due 기반 단일 배치)
 [triggers]
@@ -10,6 +10,6 @@ crons = ["*/15 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "unboxing"
-database_id = "REPLACE_AFTER_d1_create"
+database_id = "2222ba46-7652-4085-8e6a-69604d2fc4b5"
 
 # tracker.delivery 자격증명은 시크릿으로: `wrangler secret put DELIVERY_TRACKER_CLIENT_ID` (+ `..._CLIENT_SECRET`)
