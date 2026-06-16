@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "register-flow",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T02:44:39+0900",
+      "summary": "등록 여정 E2E(worker/test/e2e/register.test.ts, 지름길·DB시드 없이 call()만): QA-001 401 데드락 재현+todo, 정상 201·멱등 200·dedupe(1행/구독2)·목록 격리·인가 404·활성상한 429·형식 409/422 검증. 발견 3건 — QA-001(P0 기시드 재확인), QA-002(P2: 형식 유효 미지원 택배사가 409 없이 201→딥링크 폴백 미도달), QA-003(P3: 401 데드락이 앱 generic 카피로 오안내). verify green(app 60·worker 91+2todo·harness 51).",
+      "completed_at": "2026-06-17T02:56:00+0900"
     },
     {
       "step": 2,
