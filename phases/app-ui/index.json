@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "api-client",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T20:33:44+0900",
+      "summary": "app/src/lib/api.ts — 타입드 Worker API 클라이언트(Stage·Shipment·TimelineEvent·ApiError·ApiDeps). 공통 request()가 Bearer device_id 헤더 부착 + 비-2xx {error,code}/네트워크 throw를 ApiError(code·status)로 정규화. registerDevice·createShipment(201/200 멱등 created 구분)·listShipments·getShipment·deleteShipment·deleteMe. 서버 snake_case→camelCase 매핑. api.test.ts 13 케이스(Bearer 헤더·device_id 비노출·method/path/body·멱등·매핑·에러 정규화·NETWORK), 주입 fetch+getDeviceId mock. verify green.",
+      "completed_at": "2026-06-16T20:36:30+0900"
     },
     {
       "step": 3,
