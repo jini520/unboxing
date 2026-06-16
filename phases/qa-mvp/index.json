@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "tracking-notify",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T02:57:04+0900",
+      "summary": "추적·알림 cron 여정 E2E(worker/test/e2e/tracking.test.ts, 등록은 HTTP call()·폴링은 주입 fetch/now): 미등록→등록→집화→이동중→배송출발→배송완료 단계 진행에서 알림 단계만 1회 발송·재폴링 멱등 무발송·이동중/기타/미등록 무알림·완료 후 shipment 삭제(CASCADE), 배송출발 KST '오늘 도착' 당일/타일 분기, UNAUTHENTICATED 백오프(last_polled_at 원복·fail_count·next_retry·[ALERT] 로깅), receipt sweep(DeviceNotRegistered 토큰·ticket 정리), due 미달 미폴링·청크 ≤50 이월 검증. 발견 3건 — QA-004(P2: 조용시간 미구현, 야간 즉시 발송), QA-005(P3: 알림 그룹화/요약 미구현), QA-006(P3: 푸시 title 에 택배사 id 노출). verify green(app 60·worker 100+5todo·harness 51).",
+      "completed_at": "2026-06-17T03:08:00+0900"
     },
     {
       "step": 3,
