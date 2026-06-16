@@ -40,7 +40,7 @@
       "status": "completed",
       "started_at": "2026-06-17T06:02:53+0900",
       "summary": "심사 데모 경로 활성화 — wrangler.toml [vars] DEMO_TRACKING_NUMBER=00000000000000(비밀 아닌 var, 실 운송장·기존 테스트 번호와 비충돌 예약값) 설정으로 tracker.ts 데모 분기가 외부 호출 우회·캔드 타임라인(등록→이동중→배송출발) 반환. 데모 carrier kr.cjlogistics 는 step1 지원목록 통과, 등록은 step0 device ensure 경로 사용. demoResult 주석에 bounded 잔존(M3: 30일 비활성·분실안내 데모가드 제외) 명시 + docs/REVIEW_NOTES.md 작성(심사 제출용 데모 번호·절차·예상 동작). fixes #13",
-      "completed_at": "2026-06-17T06:07:00+0900"
+      "completed_at": "2026-06-17T06:06:39+0900"
     },
     {
       "step": 5,
