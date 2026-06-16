@@ -1,0 +1,56 @@
+{
+  "project": "unboxing",
+  "phase": "qa-mvp",
+  "steps": [
+    {
+      "step": 0,
+      "name": "qa-scaffold",
+      "status": "completed",
+      "started_at": "2026-06-17T02:35:53+0900",
+      "summary": "E2E 토대 구축 — worker/test/e2e/scenario.ts(지름길 없는 SELF.fetch call 래퍼) + smoke.test.ts(health·해피패스), docs/QA_FINDINGS.md(QA-001 P0 데드락 시드)·QA_TESTPLAN.md 골격. verify green(app 60·worker 84·harness 51).",
+      "completed_at": "2026-06-17T02:44:39+0900"
+    },
+    {
+      "step": 1,
+      "name": "register-flow",
+      "status": "completed",
+      "started_at": "2026-06-17T02:44:39+0900",
+      "summary": "등록 여정 E2E(worker/test/e2e/register.test.ts, 지름길·DB시드 없이 call()만): QA-001 401 데드락 재현+todo, 정상 201·멱등 200·dedupe(1행/구독2)·목록 격리·인가 404·활성상한 429·형식 409/422 검증. 발견 3건 — QA-001(P0 기시드 재확인), QA-002(P2: 형식 유효 미지원 택배사가 409 없이 201→딥링크 폴백 미도달), QA-003(P3: 401 데드락이 앱 generic 카피로 오안내). verify green(app 60·worker 91+2todo·harness 51).",
+      "completed_at": "2026-06-17T02:57:04+0900"
+    },
+    {
+      "step": 2,
+      "name": "tracking-notify",
+      "status": "completed",
+      "started_at": "2026-06-17T02:57:04+0900",
+      "summary": "추적·알림 cron 여정 E2E(worker/test/e2e/tracking.test.ts, 등록은 HTTP call()·폴링은 주입 fetch/now): 미등록→등록→집화→이동중→배송출발→배송완료 단계 진행에서 알림 단계만 1회 발송·재폴링 멱등 무발송·이동중/기타/미등록 무알림·완료 후 shipment 삭제(CASCADE), 배송출발 KST '오늘 도착' 당일/타일 분기, UNAUTHENTICATED 백오프(last_polled_at 원복·fail_count·next_retry·[ALERT] 로깅), receipt sweep(DeviceNotRegistered 토큰·ticket 정리), due 미달 미폴링·청크 ≤50 이월 검증. 발견 3건 — QA-004(P2: 조용시간 미구현, 야간 즉시 발송), QA-005(P3: 알림 그룹화/요약 미구현), QA-006(P3: 푸시 title 에 택배사 id 노출). verify green(app 60·worker 100+5todo·harness 51).",
+      "completed_at": "2026-06-17T03:08:28+0900"
+    },
+    {
+      "step": 3,
+      "name": "lifecycle-privacy",
+      "status": "completed",
+      "started_at": "2026-06-17T03:08:29+0900",
+      "summary": "수명주기·삭제·개인정보 E2E(worker/test/e2e/lifecycle.test.ts, 등록 HTTP call()·폴링 주입 fetch/now) + 정적 감사(grep): 미등록7일·예외7일 active=0·30일 미완료 분실알림(데모번호 제외), DELETE /shipments/:id orphan 정리·타기기 구독시 유지, DELETE /me 완전폐기(device+CASCADE+orphan+토큰)·이후 등록 401·공유송장 유지, 개인정보 비영속(폴링 후 전테이블 덤프에 수령인/description/location 부재). 정적감사 3종 CLEAN(SQLi: 값 전부 .bind / 로그: cron.ts 1곳·민감값 미노출 / 비영속: shipments 쓰기에 PII 컬럼 부재)을 FINDINGS '정적 감사 결과' 표에 기록. 발견 2건 — QA-007(P2: 미등록/예외 7일 비활성 시 '번호 확인' 안내 미발송), QA-008(P3: DELETE /me 후 push_tickets 에 push_token ~15분 잔존). verify green(app 60·worker 110+7todo·harness 51).",
+      "completed_at": "2026-06-17T03:19:10+0900"
+    },
+    {
+      "step": 4,
+      "name": "app-flows",
+      "status": "completed",
+      "started_at": "2026-06-17T03:19:10+0900",
+      "summary": "앱 로직 플로우 QA(app/src/lib/__qa__/flows.test.ts, 주입 mock·여정 단위 조합) + 정적 감사(grep): device_id 영속·재사용(같은 Bearer·생성1회·URL 미포함), 에러 매트릭스 완전성(401/403/404/409/422/429/500/502→ApiError status·code 보존, NETWORK), 오프라인 읽기 라운드트립(api NETWORK→캐시 폴백), wipe 오케스트레이션(서버→캐시→device_id 순·성공시 새 id·서버실패시 로컬보존·재사용), routeForNotification 딥링크, theme resolveTokens+다크 5단계색. 정적감사 5종 CLEAN(안티패턴 0건·하드코딩hex tokens.ts만·색단독금지 StageBadge 색+글리프+라벨·에러코드 비노출·EXPO_PUBLIC URL만)을 FINDINGS '정적 감사 결과(Step 4)' 표에 기록. QA-001 앱측 원인(푸시 토큰 없이 device 등록 익명 경로 부재 — registerDevice push_token 필수·호출처3곳 토큰가드) 확인·연결 기록 + it.todo. verify green(app 76+1todo·worker 110+7todo·harness 51).",
+      "completed_at": "2026-06-17T03:27:10+0900"
+    },
+    {
+      "step": 5,
+      "name": "store-manual",
+      "status": "completed",
+      "started_at": "2026-06-17T03:27:10+0900",
+      "summary": "스토어 준비 감사 + 수동 테스트플랜 + 통합 요약(발견·기록만, 수정/이슈생성 없음). FINDINGS: 스토어 갭 4건 신규 — QA-009(P1: 개인정보처리방침 URL placeholder·제출차단), QA-010(P2: DEMO_TRACKING_NUMBER 미설정으로 데모분기 비활성+리뷰노트 부재), QA-011(P1: App Privacy/Data Safety 신고 초안 부재), QA-012(P2: 앱레벨 Privacy Manifest/클립보드사유 미선언). 인앱 데이터삭제·거래성알림만은 PRESENT/CLEAN. FINDINGS 상단에 통합요약(P0:1·P1:2·P2:5·P3:4=12건, DoD 미충족 매핑, 이슈후보 QA-002~012·QA-001=#3). QA_TESTPLAN 완성: §1 실기기 푸시(iOS/Android priming·허용·수신·딥링크·거부graceful·receipt), §2 화면별 런스루(목록/상세/등록/온보딩/설정·로딩/오프라인/에러·테마/접근성), §3 제출 체크리스트(개인정보URL·데이터삭제·데모/리뷰노트·App Privacy/Data Safety 신고 초안표·Privacy Manifest·플랫폼별). verify green(app 76+1todo·worker 110+7todo·harness 51). phase 완료.",
+      "completed_at": "2026-06-17T03:33:11+0900"
+    }
+  ],
+  "created_at": "2026-06-17T02:35:53+0900",
+  "completed_at": "2026-06-17T03:33:11+0900"
+}
