@@ -24,7 +24,7 @@
       "status": "completed",
       "started_at": "2026-06-16T17:58:44+0900",
       "summary": "notify.ts: 순수 알림 트리거 판단. NOTIFYING_STAGES(등록·집화·배송출발·배송완료·예외) Set + shouldNotify(prev,next) — prev===next 재관측은 멱등 false, 무알림 단계(이동중·기타·미등록)로의 전환은 무조건 false, null(첫 관측)→알림단계는 true. Stage는 ./polling에서 import. notify.test.ts로 전환표+멱등+무알림 sweep 검증",
-      "completed_at": "2026-06-16T18:00:00+0900"
+      "completed_at": "2026-06-16T17:59:52+0900"
     },
     {
       "step": 3,
