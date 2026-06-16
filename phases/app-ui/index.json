@@ -37,7 +37,10 @@
     {
       "step": 4,
       "name": "push-setup",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T20:40:54+0900",
+      "summary": "app/src/lib/push.ts — 권한·토큰·채널·딥링크. PushDeps 추상화 + registerForPush(권한 확인→미허용 시 요청→Expo token, 거부면 {denied})·ensureAndroidChannel('배송 상태' 채널, iOS no-op·멱등)·configureForegroundHandler(배너+목록)·addNotificationResponseListener·routeForNotification({shipment_id}→/shipment/{id}, 순수)·운영 pushDeps(expo-notifications, projectId from Constants). usePushNotifications 훅으로 _layout 배선: 포그라운드 핸들러+채널, 콜드스타트 silent 등록(이미 허용 시에만 token 갱신→registerDevice, 팝업 금지), 탭→딥링크 router.push. push_token 무로깅. push.test.ts 8 케이스(정상 매핑 + 7 invalid→null). verify green(app 37 tests).",
+      "completed_at": "2026-06-16T20:49:31+0900"
     },
     {
       "step": 5,

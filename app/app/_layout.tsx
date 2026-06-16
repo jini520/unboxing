@@ -6,8 +6,10 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
+import { usePushNotifications } from "../src/lib/usePushNotifications";
 
 export default function RootLayout() {
+  usePushNotifications();
   return (
     <SafeAreaProvider>
       <ThemeProvider>
