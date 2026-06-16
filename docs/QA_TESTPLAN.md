@@ -71,15 +71,18 @@
 ## 3. 스토어 제출 체크리스트
 
 > 제출/심사 통과 필수 — 코드만으로 검증 불가(콘솔 설정·심사 노트 포함). 갭은 `QA_FINDINGS.md` QA-009~012.
+> **repo 산출물(qa-fixes step5)**: 방침 `docs/PRIVACY_POLICY.md` · 신고 초안 `docs/STORE_PRIVACY_FILING.md`(아래 §3-B 표의 권위 출처) · 배포 마이그레이션 `docs/MIGRATION.md`.
 
 ### 3-A. 공통
-- [ ] **개인정보처리방침(한글) URL** 게시 + 앱(`settings.tsx PRIVACY_POLICY_URL`)·스토어 양쪽 반영 (⚠️ QA-009: 현재 placeholder). 방침에 수집항목(운송장·푸시토큰)·목적·**제3자 제공**(tracker.delivery)·**국외이전**(Cloudflare)·보유/삭제·문의처 명시.
+- [ ] **개인정보처리방침(한글) URL** 게시 + 앱(`settings.tsx PRIVACY_POLICY_URL`)·스토어 양쪽 반영 (⚠️ QA-009: 방침 문서 `docs/PRIVACY_POLICY.md` 작성됨, URL 은 호스팅 후 확정 — TODO 주석). 방침에 수집항목(운송장·푸시토큰)·목적·**제3자 제공**(tracker.delivery)·**국외이전**(Cloudflare)·보유/삭제·문의처 명시.
 - [ ] **인앱 "모든 데이터 삭제"** 동작 확인(설정 → 확인 다이얼로그 → 빈 상태 복귀, `DELETE /me`). ✅ 구현됨.
 - [ ] **데모/리뷰 노트**: `DEMO_TRACKING_NUMBER` 설정(⚠️ QA-010 미설정) + 리뷰 노트에 샘플 번호·예상 동작("등록→이동중→배송출발 캔드 타임라인, 실폴링 없음") 기재.
 - [ ] **전송 암호화**: 전 통신 HTTPS → Apple 수출규정 표준 면제 선언.
 - [ ] 스크린샷(주요 화면), 연령 등급(**4+** 예상), 앱 아이콘/메타.
 
 ### 3-B. App Privacy / Data Safety 신고 초안 (QA-011 — 콘솔 입력용)
+
+> 권위 출처: `docs/STORE_PRIVACY_FILING.md`(데이터 인벤토리·Apple/Google 콘솔별 표). 아래는 요약.
 
 | 데이터 | 수집? | 공유(제3자)? | 용도 | 비고 |
 |---|---|---|---|---|
@@ -93,7 +96,7 @@
 - **Apple**: App Privacy Nutrition Labels 에 위 표 반영, ATT 미사용 선언. **Google**: Data Safety form 에 **제3자 SDK(Expo Push·Cloudflare)도 포함**, "데이터 삭제 메커니즘 제공" 표기.
 
 ### 3-C. 플랫폼별
-- [ ] **Apple Privacy Manifest**(`PrivacyInfo.xcprivacy`) + required-reason API 신고(⚠️ QA-012): `expo prebuild` 산출물 확인, 클립보드 사용 사유 문자열(`app.json ios.infoPlist`) 검토.
+- [ ] **Apple Privacy Manifest**(`PrivacyInfo.xcprivacy`) + required-reason API 신고(QA-012): `app.json ios.privacyManifests` 선언됨(UserDefaults `CA92.1`·FileTimestamp `C617.1`) → `expo prebuild` 산출 `PrivacyInfo.xcprivacy` 병합 결과 확인. 클립보드는 iOS Info.plist 키·required-reason 없음(미추가, 근거 `STORE_PRIVACY_FILING.md` §3-A).
 - [ ] **Apple 4.2 minimum functionality**: 데모 경로로 핵심 가치(상태 변화→알림) 입증.
 - [ ] **Apple 푸시 정책**: 거부해도 앱 동작(§1-C), 광고 용도 금지(ADR-018).
 - [ ] **Google `POST_NOTIFICATIONS`**(Android 13+) 런타임 권한 — priming 후 요청, 거부 graceful.

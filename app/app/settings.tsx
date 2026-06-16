@@ -24,7 +24,12 @@ import { wipeAllData } from "../src/lib/wipe";
 import { useTheme } from "../src/theme/ThemeProvider";
 import type { ThemePreference } from "../src/theme/tokens";
 
-/** 개인정보처리방침(한글) URL — 스토어 제출 필수. 실제 URL은 배포 시 확정(ARCHITECTURE 스토어 정책). */
+/**
+ * 개인정보처리방침(한글) URL — 스토어 제출 필수.
+ * 방침 내용은 docs/PRIVACY_POLICY.md 가 단일 출처. 아래 URL 은 게시 예정(canonical) 주소.
+ * TODO(배포): docs/PRIVACY_POLICY.md 를 이 URL 에 호스팅한 뒤 실제 라이브 URL 로 확정한다.
+ *   (#12 — repo 산출물 완료, 호스팅은 배포 시 외부 작업. 조용한 placeholder 가 아니라 명시적 미배포 표시.)
+ */
 const PRIVACY_POLICY_URL = "https://unboxing.app/privacy";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
