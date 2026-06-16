@@ -53,7 +53,10 @@
     {
       "step": 6,
       "name": "register",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T21:01:05+0900",
+      "summary": "등록 화면 + 순수 택배사 추정. carrier.ts(CARRIERS 국내 8개·id=tracker.delivery carrierId, estimateCarriers: 정규화 자릿수별 후보 순서·미매칭 기본폴백·무효형식 []→tracking.ts 검증 재사용)+5 tests. app/register.tsx: 번호 입력(number-pad·autoFocus)→isValidTrackingNumber 검증→estimateCarriers 후보(추천 먼저)+전체 드롭다운 선택(선택=색+✓, 색단독 금지). 클립보드는 진입 시 1회만 읽어 제안만(자동등록 ❌, iOS 배너 정책). createShipment(selectedId, normalize(input))→성공/멱등 모두 목록 복귀(canGoBack/replace). 에러는 친근 카피 매핑(코드 비노출): 409 unsupported→안내+택배사 조회 딥링크(Linking.openURL), 429 rate·422 invalid·NETWORK/기타 generic, 입력값 보존. 색 토큰만. verify green(app 55·worker 82·harness 51).",
+      "completed_at": "2026-06-16T21:06:48+0900"
     },
     {
       "step": 7,
