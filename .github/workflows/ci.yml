@@ -16,10 +16,15 @@ jobs:
           cache-dependency-path: |
             app/package-lock.json
             worker/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install (app)
         run: npm --prefix app ci
       - name: Install (worker)
         run: npm --prefix worker ci
+      - name: Install (harness)
+        run: python -m pip install -r scripts/requirements.txt
       - name: Typecheck
         run: npm run typecheck
       - name: Test
