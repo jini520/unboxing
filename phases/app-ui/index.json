@@ -16,7 +16,7 @@
       "status": "completed",
       "started_at": "2026-06-16T20:30:14+0900",
       "summary": "app/src/lib/device.ts — SecureStorage 추상화 + generateDeviceId(32바이트/256bit base64url, randomBytes 주입) + getDeviceId(멱등: 저장값 재사용, 없으면 생성·저장) + deviceStorage(expo-secure-store 운영 어댑터). device.test.ts 6 케이스(≥128bit 엔트로피·base64url 문자·결정성·생성저장·멱등재사용). verify green.",
-      "completed_at": "2026-06-16T20:33:14+0900"
+      "completed_at": "2026-06-16T20:33:44+0900"
     },
     {
       "step": 2,
