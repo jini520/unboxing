@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "lifecycle",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T17:59:52+0900",
+      "summary": "lifecycle.ts: 순수 만료/좀비 판단 lifecycleAction({stage,createdAt,now}) → LifecycleAction(keep | deactivate{reason,notify}). 미등록7일·예외7일(notify:false), 분실의심30일(배송완료·예외 제외, notify:true). 경계 now-createdAt>=임계, 7일이 30일보다 우선. SEVEN_DAYS_MS·THIRTY_DAYS_MS 상수, Date.now() 미사용. Stage는 ./polling import. lifecycle.test.ts로 경계·우선순위 고정",
+      "completed_at": "2026-06-16T18:00:49+0900"
     },
     {
       "step": 4,
