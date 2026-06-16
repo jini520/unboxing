@@ -1,0 +1,39 @@
+{
+  "project": "unboxing",
+  "phase": "qa-mvp",
+  "steps": [
+    {
+      "step": 0,
+      "name": "qa-scaffold",
+      "status": "completed",
+      "started_at": "2026-06-17T02:35:53+0900",
+      "summary": "E2E 토대 구축 — worker/test/e2e/scenario.ts(지름길 없는 SELF.fetch call 래퍼) + smoke.test.ts(health·해피패스), docs/QA_FINDINGS.md(QA-001 P0 데드락 시드)·QA_TESTPLAN.md 골격. verify green(app 60·worker 84·harness 51)."
+    },
+    {
+      "step": 1,
+      "name": "register-flow",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "tracking-notify",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "lifecycle-privacy",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "app-flows",
+      "status": "pending"
+    },
+    {
+      "step": 5,
+      "name": "store-manual",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-17T02:35:53+0900"
+}
