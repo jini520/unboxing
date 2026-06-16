@@ -32,7 +32,7 @@
       "status": "completed",
       "started_at": "2026-06-17T03:08:29+0900",
       "summary": "수명주기·삭제·개인정보 E2E(worker/test/e2e/lifecycle.test.ts, 등록 HTTP call()·폴링 주입 fetch/now) + 정적 감사(grep): 미등록7일·예외7일 active=0·30일 미완료 분실알림(데모번호 제외), DELETE /shipments/:id orphan 정리·타기기 구독시 유지, DELETE /me 완전폐기(device+CASCADE+orphan+토큰)·이후 등록 401·공유송장 유지, 개인정보 비영속(폴링 후 전테이블 덤프에 수령인/description/location 부재). 정적감사 3종 CLEAN(SQLi: 값 전부 .bind / 로그: cron.ts 1곳·민감값 미노출 / 비영속: shipments 쓰기에 PII 컬럼 부재)을 FINDINGS '정적 감사 결과' 표에 기록. 발견 2건 — QA-007(P2: 미등록/예외 7일 비활성 시 '번호 확인' 안내 미발송), QA-008(P3: DELETE /me 후 push_tickets 에 push_token ~15분 잔존). verify green(app 60·worker 110+7todo·harness 51).",
-      "completed_at": "2026-06-17T03:18:40+0900"
+      "completed_at": "2026-06-17T03:19:10+0900"
     },
     {
       "step": 4,
