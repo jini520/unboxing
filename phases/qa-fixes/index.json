@@ -16,7 +16,7 @@
       "status": "completed",
       "started_at": "2026-06-17T05:36:00+0900",
       "summary": "미지원 택배사 409 — worker 에 지원 carrierId 허용집합(SUPPORTED_CARRIERS 8종, 앱 carrier.ts 와 동기화) 추가, 형식만 검사하던 CARRIER_RE 를 대조로 교체. 미지원이면 409 CARRIER_UNSUPPORTED(행 미생성) → 앱 register.tsx 가 이미 409→딥링크 폴백 연결. 등록 핫패스 외부 carriers() 호출 없음(코드 상수). fixes #5",
-      "completed_at": "2026-06-17T05:39:00+0900"
+      "completed_at": "2026-06-17T05:39:36+0900"
     },
     {
       "step": 2,
