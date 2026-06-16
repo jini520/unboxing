@@ -40,7 +40,7 @@
       "status": "completed",
       "started_at": "2026-06-16T18:01:15+0900",
       "summary": "tracker.ts: tracker.delivery GraphQL 클라이언트(주입 fetch). TokenStore 추상화 + d1TokenStore(D1 어댑터). getAccessToken은 만료 임박(margin 60s) 시에만 client_credentials 재발급·캐시. graphqlRequest는 에러를 본문 errors[]로 분류(HTTP status 무시), UNAUTHENTICATED면 재발급 후 정확히 1회 재시도. track()은 demoTrackingNumber 일치 시 외부 호출 없이 캔드 결과, carriers()는 지원 목록. timeout 15s(AbortController, 주입 가능). 시크릿/토큰 무로그. tracker.test.ts로 정상 파싱·재인증 1회·캐시·만료·데모 우회·carriers 검증",
-      "completed_at": "2026-06-16T18:06:03+0900"
+      "completed_at": "2026-06-16T18:06:29+0900"
     },
     {
       "step": 5,
