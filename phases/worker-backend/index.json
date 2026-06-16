@@ -64,7 +64,7 @@
       "status": "completed",
       "started_at": "2026-06-16T18:49:51+0900",
       "summary": "cron.ts: runPollingBatch(env,{now,fetch}) — due 송장 배치 폴링 배선. active=1을 '배송출발' 우선·last_polled_at ASC 정렬 조회 → JS에서 isDue 필터 후 ≤50건만 처리(나머지 이월, subrequest 한도 ADR-012). 건별: last_polled_at=now 선점 갱신 → track(d1TokenStore·주입 fetch) → normalizeStatus → 단계 변경 시 casStage(UPDATE WHERE last_normalized_status IS prev, 영향행=1일 때만 전환 인정 멱등) → shouldNotify면 구독자별 buildMessage→sendPush, ok ticket은 push_tickets 보관·DeviceNotRegistered면 device 삭제 → 배송완료는 알림 후 shipment 삭제(CASCADE, ADR-005) → lifecycleAction로 미등록/예외7일·분실의심30일 active=0(+분실 푸시). 외부 오류는 조용히 백오프(선점 갱신=자연 백오프). index.ts scheduled는 ctx.waitUntil(runPollingBatch)로 얇게 위임. step1~5 모듈 재사용(재구현 없음). test/cron.test.ts 6케이스(isDue 선택·CAS 멱등 재실행 무발송·이동중 무알림·배송완료 후 삭제·30일 비활성·50건 이월) 주입 fetch/now로 결정적.",
-      "completed_at": "2026-06-16T18:57:30+0900"
+      "completed_at": "2026-06-16T18:57:54+0900"
     }
   ],
   "created_at": "2026-06-16T17:54:09+0900"
