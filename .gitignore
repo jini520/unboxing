@@ -6,3 +6,7 @@ node_modules/
 # personal / local (not shared)
 .claude.local.md
 .claude/settings.local.json
+
+# phase execution outputs (Harness)
+phases/**/phase*-output.json
+phases/**/step*-output.json

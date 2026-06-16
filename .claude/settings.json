@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run verify)",
+      "Bash(npm run typecheck)",
+      "Bash(npm test)",
+      "Bash(npm --prefix app test)",
+      "Bash(npm --prefix worker test)",
+      "Bash(npm --prefix app run typecheck)",
+      "Bash(npm --prefix worker run typecheck)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(wc *)",
+      "Bash(ls *)",
+      "Bash(grep *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); if printf '%s' \"$cmd\" | grep -qE 'rm[[:space:]]+-rf|rm[[:space:]]+-fr|git[[:space:]]+push[[:space:]]+--force|git[[:space:]]+reset[[:space:]]+--hard|DROP[[:space:]]+TABLE'; then echo 'BLOCKED: 위험한 명령어가 감지되었습니다.' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in */worker/*.ts) ws=worker;; */app/*.ts|*/app/*.tsx) ws=app;; *) exit 0;; esac; out=$(npm --prefix \"$ws\" run typecheck 2>&1) || { echo \"$out\" >&2; echo \"typecheck failed ($ws) — 위 타입 에러를 수정하세요.\" >&2; exit 2; }",
+            "statusMessage": "typecheck"
+          }
+        ]
+      }
+    ]
+  }
+}
