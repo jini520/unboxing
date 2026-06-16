@@ -45,7 +45,10 @@
     {
       "step": 5,
       "name": "store-manual",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T03:27:10+0900",
+      "summary": "스토어 준비 감사 + 수동 테스트플랜 + 통합 요약(발견·기록만, 수정/이슈생성 없음). FINDINGS: 스토어 갭 4건 신규 — QA-009(P1: 개인정보처리방침 URL placeholder·제출차단), QA-010(P2: DEMO_TRACKING_NUMBER 미설정으로 데모분기 비활성+리뷰노트 부재), QA-011(P1: App Privacy/Data Safety 신고 초안 부재), QA-012(P2: 앱레벨 Privacy Manifest/클립보드사유 미선언). 인앱 데이터삭제·거래성알림만은 PRESENT/CLEAN. FINDINGS 상단에 통합요약(P0:1·P1:2·P2:5·P3:4=12건, DoD 미충족 매핑, 이슈후보 QA-002~012·QA-001=#3). QA_TESTPLAN 완성: §1 실기기 푸시(iOS/Android priming·허용·수신·딥링크·거부graceful·receipt), §2 화면별 런스루(목록/상세/등록/온보딩/설정·로딩/오프라인/에러·테마/접근성), §3 제출 체크리스트(개인정보URL·데이터삭제·데모/리뷰노트·App Privacy/Data Safety 신고 초안표·Privacy Manifest·플랫폼별). verify green(app 76+1todo·worker 110+7todo·harness 51). phase 완료.",
+      "completed_at": "2026-06-17T03:33:00+0900"
     }
   ],
   "created_at": "2026-06-17T02:35:53+0900"
