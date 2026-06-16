@@ -219,23 +219,28 @@ describe("E2E 등록 여정 — 지름길 없이 사용자 순서 그대로", ()
     expect((badTracking.body as { code: string }).code).toBe("INVALID_TRACKING");
   });
 
-  it("[QA-002 재현] 형식 유효하나 미지원 택배사도 201 수락 — 딥링크 폴백 미도달", async () => {
+  it("[QA-002 해소] 형식 유효하나 미지원 택배사는 409 CARRIER_UNSUPPORTED → 딥링크 폴백 도달", async () => {
     await registerDevice("dev-A", TOKEN_A);
-    // 'kr.notreal' 은 CARRIER_RE(형식)은 통과하나 실제 미지원. 서버가 지원목록 대조를 안 해 201 수락 →
-    // 영구 미등록(7일 후 비활성). 사양(PRD 플로우4)의 409 → 딥링크 안내가 트리거되지 않는다.
+    // 'kr.notreal' 은 형식(소문자.소문자)은 통과하나 지원목록(8종)에 없다. 서버가 지원목록 대조로 409 →
+    // 앱이 딥링크 안내(PRD 플로우4). 미지원이 영구 미등록 행으로 쌓이지 않는다.
     const res = await call("POST", "/shipments", {
       deviceId: "dev-A",
       json: { carrier: "kr.notreal", tracking_no: "123456789012" },
     });
-    expect(res.status).toBe(201); // 기대(사양)는 409 CARRIER_UNSUPPORTED. QA-002.
-    expect(await count("shipments")).toBe(1);
-  });
+    expect(res.status).toBe(409);
+    expect((res.body as { code: string }).code).toBe("CARRIER_UNSUPPORTED");
+    expect(await count("shipments")).toBe(0); // 미지원은 행으로 남기지 않는다.
 
-  // 사양: 형식은 유효하나 tracker.delivery 미지원인 택배사는 409 → 앱 딥링크 폴백 — 아직 미충족.
-  it.todo("QA-002: 미지원(형식 유효) 택배사를 409 CARRIER_UNSUPPORTED 로 거르고 딥링크 안내 (서버 지원목록 대조 부재)");
+    // 지원 택배사(8종)는 계속 201 — 회귀 없음.
+    const ok = await call("POST", "/shipments", {
+      deviceId: "dev-A",
+      json: { carrier: "kr.epost", tracking_no: "123456789012" },
+    });
+    expect(ok.status).toBe(201);
+  });
 
   // ── 4. 택배사 추정(app carrier.ts) 감사 ──
   // 추정 로직은 app 패키지라 여기서 실행 불가 — app/src/lib/carrier.test.ts 가 사양(자릿수별 후보 순서,
   // 정규화 재사용, 무효·빈 입력 → 빈 배열)을 전수 커버한다. 감사 결론: 추정 자체는 사양 충족.
-  // 잔여 갭(형식 유효하나 미지원/오추정 carrier 가 그대로 수락)은 서버측 QA-002 로 기록.
+  // 형식 유효하나 미지원/오추정 carrier 는 이제 서버 지원목록 대조로 409(QA-002 해소, 위 테스트).
 });

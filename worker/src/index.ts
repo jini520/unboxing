@@ -25,8 +25,22 @@ const MAX_ACTIVE_PER_DEVICE = 100;
 /** IP별 등록 레이트 throttle 윈도/상한 (ADR-008 silent throttle). device_id 순환 우회 방어. */
 const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_MAX_PER_WINDOW = 60;
-/** 택배사 id 형식(예: kr.cjlogistics). 명백히 잘못된 값만 거른다(실제 지원목록 대조는 후속). */
-const CARRIER_RE = /^[a-z]{2,}\.[a-z0-9_.-]+$/i;
+/**
+ * 자동 추적 지원 택배사(tracker.delivery carrierId). 미지원이면 409 CARRIER_UNSUPPORTED → 앱 딥링크 폴백(QA-002).
+ * 단일 출처는 앱 드롭다운 `app/src/lib/carrier.ts`의 CARRIERS — 두 곳을 같은 8종으로 동기화한다(드리프트 시 함께 갱신).
+ * 앱은 이 8종만 제시하므로 정상 경로에선 409 가 안 뜬다; 409 는 직접 API 호출·오추정 carrier 방어용(ADR-009).
+ * 등록 핫패스에서 외부 carriers() 동기 호출(subrequest/지연)을 피하려 코드 상수로 둔다(ARCHITECTURE).
+ */
+const SUPPORTED_CARRIERS = new Set([
+  "kr.cjlogistics",
+  "kr.epost",
+  "kr.hanjin",
+  "kr.lotte",
+  "kr.logen",
+  "kr.kdexp",
+  "kr.cupost",
+  "kr.coupangls",
+]);
 /** 국내 운송장: 공백·하이픈 제거 후 9~14자리 숫자 (app tracking.ts와 동일 규칙, 서버 재검증). */
 const TRACKING_RE = /^\d{9,14}$/;
 /** Expo 푸시 토큰 형식. */
@@ -221,7 +235,7 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   if (!carrier || !rawTracking) {
     throw new ApiError(400, "INVALID_BODY", "carrier·tracking_no가 필요해요");
   }
-  if (!CARRIER_RE.test(carrier)) {
+  if (!SUPPORTED_CARRIERS.has(carrier)) {
     throw new ApiError(409, "CARRIER_UNSUPPORTED", "자동 추적을 지원하지 않는 택배사예요");
   }
   const trackingNo = rawTracking.replace(/[\s-]/g, "");
