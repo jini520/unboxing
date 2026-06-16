@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "local-cache",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T20:36:44+0900",
+      "summary": "app/src/lib/cache.ts — 오프라인 읽기 캐시(ADR-014). KeyValueStore 추상화 + cacheShipments(list+now)·readCachedShipments(없으면 null)·clearCache·cacheStore(AsyncStorage 운영 어댑터). 목록 Shipment[](비개인 필드만)+cachedAt만 저장, 타임라인은 함수 시그니처상 미캐시(ADR-011), now 주입(Date.now 비호출). cache.test.ts 4 케이스(인메모리 KeyValueStore: 라운드트립·빈캐시 null·clear 후 null·now 주입). AsyncStorage(커뮤니티 모듈)는 jest.setup.js 공식 mock 등록. verify green(app 29 tests).",
+      "completed_at": "2026-06-16T20:40:44+0900"
     },
     {
       "step": 4,
