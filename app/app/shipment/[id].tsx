@@ -16,26 +16,18 @@ import {
 } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as Crypto from "expo-crypto";
 import {
   ApiError,
   deleteShipment,
   getShipment,
-  type ApiDeps,
   type Shipment,
   type TimelineEvent,
 } from "../../src/lib/api";
+import { apiDeps } from "../../src/lib/deps";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
-import { deviceStorage, getDeviceId } from "../../src/lib/device";
 import { StageBadge } from "../../src/components/StageBadge";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
-
-const apiDeps: ApiDeps = {
-  fetch: (...args: Parameters<typeof fetch>) => fetch(...args),
-  getDeviceId: () =>
-    getDeviceId({ storage: deviceStorage, randomBytes: Crypto.getRandomBytes }),
-};
 
 /** 타임라인 로드 결과 구분 → 화면이 친근한 카피로 매핑(코드 비노출). */
 type TimelineState =
@@ -67,14 +59,16 @@ export default function DetailScreen() {
     }
   }, [id]);
 
-  // 캐시에서 단계 배지를 즉시 채운 뒤 실시간 조회.
+  // 실시간 조회를 캐시 읽기와 **동시에** 시작(타임라인 요청이 AsyncStorage I/O에 막히지 않게).
+  // 캐시 단계 배지는 실시간 조회가 아직 안 채웠을 때만 넣는다(prev ?? hit) — 신선한 값을 덮어쓰지 않음.
   useEffect(() => {
     let active = true;
+    const loadPromise = load();
     void (async () => {
       const cached = await readCachedShipments({ store: cacheStore });
       const hit = cached?.list.find((s) => s.id === id);
-      if (active && hit) setShipment(hit);
-      await load();
+      if (active && hit) setShipment((prev) => prev ?? hit);
+      await loadPromise;
     })();
     return () => {
       active = false;

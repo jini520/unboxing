@@ -9,11 +9,12 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
 /**
- * iso 시각과 now(ms epoch)의 차이를 친근한 상대 표기로. 1분 미만은 "방금".
- * 호출부가 맥락어를 붙인다(예: "마지막 업데이트 · {relative}"). 파싱 불가/미래는 "방금".
+ * 시각(epoch ms 또는 ISO 문자열)과 now(ms epoch)의 차이를 친근한 상대 표기로. 1분 미만은 "방금".
+ * epoch ms 를 직접 받으면 ISO 왕복(new Date().toISOString())이 불필요하고, createdAt 이 비어도
+ * 안전하다(Date 생성 시 RangeError 회피). 호출부가 맥락어를 붙인다. 파싱 불가/미래/누락은 "방금".
  */
-export function relativeTime(iso: string, now: number): string {
-  const t = Date.parse(iso);
+export function relativeTime(input: number | string, now: number): string {
+  const t = typeof input === "number" ? input : Date.parse(input);
   if (Number.isNaN(t)) return "방금";
   const diff = now - t;
   if (diff < MINUTE) return "방금";

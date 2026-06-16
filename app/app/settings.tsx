@@ -9,15 +9,15 @@
  * - 광고성/마케팅 알림 설정은 두지 않는다(ADR-018 거래성만). 색은 토큰만(삭제=예외 색).
  */
 import { useCallback, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
-import * as Crypto from "expo-crypto";
-import { deleteMe, registerDevice, type ApiDeps } from "../src/lib/api";
+import { deleteMe, registerDevice } from "../src/lib/api";
+import { apiDeps, PLATFORM } from "../src/lib/deps";
 import { cacheStore, clearCache } from "../src/lib/cache";
-import { deleteDeviceId, deviceStorage, getDeviceId } from "../src/lib/device";
+import { deleteDeviceId, deviceStorage } from "../src/lib/device";
 import { pushDeps, registerForPush } from "../src/lib/push";
 import { wipeAllData } from "../src/lib/wipe";
 import { useTheme } from "../src/theme/ThemeProvider";
@@ -25,14 +25,6 @@ import type { ThemePreference } from "../src/theme/tokens";
 
 /** 개인정보처리방침(한글) URL — 스토어 제출 필수. 실제 URL은 배포 시 확정(ARCHITECTURE 스토어 정책). */
 const PRIVACY_POLICY_URL = "https://unboxing.app/privacy";
-
-const apiDeps: ApiDeps = {
-  fetch: (...args: Parameters<typeof fetch>) => fetch(...args),
-  getDeviceId: () =>
-    getDeviceId({ storage: deviceStorage, randomBytes: Crypto.getRandomBytes }),
-};
-
-const PLATFORM: "ios" | "android" = Platform.OS === "ios" ? "ios" : "android";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "system", label: "시스템 설정 따름" },
@@ -52,18 +44,22 @@ export default function SettingsScreen() {
   );
 
   // 알림: 허용이면 시스템 설정으로(앱에서 OS 권한 끌 수 없음), 미허용이면 요청(priming은 온보딩에서 선행).
+  // notifGranted state(비동기 로딩, 첫 탭 시 null 가능)에 의존하지 않고 **항상 최신 권한을 직접 확인**한다.
   const onNotif = () => {
-    if (notifGranted) {
-      void Linking.openSettings();
-      return;
-    }
     void (async () => {
       try {
+        const perm = await pushDeps.getPermissions();
+        if (perm.granted) {
+          setNotifGranted(true);
+          void Linking.openSettings();
+          return;
+        }
         const result = await registerForPush(pushDeps);
         if ("token" in result) {
           await registerDevice(result.token, PLATFORM, apiDeps);
           setNotifGranted(true);
         } else {
+          setNotifGranted(false);
           void Linking.openSettings(); // 거부 — 시스템 설정에서만 켤 수 있음.
         }
       } catch {
@@ -79,6 +75,17 @@ export default function SettingsScreen() {
         clearCache: () => clearCache({ store: cacheStore }),
         deleteDeviceId: () => deleteDeviceId({ storage: deviceStorage }),
       });
+      // device_id 가 폐기됐다 — 다음 api 호출이 새 device_id 를 생성한다(getDeviceId 멱등).
+      // OS 권한이 남아 있으면 새 device_id 에 push_token 을 즉시 재등록한다(앱 재시작 전까지 푸시 누락 방지).
+      try {
+        const perm = await pushDeps.getPermissions();
+        if (perm.granted) {
+          const result = await registerForPush(pushDeps); // 이미 허용 상태 → 팝업 없음.
+          if ("token" in result) await registerDevice(result.token, PLATFORM, apiDeps);
+        }
+      } catch {
+        // 재등록 실패는 조용히 — 다음 앱 재시작 시 usePushNotifications 가 재시도.
+      }
       router.replace("/"); // 복구 불가 — 빈 상태로 복귀.
     } catch {
       Alert.alert("삭제하지 못했어요", "잠시 후 다시 시도해 주세요");

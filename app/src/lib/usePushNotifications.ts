@@ -6,11 +6,9 @@
  *   priming 후의 최초 권한 요청은 온보딩(가치 시점)에서 registerForPush 로 한다 — 여기선 팝업 금지.
  */
 import { useEffect } from "react";
-import { Platform } from "react-native";
 import { router } from "expo-router";
-import * as Crypto from "expo-crypto";
-import { registerDevice, type ApiDeps } from "./api";
-import { deviceStorage, getDeviceId } from "./device";
+import { registerDevice } from "./api";
+import { apiDeps, PLATFORM } from "./deps";
 import {
   addNotificationResponseListener,
   configureForegroundHandler,
@@ -20,13 +18,6 @@ import {
   routeForNotification,
 } from "./push";
 
-const apiDeps: ApiDeps = {
-  fetch: (...args: Parameters<typeof fetch>) => fetch(...args),
-  getDeviceId: () => getDeviceId({ storage: deviceStorage, randomBytes: Crypto.getRandomBytes }),
-};
-
-const PLATFORM: "ios" | "android" = Platform.OS === "ios" ? "ios" : "android";
-
 export function usePushNotifications(): void {
   useEffect(() => {
     configureForegroundHandler();
@@ -35,11 +26,15 @@ export function usePushNotifications(): void {
 
   useEffect(() => {
     void (async () => {
-      const perm = await pushDeps.getPermissions();
-      if (!perm.granted) return; // 미허용이면 팝업 없이 종료(온보딩에서 priming 후 요청).
-      const result = await registerForPush(pushDeps);
-      if ("denied" in result) return;
-      await registerDevice(result.token, PLATFORM, apiDeps);
+      try {
+        const perm = await pushDeps.getPermissions();
+        if (!perm.granted) return; // 미허용이면 팝업 없이 종료(온보딩에서 priming 후 요청).
+        const result = await registerForPush(pushDeps);
+        if ("denied" in result) return;
+        await registerDevice(result.token, PLATFORM, apiDeps);
+      } catch {
+        // 오프라인/401/5xx 등 토큰 갱신·등록 실패는 조용히 무시(미처리 rejection 방지). 알림만 비활성.
+      }
     })();
   }, []);
 

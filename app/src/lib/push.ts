@@ -48,7 +48,9 @@ export async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
   await Notifications.setNotificationChannelAsync(DELIVERY_CHANNEL_ID, {
     name: "배송 상태",
-    importance: Notifications.AndroidImportance.DEFAULT,
+    // HIGH: 배송출발·배송완료는 즉시 확인 가치가 큰 거래성 알림이라 heads-up 배너로 띄운다.
+    // (DEFAULT는 배너 없이 알림함에만 쌓여 핵심 알림이 묻힌다.)
+    importance: Notifications.AndroidImportance.HIGH,
   });
 }
 

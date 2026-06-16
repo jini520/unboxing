@@ -16,11 +16,12 @@ import {
 } from "react-native";
 import { Stack, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import * as Crypto from "expo-crypto";
-import { ApiError, createShipment, type ApiDeps } from "../src/lib/api";
-import { deviceStorage, getDeviceId } from "../src/lib/device";
+import { ApiError, createShipment } from "../src/lib/api";
+import { apiDeps } from "../src/lib/deps";
+import { pushDeps } from "../src/lib/push";
 import {
   CARRIERS,
   estimateCarriers,
@@ -29,11 +30,19 @@ import {
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../src/lib/tracking";
 import { useTheme } from "../src/theme/ThemeProvider";
 
-const apiDeps: ApiDeps = {
-  fetch: (...args: Parameters<typeof fetch>) => fetch(...args),
-  getDeviceId: () =>
-    getDeviceId({ storage: deviceStorage, randomBytes: Crypto.getRandomBytes }),
-};
+/** 푸시 priming 안내를 이미 했는지 — 첫 등록 직후 1회만 온보딩으로 유도(반복 유도 금지). */
+const PRIMED_KEY = "unboxing.push_primed";
+
+/** 푸시 미허용 + 아직 안내 안 했으면 true(첫 등록 직후 온보딩 priming 대상). 실패 시 false. */
+async function shouldPrimePush(): Promise<boolean> {
+  try {
+    if (await AsyncStorage.getItem(PRIMED_KEY)) return false;
+    const perm = await pushDeps.getPermissions();
+    return !perm.granted;
+  } catch {
+    return false;
+  }
+}
 
 /** 등록 실패를 친근한 카피로 매핑(코드 비노출). unsupported 만 딥링크 폴백을 띄운다. */
 type RegError = "unsupported" | "rate" | "invalid" | "generic";
@@ -97,9 +106,16 @@ export default function RegisterScreen() {
     setError(null);
     try {
       await createShipment(selectedId, normalizeTrackingNumber(input), apiDeps);
-      // 성공/멱등 모두 목록으로. 목록은 포커스 복귀 시 재동기화한다.
-      if (router.canGoBack()) router.back();
-      else router.replace("/");
+      // 첫 등록 직후(가치 시점)에 푸시 미허용이면 온보딩(priming)으로 유도한다 — PRD 권한 온보딩.
+      // 이걸 안 하면 신규 사용자는 권한 팝업을 못 봐 '앱이 꺼져 있어도 푸시'가 동작하지 않는다. priming은 1회만.
+      if (await shouldPrimePush()) {
+        await AsyncStorage.setItem(PRIMED_KEY, "1");
+        router.replace("/onboarding"); // 온보딩이 끝나면 목록으로 돌아간다.
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/");
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setError("unsupported");
       else if (e instanceof ApiError && e.status === 429) setError("rate");
@@ -230,34 +246,33 @@ function CarrierList({
 }) {
   const { tokens } = useTheme();
   const recIds = new Set(candidates.map((c) => c.id));
-  const rest = CARRIERS.filter((c) => !recIds.has(c.id));
-
-  const Row = ({ c, recommended }: { c: CarrierCandidate; recommended: boolean }) => {
-    const isSel = c.id === selectedId;
-    return (
-      <Pressable
-        onPress={() => onChoose(c.id)}
-        style={[styles.row, { borderColor: tokens.border }]}
-        accessibilityRole="button"
-        accessibilityState={{ selected: isSel }}
-      >
-        <Text style={{ color: isSel ? tokens.stage.outForDelivery : tokens.text.body }}>
-          {c.name}
-          {recommended ? "  · 추천" : ""}
-        </Text>
-        {isSel && <Text style={{ color: tokens.stage.outForDelivery }}>✓</Text>}
-      </Pressable>
-    );
-  };
+  // 추천(추정 후보) 먼저, 나머지 택배사 순. 행은 중첩 컴포넌트 없이 직접 매핑한다 —
+  // render 안에서 컴포넌트를 정의하면 매 렌더 새 타입이 돼 모든 행이 remount 된다.
+  const rows = [
+    ...candidates.map((c) => ({ c, recommended: true })),
+    ...CARRIERS.filter((c) => !recIds.has(c.id)).map((c) => ({ c, recommended: false })),
+  ];
 
   return (
     <View>
-      {candidates.map((c) => (
-        <Row key={c.id} c={c} recommended />
-      ))}
-      {rest.map((c) => (
-        <Row key={c.id} c={c} recommended={false} />
-      ))}
+      {rows.map(({ c, recommended }) => {
+        const isSel = c.id === selectedId;
+        return (
+          <Pressable
+            key={c.id}
+            onPress={() => onChoose(c.id)}
+            style={[styles.row, { borderColor: tokens.border }]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isSel }}
+          >
+            <Text style={{ color: isSel ? tokens.stage.outForDelivery : tokens.text.body }}>
+              {c.name}
+              {recommended ? "  · 추천" : ""}
+            </Text>
+            {isSel && <Text style={{ color: tokens.stage.outForDelivery }}>✓</Text>}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

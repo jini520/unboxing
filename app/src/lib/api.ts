@@ -156,10 +156,11 @@ export async function getShipment(
   deps: ApiDeps,
 ): Promise<{ shipment: Shipment; timeline: TimelineEvent[] }> {
   const res = await request(`/shipments/${encodeURIComponent(id)}`, { method: "GET" }, deps);
-  const body = (await res.json()) as { shipment: RawShipment; timeline: TimelineEvent[] };
+  const body = (await res.json()) as { shipment: RawShipment; timeline?: TimelineEvent[] };
   return {
     shipment: toShipment(body.shipment),
-    timeline: body.timeline.map((e) => ({
+    // timeline 누락(upstream 실패 시 서버가 생략할 수 있음) → 빈 타임라인으로 안전 처리.
+    timeline: (body.timeline ?? []).map((e) => ({
       time: e.time,
       description: e.description,
       location: e.location,

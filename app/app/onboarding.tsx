@@ -4,22 +4,13 @@
  * "나중에"로 건너뛸 수 있다(강제 튜토리얼 금지). 광고성/마케팅 안내는 넣지 않는다.
  */
 import { useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as Crypto from "expo-crypto";
-import { registerDevice, type ApiDeps } from "../src/lib/api";
-import { deviceStorage, getDeviceId } from "../src/lib/device";
+import { registerDevice } from "../src/lib/api";
+import { apiDeps, PLATFORM } from "../src/lib/deps";
 import { pushDeps, registerForPush } from "../src/lib/push";
 import { useTheme } from "../src/theme/ThemeProvider";
-
-const apiDeps: ApiDeps = {
-  fetch: (...args: Parameters<typeof fetch>) => fetch(...args),
-  getDeviceId: () =>
-    getDeviceId({ storage: deviceStorage, randomBytes: Crypto.getRandomBytes }),
-};
-
-const PLATFORM: "ios" | "android" = Platform.OS === "ios" ? "ios" : "android";
 
 export default function OnboardingScreen() {
   const { tokens } = useTheme();

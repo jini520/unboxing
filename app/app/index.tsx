@@ -3,9 +3,10 @@
  * 빈 상태(가치 제안+등록 CTA)·오프라인 배너·정렬(진행 중 우선). 스와이프 삭제는 Undo 토스트로 되돌림(PRD).
  * 색은 토큰만. 서버 에러 코드/기술 메시지는 화면에 노출하지 않는다(PRD 톤).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -15,16 +16,14 @@ import {
 } from "react-native";
 import { useFocusEffect, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as Crypto from "expo-crypto";
 import {
   ApiError,
   deleteShipment,
   listShipments,
-  type ApiDeps,
   type Shipment,
 } from "../src/lib/api";
+import { apiDeps } from "../src/lib/deps";
 import { cacheShipments, cacheStore, readCachedShipments } from "../src/lib/cache";
-import { deviceStorage, getDeviceId } from "../src/lib/device";
 import { sortShipments } from "../src/lib/sort";
 import { relativeTime } from "../src/lib/time";
 import { ShipmentCard } from "../src/components/ShipmentCard";
@@ -32,18 +31,14 @@ import { useTheme } from "../src/theme/ThemeProvider";
 
 const UNDO_WINDOW_MS = 4000;
 
-const apiDeps: ApiDeps = {
-  fetch: (...args: Parameters<typeof fetch>) => fetch(...args),
-  getDeviceId: () =>
-    getDeviceId({ storage: deviceStorage, randomBytes: Crypto.getRandomBytes }),
-};
-
 export default function ListScreen() {
   const { tokens } = useTheme();
   const [shipments, setShipments] = useState<Shipment[] | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [offline, setOffline] = useState(false);
+  // 상대 시간 계산용 현재 시각 — sync 시에만 갱신해 카드 memo 가 매 렌더 깨지지 않게 한다.
+  const [now, setNow] = useState(() => Date.now());
 
   // 삭제 Undo: 낙관적으로 숨기고 창이 지나면 서버 반영(PRD). 한 번에 하나만.
   const [pending, setPending] = useState<Shipment | null>(null);
@@ -53,11 +48,17 @@ export default function ListScreen() {
   const sync = useCallback(async () => {
     try {
       const list = await listShipments(apiDeps);
-      const sorted = sortShipments(list);
+      // 삭제 대기(undo 창) 중인 항목은 서버에 아직 남아 있으므로 제외 — 새로고침/포커스 복귀가
+      // 방금 스와이프한 행을 되살리지 않도록 한다.
+      const pendingId = pendingRef.current?.id;
+      const visible = pendingId ? list.filter((s) => s.id !== pendingId) : list;
+      const sorted = sortShipments(visible);
+      const ts = Date.now();
       setShipments(sorted);
-      setLastUpdated(Date.now());
+      setLastUpdated(ts);
+      setNow(ts);
       setOffline(false);
-      await cacheShipments(sorted, { store: cacheStore, now: Date.now() });
+      await cacheShipments(sorted, { store: cacheStore, now: ts });
     } catch (e) {
       // NETWORK(오프라인)는 캐시 유지 + 배너. 그 외도 캐시를 유지하고 조용히(코드 비노출).
       if (e instanceof ApiError && e.code === "NETWORK") setOffline(true);
@@ -92,8 +93,9 @@ export default function ListScreen() {
     pendingRef.current = null;
     setPending(null);
     deleteShipment(s.id, apiDeps).catch(() => {
-      // 서버 삭제 실패 → 목록 복원(다음 새로고침이 서버 기준으로 재동기화).
+      // 서버 삭제 실패 → 목록 복원 + 안내(조용히 사라졌다 되돌아오는 혼란 방지).
       setShipments((prev) => (prev ? sortShipments([...prev, s]) : prev));
+      Alert.alert("삭제하지 못했어요", "잠시 후 다시 시도해 주세요");
     });
   }, []);
 
@@ -105,7 +107,7 @@ export default function ListScreen() {
   // 언마운트 시 대기 중 삭제를 즉시 반영(삭제 유실 방지).
   useEffect(() => flushPending, [flushPending]);
 
-  const requestDelete = useCallback(
+  const doDelete = useCallback(
     (s: Shipment) => {
       flushPending(); // 이전 대기분 먼저 확정.
       setShipments((prev) => prev?.filter((x) => x.id !== s.id) ?? prev);
@@ -114,6 +116,21 @@ export default function ListScreen() {
       timerRef.current = setTimeout(() => commitDelete(s), UNDO_WINDOW_MS);
     },
     [commitDelete, flushPending],
+  );
+
+  // 스와이프 → 확인 다이얼로그 → 확인 시 낙관 삭제 + Undo 토스트(UI_GUIDE "확인 다이얼로그 + Undo").
+  const requestDelete = useCallback(
+    (s: Shipment) => {
+      Alert.alert(
+        "삭제할까요?",
+        `${s.carrier} · …${s.trackingNo.slice(-4)} 을(를) 목록에서 지워요.`,
+        [
+          { text: "취소", style: "cancel" },
+          { text: "삭제", style: "destructive", onPress: () => doDelete(s) },
+        ],
+      );
+    },
+    [doDelete],
   );
 
   const undo = useCallback(() => {
@@ -131,7 +148,18 @@ export default function ListScreen() {
     setRefreshing(false);
   }, [sync]);
 
-  const now = Date.now();
+  // 안정적 renderItem — 목록 무관 상태(pending·refreshing) 변경 시 카드 재렌더 방지(memo와 결합).
+  const renderItem = useCallback(
+    ({ item }: { item: Shipment }) => (
+      <ShipmentCard
+        shipment={item}
+        now={now}
+        onPress={() => router.push(`/shipment/${item.id}`)}
+        onDelete={() => requestDelete(item)}
+      />
+    ),
+    [now, requestDelete],
+  );
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
@@ -149,7 +177,7 @@ export default function ListScreen() {
         </View>
         {lastUpdated !== null && (
           <Text style={[styles.freshness, { color: tokens.text.secondary }]}>
-            마지막 업데이트 {relativeTime(new Date(lastUpdated).toISOString(), now)}
+            마지막 업데이트 {relativeTime(lastUpdated, now)}
           </Text>
         )}
       </View>
@@ -178,14 +206,7 @@ export default function ListScreen() {
               tintColor={tokens.text.secondary}
             />
           }
-          renderItem={({ item }) => (
-            <ShipmentCard
-              shipment={item}
-              now={now}
-              onPress={() => router.push(`/shipment/${item.id}`)}
-              onDelete={() => requestDelete(item)}
-            />
-          )}
+          renderItem={renderItem}
         />
       )}
 

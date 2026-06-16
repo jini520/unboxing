@@ -30,6 +30,16 @@ describe("relativeTime", () => {
   it("파싱 불가 문자열은 '방금'", () => {
     expect(relativeTime("not-a-date", NOW)).toBe("방금");
   });
+
+  it("epoch ms(number) 도 직접 받는다(ISO 왕복 불필요)", () => {
+    expect(relativeTime(Date.parse("2026-06-16T11:58:00Z"), NOW)).toBe("2분 전");
+    expect(relativeTime(NOW, NOW)).toBe("방금");
+  });
+
+  it("누락(undefined)·NaN 은 '방금'으로 흡수(createdAt 비어도 크래시 없음)", () => {
+    expect(relativeTime(undefined as unknown as number, NOW)).toBe("방금");
+    expect(relativeTime(NaN, NOW)).toBe("방금");
+  });
 });
 
 describe("absoluteKST", () => {

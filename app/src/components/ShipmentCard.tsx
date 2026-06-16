@@ -4,7 +4,7 @@
  * 색은 토큰만(하드코딩 금지). 상태는 색 단독 금지 — StageBadge가 색+글리프+라벨로 표시.
  * 택배사 한글명 매핑은 등록(자동인식) step 소관 — 여기선 carrier id 를 그대로 표기.
  */
-import { useRef } from "react";
+import { memo, useRef } from "react";
 import {
   Animated,
   PanResponder,
@@ -32,7 +32,7 @@ const STAGE_SUMMARY: Record<Stage, string> = {
 
 const SWIPE_THRESHOLD = 80;
 
-export function ShipmentCard({
+function ShipmentCardBase({
   shipment,
   now,
   onPress,
@@ -55,18 +55,10 @@ export function ShipmentCard({
         translateX.setValue(Math.min(0, g.dx));
       },
       onPanResponderRelease: (_e, g) => {
-        if (g.dx < -SWIPE_THRESHOLD) {
-          Animated.timing(translateX, {
-            toValue: -400,
-            duration: 160,
-            useNativeDriver: true,
-          }).start(() => onDelete());
-        } else {
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: true,
-          }).start();
-        }
+        // 임계를 넘으면 제자리로 복귀시키고 삭제를 부모에 위임한다(부모가 확인 다이얼로그 → 확인 시 제거,
+        // 취소 시 카드는 이미 원위치라 그대로 유지 — UI_GUIDE "확인 다이얼로그 + Undo").
+        Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+        if (g.dx < -SWIPE_THRESHOLD) onDelete();
       },
     }),
   ).current;
@@ -96,7 +88,7 @@ export function ShipmentCard({
           <View style={styles.topRow}>
             <StageBadge stage={shipment.status} />
             <Text style={[styles.time, { color: tokens.text.secondary }]}>
-              {relativeTime(new Date(shipment.createdAt).toISOString(), now)}
+              {relativeTime(shipment.createdAt, now)}
             </Text>
           </View>
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
@@ -110,6 +102,9 @@ export function ShipmentCard({
     </View>
   );
 }
+
+/** memo: 목록 re-render(새로고침·undo 토스트 토글) 시 변경 없는 카드의 재렌더(PanResponder 재설정) 방지. */
+export const ShipmentCard = memo(ShipmentCardBase);
 
 const styles = StyleSheet.create({
   wrap: {

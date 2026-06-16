@@ -66,6 +66,14 @@ describe("Bearer 인증 (모든 요청)", () => {
   });
 });
 
+describe("getShipment — 방어", () => {
+  it("timeline 누락(upstream 실패 시 서버가 생략) → 빈 타임라인으로 안전 처리", async () => {
+    const d = deps(res(200, { shipment: rawShipment })); // timeline 필드 없음
+    const { timeline } = await getShipment("ship-1", d);
+    expect(timeline).toEqual([]);
+  });
+});
+
 describe("registerDevice", () => {
   it("POST /devices · body{push_token,platform} · {deviceId} 반환", async () => {
     const d = deps(res(200, { device_id: DEVICE_ID }));
