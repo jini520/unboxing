@@ -51,6 +51,17 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count        INTEGER NOT NULL
 );
 
+-- 조용시간(야간 KST 22–08) 보류 큐 (PRD 알림 정책) — 비긴급 단계 전환/안내를 보류했다가 아침 cron이 묶어 발송 후 삭제.
+-- 메시지 스냅샷(title·body)을 저장한다(아침에 재구성 안 함). 송장 삭제 시 FK CASCADE로 보류분도 자동 정리.
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id          TEXT PRIMARY KEY,
+  shipment_id TEXT REFERENCES shipments(id) ON DELETE CASCADE,  -- 송장 삭제 시 보류분 정리
+  push_token  TEXT NOT NULL,            -- 발송 대상(NULL 토큰은 적재 안 함)
+  title       TEXT,                     -- PushMessage 스냅샷
+  body        TEXT,                     -- PushMessage 스냅샷
+  created_at  INTEGER                   -- epoch ms (collapse 시 최신 판별·이월 순서)
+);
+
 -- shipments 예고 컬럼 (docs/ARCHITECTURE.md "예고 컬럼") — 신규 적용 시 1회만 실행
 ALTER TABLE shipments ADD COLUMN last_event_time INTEGER;            -- 마지막 이벤트 시각(신선도)
 ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0;  -- 외부 오류 백오프 카운트

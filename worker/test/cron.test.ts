@@ -7,7 +7,10 @@ import { runPollingBatch } from "../src/cron";
 // fakeFetch 가 tracker.delivery(token·graphql)와 Expo Push(send)를 URL로 분기해 응답한다.
 // (실네트워크 호출 없음. outboundService 차단과 무관 — 주입 fetch를 직접 쓴다.)
 
-const NOW = 1_700_000_000_000; // 고정 시계(epoch ms)
+// 고정 시계(epoch ms). 조용시간(step3, KST 22–08) 도입 후 발송 시각이 의미를 가지므로
+// 즉시 발송 기준 NOW 는 **주간(KST 12:00)** 으로 둔다. 야간 보류 검증은 NIGHT(KST 07:13)을 쓴다.
+const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (주간 — 조용시간 아님)
+const NIGHT = 1_700_000_000_000; // KST 2023-11-15 07:13 (야간/조용시간 — 보류 검증)
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
@@ -258,5 +261,75 @@ describe("cron — 배치 폴링", () => {
     expect(f.receiptsCalls).toBe(1);
     expect(await count("SELECT COUNT(*) AS c FROM devices WHERE push_token='ExponentPushToken[BBB]'")).toBe(0);
     expect(await count("SELECT COUNT(*) AS c FROM push_tickets")).toBe(0);
+  });
+
+  // ── 조용시간(step3, #7/QA-004): 야간 비긴급 보류 → 아침 묶음 발송 ──
+
+  it("야간 비긴급 전환은 보류(즉시 발송 0·큐 1), 주간 재실행이 플러시", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    // 야간(NIGHT) — 등록→배송출발(비긴급) → 보류. CAS 는 즉시 적용(보류는 발송 시점만 미룸).
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+    expect(f.sendCalls).toBe(0);
+    expect(await statusOf("S")).toBe("배송출발");
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
+
+    // 주간(NOW) — 재폴(동일 단계, 무전환) + 보류 큐 플러시로 발송 후 큐 비움.
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+    expect(f.sendCalls).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+  });
+
+  it("야간 긴급(배송완료) 전환은 보류 없이 즉시 발송", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "DELIVERED" });
+
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+
+    expect(f.sendCalls).toBe(1); // 긴급 → 야간에도 즉시
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S'")).toBe(0); // 완료 삭제
+  });
+
+  it("collapse: 한 송장 다중 보류 → 아침 플러시 시 최신 1건만 발송", async () => {
+    // 송장은 not-due(방금 폴링) → 재폴 없음. 야간 보류 3건을 직접 적재해 collapse 만 검증.
+    await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: NOW });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const bodies = ["등록 접수", "집화 수거", "배송출발 시작"];
+    for (let i = 0; i < bodies.length; i++) {
+      await env.DB.prepare(
+        "INSERT INTO notification_queue (id, shipment_id, push_token, title, body, created_at) " +
+          "VALUES (?, 'S', 'ExponentPushToken[AAA]', 't', ?, ?)",
+      )
+        .bind(`q${i}`, bodies[i], NOW - (bodies.length - i) * MINUTE)
+        .run();
+    }
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch }); // 주간 → 플러시
+
+    expect(f.graphqlCalls).toBe(0); // not-due → 재폴 없음
+    expect(f.sendCalls).toBe(1); // collapse → 1건만(과알림 방지)
+    expect(f.sentMessages).toHaveLength(1);
+    expect(f.sentMessages[0].body).toBe("배송출발 시작"); // 최신(created_at 최대)
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 버린 보류분 포함 전체 삭제
+  });
+
+  it("보류분의 송장 삭제 시 FK CASCADE 로 큐 행도 정리(죽은 토큰 발송 방지)", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: NOW });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    await env.DB.prepare(
+      "INSERT INTO notification_queue (id, shipment_id, push_token, title, body, created_at) " +
+        "VALUES ('q0', 'S', 'ExponentPushToken[AAA]', 't', 'b', ?)",
+    )
+      .bind(NOW)
+      .run();
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
+
+    await env.DB.prepare("DELETE FROM shipments WHERE id = 'S'").run();
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // CASCADE
   });
 });

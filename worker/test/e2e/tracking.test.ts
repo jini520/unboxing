@@ -21,6 +21,22 @@ const HOUR = 3_600_000;
 const MINUTE = 60_000;
 const DAY = 24 * HOUR;
 
+/**
+ * base 를 KST 정오(주간)로 스냅 — 조용시간(step3, KST 22–08) 회피. 즉시 발송 단언의 결정성 확보
+ * (실 벽시계 now 는 CI 가 야간에 돌면 비긴급 알림이 보류돼 flaky). age 는 base 와 같은 날이라 keep 범위.
+ */
+function daytime(base: number): number {
+  const kst = new Date(base + 9 * HOUR);
+  kst.setUTCHours(12, 0, 0, 0);
+  return kst.getTime() - 9 * HOUR;
+}
+/** base 를 KST 02:00(야간/조용시간)로 스냅 — 보류 검증용. */
+function nighttime(base: number): number {
+  const kst = new Date(base + 9 * HOUR);
+  kst.setUTCHours(2, 0, 0, 0);
+  return kst.getTime() - 9 * HOUR;
+}
+
 /** 주입용 fake fetch — tracker(token·graphql)·Expo(send·getReceipts)를 URL 로 분기. 상태는 cron 실행 사이에 바꿀 수 있다. */
 interface Fake {
   fetch: typeof fetch;
@@ -125,7 +141,9 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     await registerDevice("dev-A", TOKEN_A);
     const id = await registerShipment("dev-A", "123456789012");
     const f = makeFetch();
-    let clock = Date.now(); // 등록 직후 base → created_at 과 정합(lifecycle keep)
+    // base 는 주간(KST 정오) 고정 — 조용시간 보류로 단계별 발송 단언이 깨지지 않게(결정성). created_at 과 정합(lifecycle keep).
+    // 단계 진행은 +1 DAY 로(모든 due 간격 충족 + KST 시각이 정오로 유지돼 항상 주간). 6일 진행이라 7일 만료엔 안 걸린다.
+    let clock = daytime(Date.now());
     const run = () => runPollingBatch(env, { now: clock, fetch: f.fetch });
 
     // 데이터 없음(미등록) — 무알림, 단계 변화 없음(저장 NULL 유지).
@@ -135,41 +153,41 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(await statusOf(id)).toBe(null);
 
     // 등록 — 폴링이 데이터를 '처음 잡은' 시점에 최초 알림.
-    clock += 7 * HOUR;
+    clock += DAY;
     f.status = "INFORMATION_RECEIVED";
     await run();
     expect(await statusOf(id)).toBe("등록");
     expect(f.sendCalls).toBe(1);
 
     // 집화 — 알림.
-    clock += 7 * HOUR;
+    clock += DAY;
     f.status = "AT_PICKUP";
     await run();
     expect(await statusOf(id)).toBe("집화");
     expect(f.sendCalls).toBe(2);
 
     // 이동중 — 무알림(타임라인만).
-    clock += 7 * HOUR;
+    clock += DAY;
     f.status = "IN_TRANSIT";
     await run();
     expect(await statusOf(id)).toBe("이동중");
     expect(f.sendCalls).toBe(2);
 
     // 배송출발 — 알림.
-    clock += 7 * HOUR;
+    clock += DAY;
     f.status = "OUT_FOR_DELIVERY";
     await run();
     expect(await statusOf(id)).toBe("배송출발");
     expect(f.sendCalls).toBe(3);
 
     // 동일 단계 재폴링 — CAS 0행 → 멱등 무발송(알림 신뢰성 핵심).
-    clock += 7 * HOUR;
+    clock += DAY;
     await run();
     expect(await statusOf(id)).toBe("배송출발");
     expect(f.sendCalls).toBe(3);
 
     // 배송완료 — 알림 후 shipment 삭제(CASCADE), 좀비(완료·active=1) 잔존 없음.
-    clock += 7 * HOUR;
+    clock += DAY;
     f.status = "DELIVERED";
     await run();
     expect(f.sendCalls).toBe(4);
@@ -193,7 +211,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
   it("배송출발 — 출발 이벤트가 KST 당일이면 '오늘 도착' 단정", async () => {
     await registerDevice("dev-A", TOKEN_A);
     await registerShipment("dev-A", "123456789012");
-    const now = Date.now();
+    const now = daytime(Date.now()); // 주간 고정 — 배송출발(비긴급)이 야간 보류로 가려지지 않게
     const f = makeFetch();
     f.status = "OUT_FOR_DELIVERY";
     f.eventTimeMs = now; // 동일 시각 → 같은 KST 일자
@@ -207,7 +225,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
   it("배송출발 — 출발 이벤트가 다른 날이면 '오늘 도착' 단정 안 함", async () => {
     await registerDevice("dev-A", TOKEN_A);
     await registerShipment("dev-A", "123456789012");
-    const now = Date.now();
+    const now = daytime(Date.now()); // 주간 고정 — 배송출발(비긴급)이 야간 보류로 가려지지 않게
     const f = makeFetch();
     f.status = "OUT_FOR_DELIVERY";
     f.eventTimeMs = now - 2 * DAY; // 이틀 전 → 다른 KST 일자
@@ -250,7 +268,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     await registerDevice("dev-A", TOKEN_A);
     await registerShipment("dev-A", "123456789012");
     const f = makeFetch();
-    const now = Date.now();
+    const now = daytime(Date.now()); // 주간 고정 — 등록(비긴급) 즉시 발송이 야간 보류로 막히지 않게
 
     // 1) 단계 전환 발송으로 push_tickets 생성.
     f.status = "INFORMATION_RECEIVED";
@@ -305,16 +323,48 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     const f = makeFetch();
     f.status = "INFORMATION_RECEIVED";
 
-    await runPollingBatch(env, { now: Date.now(), fetch: f.fetch });
+    await runPollingBatch(env, { now: daytime(Date.now()), fetch: f.fetch }); // 주간 고정(등록 즉시 발송)
 
     expect(f.sentMessages).toHaveLength(1);
     // 기대(사양)는 친근한 한글 택배사명. 현재는 carrierId 그대로. QA-006.
     expect(f.sentMessages[0].title).toContain("kr.cjlogistics");
   });
 
-  // ── PRD 알림 정책 갭(미구현) — 발견·기록만(QA_FINDINGS) ──
-  // 사양(PRD 알림 정책): 야간(KST 22–08)은 예외·배송완료 외 발송 보류 후 아침 묶음 — 미구현(즉시 발송).
-  it.todo("QA-004: 조용시간(야간 발송 보류·아침 묶음)이 없어 새벽에도 즉시 발송된다");
+  // ── QA-004(#7) 수정: 조용시간 야간 보류·아침 묶음 발송 ──
+  // 사양(PRD 알림 정책): 야간(KST 22–08)은 예외·배송완료 외 발송 보류 후 아침 묶음.
+  it("QA-004: 야간 비긴급 전환은 보류(즉시 발송 0·큐 1)·주간 재실행이 플러시", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const id = await registerShipment("dev-A", "123456789012");
+    const f = makeFetch();
+    const base = Date.now();
+
+    // 야간(KST 02:00) 등록 전환 — 비긴급이라 보류(즉시 발송 0, 큐 1). CAS 는 즉시(상태=등록).
+    f.status = "INFORMATION_RECEIVED";
+    await runPollingBatch(env, { now: nighttime(base), fetch: f.fetch });
+    expect(await statusOf(id)).toBe("등록");
+    expect(f.sendCalls).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
+
+    // 주간(KST 정오) 재실행 — 보류 큐 플러시로 발송, 큐 비워짐.
+    await runPollingBatch(env, { now: daytime(base), fetch: f.fetch });
+    expect(f.sendCalls).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+  });
+
+  it("QA-004: 야간 긴급(예외) 전환은 보류 없이 즉시 발송", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const id = await registerShipment("dev-A", "123456789012");
+    const f = makeFetch();
+    f.status = "EXCEPTION";
+
+    await runPollingBatch(env, { now: nighttime(Date.now()), fetch: f.fetch });
+
+    expect(await statusOf(id)).toBe("예외");
+    expect(f.sendCalls).toBe(1); // 긴급 → 야간에도 즉시
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+  });
+
+  // ── 나머지 PRD 알림 정책 갭(미구현) — 발견·기록만(QA_FINDINGS) ──
   // 사양(PRD UX·UI_GUIDE): 여러 송장 알림은 묶음/요약 — 미구현(개별 N건 발송).
   it.todo("QA-005: 알림 그룹화/요약이 없어 동시 전환 시 개별 푸시 N건 발송(과알림)");
   // 사양(PRD 마이크로카피): 사용자 노출 문구는 친근한 한글 택배사명(기술 id 비노출).

@@ -45,6 +45,14 @@ export const SCHEMA_STATEMENTS: string[] = [
   window_start INTEGER NOT NULL,
   count        INTEGER NOT NULL
 )`,
+  `CREATE TABLE IF NOT EXISTS notification_queue (
+  id          TEXT PRIMARY KEY,
+  shipment_id TEXT REFERENCES shipments(id) ON DELETE CASCADE,
+  push_token  TEXT NOT NULL,
+  title       TEXT,
+  body        TEXT,
+  created_at  INTEGER
+)`,
   `ALTER TABLE shipments ADD COLUMN last_event_time INTEGER`,
   `ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE shipments ADD COLUMN next_retry_at INTEGER`,

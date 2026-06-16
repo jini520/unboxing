@@ -372,8 +372,22 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
     .bind(deviceId)
     .all<{ shipment_id: string }>();
 
+  // 이 기기의 push_token 을 먼저 읽어 둔다 — receipt 대기/보류 버퍼의 토큰 사본까지 즉시 폐기하기 위함(ADR-017).
+  const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
+    .bind(deviceId)
+    .first<{ push_token: string | null }>();
+
   // device 삭제 → subscriptions CASCADE, push_token 도 함께 폐기.
   await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(deviceId).run();
+
+  // push_token 사본을 보유한 비-FK 테이블(receipt 대기 push_tickets·야간 보류 notification_queue)도 즉시 폐기
+  // (QA-008/#11) — devices 만 지우면 ~15분 sweep 까지 토큰이 잔존한다. ADR-017 "푸시 토큰 폐기"는 즉시·완전.
+  if (dev?.push_token) {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM push_tickets WHERE push_token = ?").bind(dev.push_token),
+      env.DB.prepare("DELETE FROM notification_queue WHERE push_token = ?").bind(dev.push_token),
+    ]);
+  }
 
   // 이 기기가 보던 송장 중 구독이 0이 된 orphan을 한 문장으로 정리(순차 루프 제거).
   const ids = results.map((r) => r.shipment_id);
