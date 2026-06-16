@@ -1,6 +1,7 @@
 node_modules/
 .DS_Store
 *.log
+.wrangler/
 
 # personal / local (not shared)
 .claude.local.md
