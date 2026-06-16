@@ -16,7 +16,7 @@
       "status": "completed",
       "started_at": "2026-06-16T17:57:49+0900",
       "summary": "normalize.ts: 원문 status.code → 표준 7단계 코드 상수 맵(STATUS_MAP)으로 정규화. 미매핑→'기타', null/undefined/\"\"→'미등록' 안전 폴백(throw 없음). Stage는 ./polling에서 import. normalize.test.ts로 전수+폴백 검증",
-      "completed_at": "2026-06-16T17:58:30+0900"
+      "completed_at": "2026-06-16T17:58:44+0900"
     },
     {
       "step": 2,
