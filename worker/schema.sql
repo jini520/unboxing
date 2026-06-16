@@ -1,4 +1,4 @@
--- unboxing D1 schema (Phase 1) — docs/design.md 데이터 모델
+-- unboxing D1 schema (Phase 1) — docs/ARCHITECTURE.md "데이터 모델"
 -- 적용: npx wrangler d1 execute unboxing --file=./schema.sql --remote
 
 CREATE TABLE IF NOT EXISTS devices (

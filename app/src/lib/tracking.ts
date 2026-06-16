@@ -1,4 +1,4 @@
-/** 운송장 번호 유틸 — 국내(Phase 1). docs/design.md "운송장 등록" */
+/** 운송장 번호 유틸 — 국내(Phase 1). docs/ARCHITECTURE.md "보안 & 공개 API 남용 방어"(운송장 검증) */
 
 /** 공백·하이픈 제거 (국내 운송장은 숫자). */
 export function normalizeTrackingNumber(raw: string): string {

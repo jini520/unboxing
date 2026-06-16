@@ -1,4 +1,4 @@
-/** 적응형 폴링 주기 — docs/design.md "적응형 폴링 주기" */
+/** 적응형 폴링 주기 — docs/ARCHITECTURE.md "적응형 폴링 + cron 실행 모델" */
 
 export type Stage =
   | "미등록"

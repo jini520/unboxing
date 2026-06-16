@@ -2,7 +2,7 @@
  * unboxing Worker
  *  - fetch:     Expo 앱용 HTTP API (송장 등록/조회/삭제)
  *  - scheduled: 15분 cron — 활성 송장 배치 폴링 → 상태 정규화 → Expo Push
- * 설계 기준: ../../docs/design.md
+ * 설계 기준: ../../docs/ARCHITECTURE.md
  */
 
 export interface Env {
