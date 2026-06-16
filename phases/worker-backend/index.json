@@ -45,7 +45,10 @@
     {
       "step": 5,
       "name": "push-pipeline",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-16T18:06:29+0900",
+      "summary": "push.ts: Expo Push 2단계 파이프라인(주입 fetch). buildMessage(stage,ctx)는 NOTIFYING_STAGES만 PushMessage 생성(title=택배사·끝4자리, body=PRD 단계 문구)·비알림 단계는 null·data.shipment_id 항상 포함. sendPush 배치 ≤100·getReceipts 배치 ≤1000 분할(요청단 한도), ticket 입력 순서 보존. EXPO_ACCESS_TOKEN 있으면 Bearer 헤더(없으면 생략). classifyPushError로 DeviceNotRegistered→DELETE_TOKEN/MessageRateExceeded→RETRY/MessageTooBig→SHRINK/Mismatch·Invalid→ALERT/그외 IGNORE. 토큰삭제·D1 부작용 없음(step7). push_token 무로그. push.test.ts로 100/1000 분할·순서·전수 에러·null·헤더 검증",
+      "completed_at": "2026-06-16T18:10:15+0900"
     },
     {
       "step": 6,
