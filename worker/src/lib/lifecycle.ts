@@ -18,9 +18,11 @@ export function lifecycleAction(input: { stage: Stage; createdAt: number; now: n
   const { stage, createdAt, now } = input;
   const age = now - createdAt;
 
+  // 미등록7일: 오타/잘못된 번호 의심 → '번호 확인' 안내 1회(PRD 플로우6 "7일 미수신 시 안내").
   if (stage === "미등록" && age >= SEVEN_DAYS_MS) {
-    return { type: "deactivate", reason: "미등록7일", notify: false };
+    return { type: "deactivate", reason: "미등록7일", notify: true };
   }
+  // 예외7일: 예외 진입 시 이미 예외 푸시를 1회 받았으므로 재안내는 같은 예외 2회 알림(과알림) → 조용히 비활성.
   if (stage === "예외" && age >= SEVEN_DAYS_MS) {
     return { type: "deactivate", reason: "예외7일", notify: false };
   }

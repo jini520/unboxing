@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "lifecycle-notice",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T05:39:36+0900",
+      "summary": "미등록7일 '번호 확인' 안내 1회 — lifecycle 미등록7일 notify:true + cron notifyCheckNumber(fanOut/deliver 중앙 경로 → step3 조용시간 적용 가능, NULL 토큰 제외 재사용). 예외7일은 정책상 안내 생략(이미 예외 푸시 1회 받음 — 과알림 방지). 비활성 후 active=0 → due 아님이라 정확히 1회(재폴링 무재발송). 데모 제외·30일 분실알림 불변. E2E now 주간(KST) 고정. fixes #10",
+      "completed_at": "2026-06-17T05:46:00+0900"
     },
     {
       "step": 3,

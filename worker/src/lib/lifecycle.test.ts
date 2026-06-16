@@ -13,11 +13,11 @@ describe("상수", () => {
 });
 
 describe("lifecycleAction (만료/좀비 판단)", () => {
-  it("미등록 7일 경과(경계 포함) → deactivate 미등록7일, notify:false", () => {
+  it("미등록 7일 경과(경계 포함) → deactivate 미등록7일, notify:true ('번호 확인' 안내)", () => {
     expect(lifecycleAction({ stage: "미등록", createdAt: NOW - 7 * DAY, now: NOW })).toEqual({
       type: "deactivate",
       reason: "미등록7일",
-      notify: false,
+      notify: true,
     });
   });
 

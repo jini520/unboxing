@@ -166,12 +166,18 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
     }
   }
 
-  // 7. 만료/좀비: createdAt 기준. deactivate면 active=0 (+notify면 '분실 의심' 푸시). 데모 번호는 분실 알림 제외.
+  // 7. 만료/좀비: createdAt 기준. deactivate면 active=0 (+notify면 운영성 안내 1회). 데모 번호는 안내 제외.
+  //    비활성 후엔 active=0 이라 due 대상이 아님 → 재폴링 없음 → 안내는 정확히 1회(멱등, 과알림 방지).
+  //    reason 별 안내 분기: 미등록7일='번호 확인'(오타/잘못된 번호), 분실의심30일='분실 의심'(별개 경로). 예외7일은 notify:false(조용히).
   const action = lifecycleAction({ stage: next, createdAt: row.created_at, now });
   if (action.type === "deactivate") {
     await env.DB.prepare("UPDATE shipments SET active = 0 WHERE id = ?").bind(row.id).run();
     if (action.notify && row.tracking_no !== env.DEMO_TRACKING_NUMBER) {
-      await notifyLost(env, deps, row);
+      if (action.reason === "미등록7일") {
+        await notifyCheckNumber(env, deps, row);
+      } else {
+        await notifyLost(env, deps, row);
+      }
     }
   }
 }
@@ -265,6 +271,17 @@ async function notifyTransition(
       nowMs: deps.now,
     }),
   );
+}
+
+/** '번호 확인'(미등록 7일) 안내 — 7일째 데이터 미수신(오타/잘못된 번호 의심). notifyLost 동형의 운영성 안내. */
+async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+  const last4 = row.tracking_no.slice(-4);
+  await fanOut(env, deps, row.id, (token) => ({
+    to: token,
+    title: `${row.carrier} · …${last4}`,
+    body: "운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요",
+    data: { shipment_id: row.id },
+  }));
 }
 
 /** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림이라 직접 구성. */
