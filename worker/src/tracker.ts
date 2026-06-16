@@ -196,7 +196,11 @@ function toEvent(raw: RawEvent | null | undefined): TrackEvent | null {
   };
 }
 
-/** 심사용 캔드 결과 — 외부 호출 없이 단계 진행(등록→이동중→배송출발)을 보여준다(ADR-019). */
+/**
+ * 심사용 캔드 결과 — 외부 호출 없이 단계 진행(등록→이동중→배송출발)을 보여준다(ADR-019).
+ * 잔존(M3, bounded 수용): 캔드가 '배송출발'에서 멈춰 60분마다 재폴링(외부 호출은 계속 우회)·30일 후 active=0.
+ * dedupe 로 데모 번호는 항상 1행이고 비활성 시 '분실 의심' 안내는 cron 데모 가드로 제외되므로 누적·비용은 한정적.
+ */
 function demoResult(now: number): TrackResult {
   const events: TrackEvent[] = [
     {
