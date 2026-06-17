@@ -205,6 +205,75 @@ describe("HTTP API — shipments", () => {
     expect(over.status).toBe(429);
   });
 
+  // ── PATCH /shipments/:id — 음소거 토글(ADR-020, step1) ──
+
+  async function createAndGetId(deviceId: string): Promise<string> {
+    const created = await createShipment(deviceId, "kr.cjlogistics", "123456789012");
+    const { shipment } = (await created.json()) as { shipment: { id: string } };
+    return shipment.id;
+  }
+
+  function patchMute(deviceId: string, id: string, body: unknown): Promise<Response> {
+    return SELF.fetch(`${BASE}/shipments/${id}`, {
+      method: "PATCH",
+      headers: { ...bearer(deviceId), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function mutedOf(deviceId: string, id: string): Promise<boolean> {
+    const res = await SELF.fetch(`${BASE}/shipments`, { headers: bearer(deviceId) });
+    const body = (await res.json()) as { shipments: { id: string; muted: boolean }[] };
+    return body.shipments.find((s) => s.id === id)!.muted;
+  }
+
+  it("PATCH /:id {muted:true} → 204, 이후 목록 muted=true; {muted:false} → false", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const id = await createAndGetId("dev-A");
+    expect(await mutedOf("dev-A", id)).toBe(false); // 기본 음소거 안 됨
+
+    expect((await patchMute("dev-A", id, { muted: true })).status).toBe(204);
+    expect(await mutedOf("dev-A", id)).toBe(true);
+
+    expect((await patchMute("dev-A", id, { muted: false })).status).toBe(204);
+    expect(await mutedOf("dev-A", id)).toBe(false);
+  });
+
+  it("PATCH 미소유 id → 404 (타 구독자 보호)", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    await registerDevice("dev-B", TOKEN_B);
+    const id = await createAndGetId("dev-A");
+    expect((await patchMute("dev-B", id, { muted: true })).status).toBe(404);
+    // A 의 음소거 상태는 안 바뀐다.
+    expect(await mutedOf("dev-A", id)).toBe(false);
+  });
+
+  it("PATCH 잘못된 바디({}·{muted:'x'}) → 400", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const id = await createAndGetId("dev-A");
+    expect((await patchMute("dev-A", id, {})).status).toBe(400);
+    expect((await patchMute("dev-A", id, { muted: "x" })).status).toBe(400);
+  });
+
+  it("PATCH {muted:true} 이중 호출 멱등(204·여전히 muted=1)", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const id = await createAndGetId("dev-A");
+    expect((await patchMute("dev-A", id, { muted: true })).status).toBe(204);
+    expect((await patchMute("dev-A", id, { muted: true })).status).toBe(204);
+    expect(await mutedOf("dev-A", id)).toBe(true);
+    expect(await count("subscriptions")).toBe(1); // 새 행 안 생김
+  });
+
+  it("한 송장 두 구독자 — 한쪽 음소거가 타 구독자에 무영향", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    await registerDevice("dev-B", TOKEN_B);
+    const id = await createAndGetId("dev-A");
+    expect((await createShipment("dev-B", "kr.cjlogistics", "123456789012")).status).toBe(201); // dedupe 동일 송장
+    expect((await patchMute("dev-A", id, { muted: true })).status).toBe(204);
+    expect(await mutedOf("dev-A", id)).toBe(true);
+    expect(await mutedOf("dev-B", id)).toBe(false); // B 는 그대로 켜짐
+  });
+
   it("Bearer 없음 → 401", async () => {
     const res = await SELF.fetch(`${BASE}/shipments`, {
       method: "POST",

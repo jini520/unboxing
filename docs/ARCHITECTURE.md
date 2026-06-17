@@ -51,7 +51,7 @@ unboxing/
 
 - `devices`: `id`(=secret device_id, PK), `push_token`(UNIQUE, **nullable** — 푸시 거부/미허용도 기기 등록, QA-001), `platform`(ios|android), `created_at`.
 - `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`, `status_changed_at`(현재 단계가 시작된 시각 — **단계 전환 시에만** 갱신, 폴링마다 ❌). `UNIQUE(carrier, tracking_no)` = dedupe 키.
-- `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거.
+- `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거. `muted`(1/0, DEFAULT 0): per-구독 알림 음소거 — 이 구독만 모든 푸시 제외(타 구독자 무영향, → ADR-020).
 - 인덱스 `idx_shipments_due (active, last_polled_at)` — due 조회용.
 
 **예고 컬럼 (구현 단계에서 추가, → 스키마 진화 섹션):**
@@ -80,7 +80,8 @@ unboxing/
 | `GET /shipments` | 내 송장 목록 + 정규화 상태 | — | `200 {shipments:[...]}` | `401` |
 | `GET /shipments/:id` | 상세 = 실시간 track 타임라인 (→ ADR-011) | — | `200 {shipment, timeline:[...]}` | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |
 
-- `shipment` 객체(목록·상세 공통)는 `id`·`carrier`·`tracking_no`·`status`·`active`·`created_at`·`status_changed_at`(현재 단계 시작 시각; 컬럼이 비면 `created_at` 으로 폴백)를 포함한다.
+- `shipment` 객체(목록·상세 공통)는 `id`·`carrier`·`tracking_no`·`status`·`active`·`created_at`·`status_changed_at`(현재 단계 시작 시각; 컬럼이 비면 `created_at` 으로 폴백)·`muted`(이 기기 구독의 음소거 여부, per-구독 — ADR-020)를 포함한다.
+| `PATCH /shipments/:id` | 이 기기 구독의 알림 음소거 토글 (per-구독, → ADR-020) | `{muted: boolean}` | `204` | `400 INVALID_BODY`, `401`, `404`(미소유). 레이트리밋 미적용 |
 | `DELETE /shipments/:id` | 구독 해제(마지막 구독이면 shipment도 정리) | — | `204` | `401`, `403 NOT_OWNER`, `404` |
 | `DELETE /me` | **모든 데이터 삭제** — device + 구독 + orphan 송장 + 푸시 토큰 폐기 (→ ADR-017, 스토어 정책) | — | `204` | `401` |
 | `POST /webhooks/track` | tracker.delivery 콜백 수신(웹훅 도입 시) | `{carrierId, trackingNumber}` (+서명) | `202` (1초 내) | 서명 불일치 `401`(조용히), 본문 오류 무시 |
@@ -266,6 +267,7 @@ unboxing/
 | 잘못된 JSON/필드 누락 | `400 INVALID_BODY` |
 | 형식 검증 실패(운송장 등) | `422 INVALID_TRACKING` |
 | 미인증/잘못된 device_id | `401 UNAUTHORIZED` |
+| 음소거 토글 바디 누락/`muted` 비-boolean (PATCH) | `400 INVALID_BODY` |
 | 타인 리소스 접근 | `403 NOT_OWNER`(또는 통일 404) |
 | 없는 리소스 | `404 NOT_FOUND` |
 | 중복 등록 | `200`(멱등, 기존 반환) |

@@ -1,7 +1,9 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { describe, it, expect, beforeEach } from "vitest";
-import { applySchema } from "./helpers";
+import { applySchema, bearer } from "./helpers";
 import { runPollingBatch } from "../src/cron";
+
+const BASE = "https://example.com";
 
 // cron 배치 폴링 통합 테스트 — now·fetch 주입으로 결정적.
 // fakeFetch 가 tracker.delivery(token·graphql)와 Expo Push(send)를 URL로 분기해 응답한다.
@@ -391,6 +393,54 @@ describe("cron — 배치 폴링", () => {
     expect(f.sentMessages).toHaveLength(1);
     expect(f.sentMessages[0].body).toBe("배송출발 시작"); // 최신(created_at 최대)
     expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 버린 보류분 포함 전체 삭제
+  });
+
+  // ── 음소거(step1, ADR-020): per-구독 알림 끄기 — 발송만 빠지고 추적은 계속 ──
+
+  it("음소거된 구독은 전환 푸시 제외 — B만 발송, 단계 CAS는 1회", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    await seedSubscriber("dev-B", "ExponentPushToken[BBB]", "S");
+    // A 만 음소거(구독 단위) — B 는 그대로.
+    await env.DB.prepare(
+      "UPDATE subscriptions SET muted = 1 WHERE device_id = 'dev-A' AND shipment_id = 'S'",
+    ).run();
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await statusOf("S")).toBe("배송출발"); // 음소거여도 단계 추적은 계속(CAS 1회)
+    expect(f.sendCalls).toBe(1);
+    expect(f.sentMessages).toHaveLength(1); // B 에게만
+    expect(f.sentMessages[0].to).toBe("ExponentPushToken[BBB]");
+  });
+
+  it("음소거 시 야간 보류분 정리 — 아침 플러시에서 음소거한 기기 제외", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    await seedSubscriber("dev-B", "ExponentPushToken[BBB]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    // 야간 — 등록→배송출발(비긴급) → A·B 둘 다 보류 적재(음소거 전).
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+    expect(f.sendCalls).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(2);
+
+    // A 가 음소거(PATCH) → A 의 보류분이 함께 정리된다(아침 flushQueue 누락 방지).
+    const patch = await SELF.fetch(`${BASE}/shipments/S`, {
+      method: "PATCH",
+      headers: { ...bearer("dev-A"), "Content-Type": "application/json" },
+      body: JSON.stringify({ muted: true }),
+    });
+    expect(patch.status).toBe(204);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1); // A 보류분 제거, B 만 잔존
+
+    // 아침(주간) 재실행 — 보류 큐 플러시. A 는 큐에서 빠졌고 재폴(동일 단계)도 무전환 → B 만 발송.
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+    expect(f.sendCalls).toBe(1);
+    expect(f.sentMessages).toHaveLength(1);
+    expect(f.sentMessages[0].to).toBe("ExponentPushToken[BBB]");
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
   });
 
   it("보류분의 송장 삭제 시 FK CASCADE 로 큐 행도 정리(죽은 토큰 발송 방지)", async () => {

@@ -246,11 +246,13 @@ async function casStage(
  * 송장 구독자들의 push_token (device_id·push_token은 로그 금지).
  * push_token IS NOT NULL 만 — 토큰이 nullable(QA-001) 이 된 뒤 토큰 없는 구독자에게
  * sendPush({to: null}) 로 오발송/에러 내지 않도록 거른다(C1 회귀 방지).
+ * sub.muted = 0 만 — 음소거한 구독은 모든 푸시(전환·운영성)에서 제외한다(ADR-020). 단계 추적(CAS)은
+ * 그대로 진행되고 발송만 빠진다 — 이 함수가 모든 알림 fan-out 의 단일 토큰 소스라 여기서 거르면 충분.
  */
 async function subscriberTokens(env: Env, shipmentId: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
     "SELECT d.push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id " +
-      "WHERE sub.shipment_id = ? AND d.push_token IS NOT NULL",
+      "WHERE sub.shipment_id = ? AND sub.muted = 0 AND d.push_token IS NOT NULL",
   )
     .bind(shipmentId)
     .all<{ push_token: string }>();

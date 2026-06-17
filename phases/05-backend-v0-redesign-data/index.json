@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "subscription-mute",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T20:09:04+0900",
+      "summary": "송장별 알림 음소거(per-구독, ADR-020 신설): subscriptions.muted 컬럼 추가(schema.sql↔schema.ts) · cron subscriberTokens 에 AND sub.muted=0(모든 fan-out에서 음소거 구독 제외, CAS 추적은 유지) · PATCH /shipments/:id {muted}(소유 확인·device_id+shipment_id WHERE·레이트리밋 미적용·음소거 시 야간 보류분 정리) · GET 목록/상세에 muted 노출 · ARCHITECTURE/ENGINEERING 갱신 · api·cron 테스트 추가(verify green).",
+      "completed_at": "2026-06-17T20:14:57+0900"
     },
     {
       "step": 2,

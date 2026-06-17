@@ -140,6 +140,19 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 - **backfill 안전**: 기존 행은 컬럼이 NULL 이 되지만 API 직렬화가 `status_changed_at ?? created_at` 으로 폴백하므로 backfill 없이도 안전하다(등록 시각을 단계 시작 시각으로 표시).
 - **신규 배포(아직 `shipments` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
 
+### 4. `subscriptions.muted` 신규 컬럼 (step1, ADR-020 송장별 음소거)
+
+- **변경**: `ALTER TABLE subscriptions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0` 추가(per-구독 알림 음소거, 1=음소거/0=켜짐). 기존 구독은 DEFAULT 0 으로 전부 알림 켜짐 유지(안전).
+- **주의**: status_changed_at(§3)과 동일 — `ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` throw → 기존 원격 `subscriptions` 에는 아래 명령을 **최초 1회만**. 단순 ADD COLUMN 이라 RENAME 전파(P-2) 이슈 없음.
+
+  ```bash
+  # worker/ 에서. 최초 1회만(재실행 시 duplicate column 에러).
+  npx wrangler d1 execute unboxing --remote --command "ALTER TABLE subscriptions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0"
+  ```
+
+- **NOT NULL+DEFAULT 0 안전**: SQLite 는 NOT NULL 컬럼도 DEFAULT 가 있으면 기존 행에 그 값을 채워 ADD COLUMN 이 성공한다.
+- **신규 배포(아직 `subscriptions` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
+
 ## 적용 후 확인
 
 ```bash
@@ -149,9 +162,11 @@ npx wrangler d1 execute unboxing --command="SELECT name FROM sqlite_master WHERE
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(devices)" --remote
 # shipments.status_changed_at 컬럼 존재 확인
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(shipments)" --remote
+# subscriptions.muted 컬럼 존재 확인(notnull=1, dflt=0)
+npx wrangler d1 execute unboxing --command="PRAGMA table_info(subscriptions)" --remote
 ```
 
-`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at` 컬럼이 보이면 적용 완료.
+`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at`·`subscriptions` 에 `muted` 컬럼이 보이면 적용 완료.
 
 ## 관련 문서
 

@@ -346,25 +346,28 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   return Response.json({ shipment: serializeShipment(shipment) }, { status: 201 });
 }
 
-/** GET /shipments — 내 송장 목록 + 정규화 상태. */
+/** GET /shipments — 내 송장 목록 + 정규화 상태 + 이 기기의 음소거 여부(per-구독, ADR-020). */
 async function handleListShipments(env: Env, deviceId: string): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
+    `SELECT ${shipmentCols("s")}, sub.muted FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE sub.device_id = ? ORDER BY s.created_at DESC",
   )
     .bind(deviceId)
-    .all<ShipmentRow>();
-  return Response.json({ shipments: results.map(serializeShipment) });
+    .all<ShipmentRow & { muted: number }>();
+  // muted 는 subscriptions 조인 컬럼이라 serializeShipment(shipments 전용) 밖에서 합친다.
+  return Response.json({
+    shipments: results.map((row) => ({ ...serializeShipment(row), muted: row.muted === 1 })),
+  });
 }
 
 /** GET /shipments/:id — 인가 확인 후 실시간 track 타임라인(best-effort, 미저장 ADR-011). */
 async function handleGetShipment(env: Env, deviceId: string, id: string): Promise<Response> {
   const row = await env.DB.prepare(
-    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
+    `SELECT ${shipmentCols("s")}, sub.muted FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE s.id = ? AND sub.device_id = ?",
   )
     .bind(id, deviceId)
-    .first<ShipmentRow>();
+    .first<ShipmentRow & { muted: number }>();
   // 미소유/없음 모두 404 로 통일(존재 누설 최소화).
   if (!row) throw new ApiError(404, "NOT_FOUND", "송장을 찾을 수 없어요");
 
@@ -377,7 +380,52 @@ async function handleGetShipment(env: Env, deviceId: string, id: string): Promis
         location: e.location,
       }))
     : [];
-  return Response.json({ shipment: serializeShipment(row), timeline });
+  return Response.json({ shipment: { ...serializeShipment(row), muted: row.muted === 1 }, timeline });
+}
+
+/**
+ * PATCH /shipments/:id — 이 기기 구독의 알림 음소거 토글 (ADR-020). 바디 `{ muted: boolean }`.
+ * per-구독(device_id+shipment_id) 단위라 같은 송장을 구독하는 다른 기기엔 영향 없다.
+ * 레이트리밋 미적용(등록 남용 방어와 무관·저위험). 음소거는 모든 푸시(전환·운영성)를 끄되 추적은 계속.
+ */
+async function handleMuteShipment(
+  env: Env,
+  request: Request,
+  deviceId: string,
+  id: string,
+): Promise<Response> {
+  const body = await parseBody(request);
+  if (typeof body.muted !== "boolean") {
+    throw new ApiError(400, "INVALID_BODY", "muted(boolean)가 필요해요");
+  }
+  const muted = body.muted;
+
+  // 인가/소유: 이 기기가 구독 중인 송장만(handleDeleteShipment 와 동일 패턴).
+  const owns = await env.DB.prepare(
+    "SELECT 1 FROM subscriptions WHERE shipment_id = ? AND device_id = ?",
+  )
+    .bind(id, deviceId)
+    .first();
+  if (!owns) throw new ApiError(404, "NOT_FOUND", "송장을 찾을 수 없어요");
+
+  // device_id + shipment_id 둘 다로 WHERE — 타 구독자 보호.
+  await env.DB.prepare("UPDATE subscriptions SET muted = ? WHERE device_id = ? AND shipment_id = ?")
+    .bind(muted ? 1 : 0, deviceId, id)
+    .run();
+
+  // 음소거 시: 이 기기의 야간 보류분 정리. 아침 flushQueue 는 subscriberTokens 를 거치지 않고 큐에서
+  // 직접 발송하므로, 음소거 이전에 적재된 분이 음소거 후에도 발송되는 누락을 막는다. 토큰 NULL 이면 보류분 없음.
+  if (muted) {
+    const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
+      .bind(deviceId)
+      .first<{ push_token: string | null }>();
+    if (dev?.push_token) {
+      await env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?")
+        .bind(id, dev.push_token)
+        .run();
+    }
+  }
+  return new Response(null, { status: 204 });
 }
 
 /** DELETE /shipments/:id — 구독 해제, 마지막 구독이면 orphan shipment 정리. */
@@ -464,6 +512,7 @@ export default {
         const id = segments[1];
         if (method === "GET") return await handleGetShipment(env, requireDeviceId(request), id);
         if (method === "DELETE") return await handleDeleteShipment(env, requireDeviceId(request), id);
+        if (method === "PATCH") return await handleMuteShipment(env, request, requireDeviceId(request), id);
       }
 
       if (pathname === "/me" && method === "DELETE") {
