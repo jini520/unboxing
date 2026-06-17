@@ -11,6 +11,14 @@ export default defineConfig({
       // 차단돼도 등록은 그대로 진행된다(미등록 상태로 생성).
       miniflare: {
         outboundService: () => new Response(null, { status: 503 }),
+        // tracker.delivery 자격증명을 빈 값으로 둬 등록 핫패스의 즉시 1회 track(tryTrack)을
+        // creds 가드(index.ts)로 단락 = 완전 no-op(외부 fetch·토큰 재시도 0). 폴링 테스트는
+        // 주입 mock fetch 가 토큰을 처리하므로 무관. (전역 fetch 바인딩 수정 후 등록 다건 시
+        // 실 outbound 시도가 누적돼 CI 가 5s 타임아웃 나던 회귀 방지.)
+        bindings: {
+          DELIVERY_TRACKER_CLIENT_ID: "",
+          DELIVERY_TRACKER_CLIENT_SECRET: "",
+        },
       },
     }),
   ],
