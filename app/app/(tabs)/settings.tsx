@@ -10,19 +10,19 @@
  */
 import { useCallback, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Stack, router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
-import { deleteMe, registerDevice } from "../src/lib/api";
-import { resetDeviceRegistered } from "../src/lib/bootstrap";
-import { apiDeps, PLATFORM } from "../src/lib/deps";
-import { cacheStore, clearCache } from "../src/lib/cache";
-import { deleteDeviceId, deviceStorage } from "../src/lib/device";
-import { pushDeps, registerForPush, registerPushIfGranted } from "../src/lib/push";
-import { wipeAllData } from "../src/lib/wipe";
-import { useTheme } from "../src/theme/ThemeProvider";
-import type { ThemePreference } from "../src/theme/tokens";
+import { deleteMe, registerDevice } from "../../src/lib/api";
+import { resetDeviceRegistered } from "../../src/lib/bootstrap";
+import { apiDeps, PLATFORM } from "../../src/lib/deps";
+import { cacheStore, clearCache } from "../../src/lib/cache";
+import { deleteDeviceId, deviceStorage } from "../../src/lib/device";
+import { pushDeps, registerForPush, registerPushIfGranted } from "../../src/lib/push";
+import { wipeAllData } from "../../src/lib/wipe";
+import { useTheme } from "../../src/theme/ThemeProvider";
+import type { ThemePreference } from "../../src/theme/tokens";
 
 /**
  * 개인정보처리방침(한글) URL — 스토어 제출 필수.
@@ -110,8 +110,7 @@ export default function SettingsScreen() {
   const version = Constants.expoConfig?.version ?? "—";
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
-      <Stack.Screen options={{ title: "설정" }} />
+    <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content}>
         {/* 알림 */}
         <Text style={[styles.section, { color: tokens.text.secondary }]}>알림</Text>

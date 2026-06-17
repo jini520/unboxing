@@ -8,6 +8,8 @@ function ship(p: Partial<Shipment> & Pick<Shipment, "id" | "status">): Shipment 
     trackingNo: "1234",
     active: true,
     createdAt: 0,
+    statusChangedAt: 0,
+    muted: false,
     ...p,
   };
 }

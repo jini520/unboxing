@@ -87,8 +87,8 @@ const RAW = {
 };
 
 const SHIPMENTS: Shipment[] = [
-  { id: "s1", carrier: "kr.cjlogistics", trackingNo: "1234", status: "배송출발", active: true, createdAt: 100 },
-  { id: "s2", carrier: "kr.epost", trackingNo: "5678", status: "배송완료", active: false, createdAt: 200 },
+  { id: "s1", carrier: "kr.cjlogistics", trackingNo: "1234", status: "배송출발", active: true, createdAt: 100, statusChangedAt: 100, muted: false },
+  { id: "s2", carrier: "kr.epost", trackingNo: "5678", status: "배송완료", active: false, createdAt: 200, statusChangedAt: 200, muted: false },
 ];
 
 // ── 여정 1: device_id 영속·재사용 → "내 송장만" 자격 일관성(ADR-007) ───────────────────────

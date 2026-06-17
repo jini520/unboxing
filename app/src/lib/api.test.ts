@@ -7,6 +7,7 @@ import {
   getShipment,
   deleteShipment,
   deleteMe,
+  muteShipment,
   ApiError,
   type ApiDeps,
 } from "./api";
@@ -118,6 +119,9 @@ describe("createShipment", () => {
       status: "배송출발",
       active: true,
       createdAt: 1700000000000,
+      // 필드 누락 폴백: statusChangedAt=createdAt, muted=false.
+      statusChangedAt: 1700000000000,
+      muted: false,
     });
   });
 
@@ -162,6 +166,50 @@ describe("getShipment", () => {
     expect(out.timeline).toEqual([
       { time: "2026-06-16T10:00:00+09:00", description: "출발", location: "서울" },
     ]);
+  });
+});
+
+describe("phase 05 필드 매핑 (status_changed_at·muted·recipient)", () => {
+  it("status_changed_at·muted 가 있으면 그대로 매핑한다", async () => {
+    const d = deps(
+      res(200, {
+        shipments: [{ ...rawShipment, status_changed_at: 1700000111111, muted: true }],
+      }),
+    );
+    const out = await listShipments(d);
+    expect(out[0].statusChangedAt).toBe(1700000111111);
+    expect(out[0].muted).toBe(true);
+  });
+
+  it("status_changed_at 누락 → createdAt 폴백, muted 누락 → false (구버전 서버)", async () => {
+    const d = deps(res(200, { shipments: [rawShipment] }));
+    const out = await listShipments(d);
+    expect(out[0].statusChangedAt).toBe(rawShipment.created_at);
+    expect(out[0].muted).toBe(false);
+  });
+
+  it("getShipment: recipient{name,regionName} 패스스루", async () => {
+    const d = deps(
+      res(200, { shipment: rawShipment, recipient: { name: "홍**", regionName: "서울 강남" } }),
+    );
+    const out = await getShipment("ship-1", d);
+    expect(out.recipient).toEqual({ name: "홍**", regionName: "서울 강남" });
+  });
+
+  it("getShipment: recipient 누락/null → null(앱이 섹션 숨김)", async () => {
+    const d = deps(res(200, { shipment: rawShipment }));
+    const out = await getShipment("ship-1", d);
+    expect(out.recipient).toBeNull();
+  });
+});
+
+describe("muteShipment", () => {
+  it("PATCH /shipments/:id · body{muted} · 204", async () => {
+    const d = deps(res(204));
+    await expect(muteShipment("ship-1", true, d)).resolves.toBeUndefined();
+    expect(d.calls[0].url).toBe(`${BASE}/shipments/ship-1`);
+    expect(d.calls[0].init.method).toBe("PATCH");
+    expect(JSON.parse(d.calls[0].init.body as string)).toEqual({ muted: true });
   });
 });
 

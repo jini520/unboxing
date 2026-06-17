@@ -14,7 +14,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ApiError,
@@ -106,7 +106,6 @@ export default function DetailScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
-      <Stack.Screen options={{ title: "배송 상세" }} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
