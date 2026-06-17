@@ -18,6 +18,7 @@ import { deleteMe, registerDevice } from "../../src/lib/api";
 import { resetDeviceRegistered } from "../../src/lib/bootstrap";
 import { apiDeps, PLATFORM } from "../../src/lib/deps";
 import { cacheStore, clearCache } from "../../src/lib/cache";
+import { clearMemos, memoStore } from "../../src/lib/memo";
 import { deleteDeviceId, deviceStorage } from "../../src/lib/device";
 import { pushDeps, registerForPush, registerPushIfGranted } from "../../src/lib/push";
 import { wipeAllData } from "../../src/lib/wipe";
@@ -72,6 +73,7 @@ export default function SettingsScreen() {
       await wipeAllData({
         deleteMe: () => deleteMe(apiDeps),
         clearCache: () => clearCache({ store: cacheStore }),
+        clearMemos: () => clearMemos({ store: memoStore }),
         deleteDeviceId: () => deleteDeviceId({ storage: deviceStorage }),
       });
       // device_id 가 폐기됐다 — 다음 api 호출이 새 device_id 를 생성한다(getDeviceId 멱등).

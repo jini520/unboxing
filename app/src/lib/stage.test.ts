@@ -45,12 +45,18 @@ describe("STAGE_STATUS_MESSAGE", () => {
     }
   });
 
-  it("happy-path 단계는 지정된 친절 문구로 매핑된다", () => {
-    expect(STAGE_STATUS_MESSAGE["등록"]).toBe("물품을 인수받았습니다");
-    expect(STAGE_STATUS_MESSAGE["집화"]).toBe("상품이 집화되었습니다");
-    expect(STAGE_STATUS_MESSAGE["이동중"]).toBe("물건이 이동 중입니다");
-    expect(STAGE_STATUS_MESSAGE["배송출발"]).toBe("배송을 출발하였습니다");
-    expect(STAGE_STATUS_MESSAGE["배송완료"]).toBe("배송이 완료되었습니다");
+  it("happy-path 단계는 간결한 친절 문구로 매핑된다(명사는 '상품' 통일)", () => {
+    expect(STAGE_STATUS_MESSAGE["등록"]).toBe("상품 접수");
+    expect(STAGE_STATUS_MESSAGE["집화"]).toBe("상품 집화");
+    expect(STAGE_STATUS_MESSAGE["이동중"]).toBe("이동 중");
+    expect(STAGE_STATUS_MESSAGE["배송출발"]).toBe("배송 출발");
+    expect(STAGE_STATUS_MESSAGE["배송완료"]).toBe("배송 완료");
+  });
+
+  it("명사는 '물품'·'물건' 없이 '상품'으로만 통일한다", () => {
+    for (const m of Object.values(STAGE_STATUS_MESSAGE)) {
+      expect(m).not.toMatch(/물품|물건/);
+    }
   });
 
   it("STAGE_SUMMARY 도 모든 단계를 덮는다(목록 카드용)", () => {

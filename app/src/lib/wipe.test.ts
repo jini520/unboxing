@@ -11,11 +11,14 @@ describe("wipeAllData", () => {
       clearCache: async () => {
         calls.push("clearCache");
       },
+      clearMemos: async () => {
+        calls.push("clearMemos");
+      },
       deleteDeviceId: async () => {
         calls.push("deleteDeviceId");
       },
     });
-    expect(calls).toEqual(["deleteMe", "clearCache", "deleteDeviceId"]);
+    expect(calls).toEqual(["deleteMe", "clearCache", "clearMemos", "deleteDeviceId"]);
   });
 
   it("서버 삭제 실패 시 로컬은 보존하고(재시도 가능) 에러를 전파한다", async () => {
@@ -27,6 +30,9 @@ describe("wipeAllData", () => {
       },
       clearCache: async () => {
         calls.push("clearCache");
+      },
+      clearMemos: async () => {
+        calls.push("clearMemos");
       },
       deleteDeviceId: async () => {
         calls.push("deleteDeviceId");

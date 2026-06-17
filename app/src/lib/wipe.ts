@@ -11,6 +11,8 @@ export interface WipeDeps {
   deleteMe: () => Promise<void>;
   /** 로컬 오프라인 캐시 폐기. */
   clearCache: () => Promise<void>;
+  /** 로컬 메모 폐기. */
+  clearMemos: () => Promise<void>;
   /** 저장된 device_id 폐기. */
   deleteDeviceId: () => Promise<void>;
 }
@@ -18,5 +20,6 @@ export interface WipeDeps {
 export async function wipeAllData(deps: WipeDeps): Promise<void> {
   await deps.deleteMe();
   await deps.clearCache();
+  await deps.clearMemos();
   await deps.deleteDeviceId();
 }

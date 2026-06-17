@@ -29,6 +29,7 @@ import {
 } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
 import { cacheShipments, cacheStore, readCachedShipments } from "../../src/lib/cache";
+import { loadMemos, memoStore, pruneMemos, type MemoMap } from "../../src/lib/memo";
 import { sortShipments } from "../../src/lib/sort";
 import { allSelected, pruneSelected, selectAll, toggleSelected } from "../../src/lib/selection";
 import { relativeTime } from "../../src/lib/time";
@@ -48,6 +49,8 @@ export default function ListScreen() {
   // 상대 시간 계산용 현재 시각 — sync 시에만 갱신해 카드 memo 가 매 렌더 깨지지 않게 한다.
   const [now, setNow] = useState(() => Date.now());
   const [reduceMotion, setReduceMotion] = useState(false);
+  // 운송장별 메모(로컬 전용) — 카드에 표시. 상세에서 편집 → 포커스 복귀 시 재로드.
+  const [memos, setMemos] = useState<MemoMap>({});
 
   // 멀티선택: 선택 모드는 명시적 플래그(롱프레스로 진입). **0개 선택이어도** 취소/뒤로 전까진 유지된다.
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -94,6 +97,8 @@ export default function ListScreen() {
       setOffline(false);
       // 허상 선택 제거 — 갱신으로 사라진 id 는 선택에서 떨군다(선택 모드 중 다른 기기 삭제 등).
       setSelectedIds((prev) => (prev.size ? pruneSelected(prev, sorted.map((s) => s.id)) : prev));
+      // 삭제된 송장(서버 목록에 없음)의 메모 정리. 서버 목록(list)이 권위 — 미동기화분은 안 지운다.
+      setMemos(await pruneMemos(list.map((s) => s.id), { store: memoStore }));
       await cacheShipments(sorted, { store: cacheStore, now: ts });
     } catch (e) {
       // NETWORK(오프라인)는 캐시 유지 + 배너. 그 외도 캐시를 유지하고 조용히(코드 비노출).
@@ -110,6 +115,8 @@ export default function ListScreen() {
         setShipments(sortShipments(cached.list));
         setLastUpdated(cached.cachedAt);
       }
+      const memoMap = await loadMemos({ store: memoStore });
+      if (active) setMemos(memoMap);
       await sync();
     })();
     return () => {
@@ -117,10 +124,11 @@ export default function ListScreen() {
     };
   }, [sync]);
 
-  // 포커스 복귀 시 새로고침(상세에서 삭제하고 돌아온 경우 등).
+  // 포커스 복귀 시 새로고침(상세에서 삭제하고 돌아온 경우 등) + 메모 재로드(상세에서 메모 편집 반영).
   useFocusEffect(
     useCallback(() => {
       void sync();
+      void loadMemos({ store: memoStore }).then(setMemos);
     }, [sync]),
   );
 
@@ -245,6 +253,7 @@ export default function ListScreen() {
       <ShipmentCard
         shipment={item}
         now={now}
+        memo={memos[item.id]}
         selectionMode={selectionMode}
         selected={selectedIds.has(item.id)}
         reduceMotion={reduceMotion}
@@ -255,7 +264,7 @@ export default function ListScreen() {
         onToggleMute={() => toggleMute(item)}
       />
     ),
-    [now, selectionMode, selectedIds, reduceMotion, enterSelect, toggleSelect, doDelete, toggleMute],
+    [now, memos, selectionMode, selectedIds, reduceMotion, enterSelect, toggleSelect, doDelete, toggleMute],
   );
 
   const allOn = shipments ? allSelected(selectedIds, shipments.map((s) => s.id)) : false;

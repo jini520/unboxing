@@ -313,18 +313,22 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
       const ev = result.lastEvent ?? result.events[result.events.length - 1];
       const immediate = normalizeStatus(ev?.statusCode);
       shipment.last_normalized_status = immediate; // 응답 표시용
-      // 비종료 단계만 저장(목록 즉시 표시). last_polled_at 은 NULL 유지 → cron 다음 틱에 재폴링해
-      // 전환을 잡는다(등록 시점 단계는 prev==stored 라 무알림 — 이후 변화만 알림).
-      // 배송완료(종료)는 저장하지 않는다: cron 첫 폴링이 미등록→배송완료 전환을 잡아 알림 후 삭제(ADR-005).
-      if (immediate !== "미등록" && immediate !== "배송완료") {
+      // 조회된 단계를 **DB에도 저장**해 목록이 등록 직후 실제 상태를 보인다(미등록만 제외).
+      // 등록 시점 단계는 prev==stored 라 무알림 — 이후 변화만 cron 이 알림으로 잡는다.
+      // **배송완료(종료)도 저장**한다: 이미 배송완료된 송장을 등록하면 미등록이 아니라 배송완료로 보여야 함.
+      //   이 경우 active=0 으로 두어 재폴링을 멈춘다(등록 자체는 전환 알림 대상 아님 — 방금 사용자가 추가).
+      //   (cron 미실행 환경[로컬 dev]에서 미등록으로 고착되던 버그 수정.)
+      if (immediate !== "미등록") {
         // status_changed_at 도 그 이벤트 시각으로 갱신(없으면 now). 단계를 처음 저장하는 시점.
         const parsed = ev?.time ? Date.parse(ev.time) : NaN;
         const changedAt = Number.isNaN(parsed) ? now : parsed;
+        const active = immediate === "배송완료" ? 0 : 1;
         shipment.status_changed_at = changedAt; // 응답·DB 일치
+        shipment.active = active;
         await env.DB.prepare(
-          "UPDATE shipments SET last_normalized_status = ?, status_changed_at = ? WHERE id = ?",
+          "UPDATE shipments SET last_normalized_status = ?, status_changed_at = ?, active = ? WHERE id = ?",
         )
-          .bind(immediate, changedAt, id)
+          .bind(immediate, changedAt, active, id)
           .run();
       }
     }

@@ -88,17 +88,28 @@ export function StageProgress({ stage }: { stage: Stage }) {
 
           return (
             <View key={s} style={styles.step}>
+              {/* 단계 아이콘 — 점 '위에'(점을 대체하지 않음). 현재=강조 색·크게. */}
+              <View style={styles.iconWrap}>
+                <StepIcon
+                  size={isCurrent ? 22 : 18}
+                  color={iconColor}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+              </View>
+              {/* 진행 트랙: 연결선 — 점 — 연결선 */}
               <View style={styles.nodeRow}>
                 <View
                   style={[styles.line, { backgroundColor: i === 0 ? "transparent" : lineColor(leftActive) }]}
                 />
                 <View style={styles.nodeBox}>
-                  <StepIcon
-                    size={isCurrent ? 24 : 20}
-                    color={iconColor}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no"
-                  />
+                  {isCurrent ? (
+                    <View style={[styles.dotCurrent, { backgroundColor: currentColor }]} />
+                  ) : isPast ? (
+                    <View style={[styles.dot, { backgroundColor: tokens.text.secondary }]} />
+                  ) : (
+                    <View style={[styles.dotOutline, { borderColor: tokens.text.disabled }]} />
+                  )}
                 </View>
                 <View
                   style={[styles.line, { backgroundColor: i === last ? "transparent" : lineColor(rightActive) }]}
@@ -136,21 +147,44 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
   },
+  // 아이콘 — 점 위. 고정 높이로 크기(18/22)가 달라도 점 정렬이 흐트러지지 않게.
+  iconWrap: {
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
   nodeRow: {
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "stretch",
     justifyContent: "center",
-    height: 28,
+    height: 14,
   },
   line: {
     flex: 1,
     height: 2,
   },
   nodeBox: {
-    width: 30,
+    width: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  dotCurrent: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  dotOutline: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
   },
   label: {
     fontSize: 11,

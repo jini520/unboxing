@@ -13,7 +13,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import type { Shipment } from "../lib/api";
 import { carrierName } from "../lib/carrier";
-import { STAGE_SUMMARY } from "../lib/stage";
 import { relativeTime } from "../lib/time";
 import { useTheme } from "../theme/ThemeProvider";
 import { Bell, BellOff, Check, Trash } from "./icons";
@@ -22,6 +21,7 @@ import { StageBadge } from "./StageBadge";
 function ShipmentCardBase({
   shipment,
   now,
+  memo,
   selectionMode,
   selected,
   reduceMotion,
@@ -33,6 +33,7 @@ function ShipmentCardBase({
 }: {
   shipment: Shipment;
   now: number;
+  memo?: string;
   selectionMode: boolean;
   selected: boolean;
   reduceMotion: boolean;
@@ -104,8 +105,12 @@ function ShipmentCardBase({
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
             {carrierName(shipment.carrier)} · {shipment.trackingNo}
           </Text>
-          <Text style={[styles.summary, { color: tokens.text.body }]}>
-            {STAGE_SUMMARY[shipment.status]}
+          {/* 메모(로컬) — 있으면 메모, 없으면 안내 문구(통일감 위해 항상 한 줄). */}
+          <Text
+            style={[styles.summary, { color: memo ? tokens.text.body : tokens.text.disabled }]}
+            numberOfLines={1}
+          >
+            {memo || "메모를 추가해 보세요"}
           </Text>
         </View>
       </View>
@@ -202,9 +207,10 @@ function ShipmentCardBase({
         friction={2}
         leftThreshold={28}
         rightThreshold={28}
-        // reduce motion: 오버슈트(바운스) 제거로 열림 애니메이션 축소(시스템 설정 존중).
-        overshootLeft={!reduceMotion}
-        overshootRight={!reduceMotion}
+        // overshoot 비활성 — 카드가 버튼 폭 이상으로 안 밀려 빈 틈이 안 생긴다(사용자 요구).
+        // reduce motion 과 무관하게 항상 끈다(시각적 안정·잘림 방지 우선).
+        overshootLeft={false}
+        overshootRight={false}
         renderLeftActions={renderMute} // 우측 스와이프 → 왼쪽 패널 = 음소거
         renderRightActions={renderDelete} // 좌측 스와이프 → 오른쪽 패널 = 삭제
         onSwipeableOpen={onOpen}
@@ -269,11 +275,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
-  // 스와이프로 드러나는 액션 버튼 — flex 로 드러난 영역을 꽉 채운다(과스와이프 시 잘려보임 방지).
-  // minWidth 96 로 스냅 폭·터치 타깃(≥44) 확보. 색은 토큰만(destructive=예외 색).
+  // 스와이프로 드러나는 액션 버튼 — 고정 폭 96(터치 타깃 ≥44). overshoot 비활성이라 카드가 버튼 폭
+  // 이상으로 밀리지 않아 버튼·카드 사이 빈 틈이 생기지 않는다(잘려보임 방지). 색은 토큰만(destructive=예외 색).
   action: {
-    flex: 1,
-    minWidth: 96,
+    width: 96,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",

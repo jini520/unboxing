@@ -136,7 +136,7 @@ export function Check({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProp
   );
 }
 
-/** 택배함(상자). */
+/** 택배함(닫힌 상자) — 탭 비활성. */
 export function Package({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (
     <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
@@ -144,6 +144,19 @@ export function Package({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPr
       <Path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
       <Path d="M3.27 6.96L12 12.01l8.73-5.05" />
       <Path d="M12 22.08V12" />
+    </Svg>
+  );
+}
+
+/** 택배함(열린 상자, 뚜껑 플랩 위로) — 탭 활성. */
+export function PackageOpen({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M3 10l9 3 9-3" />
+      <Path d="M3 10v7a1 1 0 0 0 .5.87l8 4.5a1 1 0 0 0 1 0l8-4.5A1 1 0 0 0 21 17v-7" />
+      <Path d="M12 13v9" />
+      <Path d="M3 10l3-4.5 6 2.5" />
+      <Path d="M21 10l-3-4.5-6 2.5" />
     </Svg>
   );
 }

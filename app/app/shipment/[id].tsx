@@ -12,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -27,6 +28,7 @@ import {
 import { apiDeps } from "../../src/lib/deps";
 import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
+import { loadMemos, memoStore, setMemo } from "../../src/lib/memo";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
@@ -50,7 +52,24 @@ export default function DetailScreen() {
   // 수취인은 실시간 조회분만 화면 state 로(미저장 — ADR-005). 캐시·로그 금지, 화면 이탈 시 폐기.
   const [recipient, setRecipient] = useState<Contact | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // 메모(로컬 전용) — 이 택배가 무엇인지. 진입 시 로드, 편집 종료(blur) 시 저장.
+  const [memo, setMemoState] = useState("");
   const deleting = useRef(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    void loadMemos({ store: memoStore }).then((m) => {
+      if (active) setMemoState(m[id] ?? "");
+    });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const saveMemo = useCallback(() => {
+    if (id) void setMemo(id, memo, { store: memoStore });
+  }, [id, memo]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -124,7 +143,7 @@ export default function DetailScreen() {
     const timePart = absoluteKSTLong(latestEvent?.time ?? shipment.statusChangedAt);
     const msg =
       shipment.status === "이동중" && latestEvent?.location
-        ? `물건이 이동 중입니다 (${latestEvent.location})`
+        ? `이동 중 (${latestEvent.location})`
         : STAGE_STATUS_MESSAGE[shipment.status];
     statusText = timePart ? `${timePart} · ${msg}` : msg;
   }
@@ -142,45 +161,56 @@ export default function DetailScreen() {
           />
         }
       >
-        {/* 현재 상태 — 가장 상단 중앙에 크게(택배사 원문 대신 친절 교정 문구). */}
         {shipment ? (
-          <Text style={[styles.statusLine, { color: tokens.text.primary }]}>{statusText}</Text>
+          <>
+            {/* 택배사·운송장번호(좌) + 받는 분(우) — 가장 상단 한 줄. 받는분은 화면 전용·미저장(ADR-005). */}
+            <View style={styles.topRow}>
+              <Text style={[styles.meta, { color: tokens.text.secondary }]} numberOfLines={1}>
+                {carrierName(shipment.carrier)} · {shipment.trackingNo}
+              </Text>
+              {recipient?.name ? (
+                <Text
+                  style={[styles.recipientInline, { color: tokens.text.secondary }]}
+                  numberOfLines={1}
+                >
+                  받는 분 {recipient.name}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* 현재 상태 — 중앙에 크게(택배사 원문 대신 친절 교정 문구). */}
+            <Text style={[styles.statusLine, { color: tokens.text.primary }]}>{statusText}</Text>
+
+            {/* 단계 진행 인디케이터 — 캐시 단계로도 그린다(오프라인 포함). */}
+            <View style={styles.progressWrap}>
+              <StageProgress stage={shipment.status} />
+            </View>
+          </>
         ) : (
           <View style={styles.skeleton}>
             <ActivityIndicator color={tokens.text.secondary} />
           </View>
         )}
 
-        {/* 단계 진행 인디케이터 — 캐시 단계로도 그린다(오프라인 포함). */}
-        {shipment && (
-          <View style={styles.progressWrap}>
-            <StageProgress stage={shipment.status} />
-          </View>
-        )}
-
-        {/* 택배사 · 운송장 전체번호 */}
-        {shipment && (
-          <Text style={[styles.meta, { color: tokens.text.secondary }]}>
-            {carrierName(shipment.carrier)} · {shipment.trackingNo}
-          </Text>
-        )}
-
-        {/* 받는 분 — 화면 전용 패스스루(미저장, ADR-005). null/빈 값이면 섹션 숨김. */}
-        {recipient && (recipient.name || recipient.regionName) ? (
-          <View style={styles.recipient}>
-            <Text style={[styles.recipientLabel, { color: tokens.text.secondary }]}>받는 분</Text>
-            {recipient.name ? (
-              <Text style={[styles.recipientValue, { color: tokens.text.body }]}>
-                {recipient.name}
-              </Text>
-            ) : null}
-            {recipient.regionName ? (
-              <Text style={[styles.recipientRegion, { color: tokens.text.secondary }]}>
-                {recipient.regionName}
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
+        {/* 메모(로컬 전용·미전송) — 이 택배가 무엇인지. */}
+        <View style={styles.memoSection}>
+          <Text style={[styles.memoLabel, { color: tokens.text.secondary }]}>메모</Text>
+          <TextInput
+            value={memo}
+            onChangeText={setMemoState}
+            onBlur={saveMemo}
+            onEndEditing={saveMemo}
+            placeholder="이 택배가 무엇인지 적어두세요"
+            placeholderTextColor={tokens.text.disabled}
+            style={[
+              styles.memoInput,
+              { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
+            ]}
+            multiline
+            maxLength={100}
+            accessibilityLabel="메모"
+          />
+        </View>
 
         <View style={styles.timelineWrap}>
           {timeline.kind === "loading" ? (
@@ -231,16 +261,20 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: 16, paddingTop: 8 },
-  // 현재 상태 — 가장 크고 상단 중앙.
-  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 4, marginBottom: 24 },
-  meta: { fontSize: 14, fontWeight: "500", textAlign: "center", marginBottom: 24 },
+  // 상단 한 줄: 택배사·번호(좌, 늘어남) + 받는분(우, 고정).
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 },
+  meta: { flexShrink: 1, fontSize: 14, fontWeight: "500" },
+  recipientInline: { flexShrink: 0, fontSize: 13 },
+  // 현재 상태 — 가장 크고 중앙.
+  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 16, marginBottom: 24 },
   skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
   progressWrap: { marginBottom: 20 },
-  recipient: { gap: 2, marginBottom: 24 },
-  recipientLabel: { fontSize: 12, fontWeight: "600" },
-  recipientValue: { fontSize: 15 },
-  recipientRegion: { fontSize: 13 },
-  timelineWrap: { minHeight: 80 },
+  // 메모 — 로컬 전용 입력.
+  memoSection: { marginBottom: 24 },
+  memoLabel: { fontSize: 12, fontWeight: "600", marginBottom: 6 },
+  memoInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minHeight: 44 },
+  // 타임라인 — 좌우 패딩 약간 추가(요청).
+  timelineWrap: { minHeight: 80, paddingHorizontal: 8 },
   retry: { gap: 8, alignItems: "flex-start" },
   retryLabel: { fontSize: 14, fontWeight: "600" },
   deleteBtn: { paddingHorizontal: 16, paddingVertical: 16, alignItems: "center" },
