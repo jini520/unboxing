@@ -162,7 +162,8 @@ async function tryTrack(env: Env, carrier: string, trackingNo: string): Promise<
   if (!env.DELIVERY_TRACKER_CLIENT_ID || !env.DELIVERY_TRACKER_CLIENT_SECRET) return null;
   try {
     return await track(carrier, trackingNo, {
-      fetch,
+      // globalThis 바인딩 필수 — 전역 fetch 를 deps 로 넘기면 this 를 잃어 호출 시 "Illegal invocation" 으로 throw.
+      fetch: fetch.bind(globalThis),
       now: Date.now(),
       store: d1TokenStore(env.DB),
       clientId: env.DELIVERY_TRACKER_CLIENT_ID,
@@ -460,6 +461,7 @@ export default {
 
   // cron 트리거 (*/15 * * * *) — due 기반 단일 배치 폴링(배선은 ./cron). now·fetch 주입.
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runPollingBatch(env, { now: controller.scheduledTime, fetch }));
+    // fetch.bind(globalThis): 전역 fetch 를 deps 로 넘길 때 this 유실("Illegal invocation") 방지.
+    ctx.waitUntil(runPollingBatch(env, { now: controller.scheduledTime, fetch: fetch.bind(globalThis) }));
   },
 } satisfies ExportedHandler<Env>;
