@@ -40,7 +40,7 @@
       "status": "completed",
       "started_at": "2026-06-17T21:06:02+0900",
       "summary": "설정 탭 정리 + 개인정보처리방침 인앱 화면(+호스팅 URL 병행). (1) ChevronRight 아이콘 추가(icons.tsx, 미러 path M9 18l6-6-6-6). (2) PRIVACY_POLICY_URL 을 settings 로컬 상수 → src/config.ts 단일 출처로 이동(미배포 placeholder TODO 주석 유지, #12). (3) 신규 src/content/privacyPolicy.ts: docs/PRIVACY_POLICY.md(SoT) 를 구조화 데이터(title·effectiveDate·lastUpdated·intro·sections[heading,body[]])로 번들 — 표는 '항목 — 설명' 줄로 평문화(의미 동일), 상단 '출처·변경 시 함께 갱신' 주석. (4) 신규 app/app/privacy.tsx(stack 화면): 번들 방침 Text 렌더(ScrollView·토큰 색·lineHeight 23) + 하단 '웹에서 보기' 링크(Linking.openURL(PRIVACY_POLICY_URL), 실패 조용히) — 오프라인에도 본문 항상 열림. 루트 _layout.tsx Stack 에 privacy 등록(헤더 title 없음·아이콘 뒤로가기). (5) settings.tsx: 개인정보처리방침 행 Linking.openURL → router.push('/privacy')(role link→button), OS 글리프 전면 SVG 교체 — 알림 행 '시스템 설정 ›/켜기 ›'→텍스트+ChevronRight(rowEnd), 테마 선택 ✓→Check, 방침 행 ›→ChevronRight(아이콘 a11y 숨김). 알림/테마/데이터삭제/버전 로직 불변. grep [›✓✕▾▴] settings·privacy 비어있음. verify green(app 110·worker 147+2todo·harness 51).",
-      "completed_at": "2026-06-17T21:11:13+0900"
+      "completed_at": "2026-06-17T21:11:54+0900"
     }
   ],
   "created_at": "2026-06-17T20:26:00+0900"
