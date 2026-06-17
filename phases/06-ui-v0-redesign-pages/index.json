@@ -16,7 +16,7 @@
       "status": "completed",
       "started_at": "2026-06-17T20:31:56+0900",
       "summary": "라우트 트리 재편 + 헤더 정리 + phase05 api 계약. (1) 하단 탭 app/app/(tabs)/_layout.tsx(Tabs, headerShown:false, tabBarActive/Inactive=text.primary/secondary, tabBarStyle bg.surface/border): index→'택배함'(Package), settings→'설정'(Gear) — index.tsx·settings.tsx를 (tabs)/로 이동(상대 import ../→../../, settings는 헤더 제거로 edges top). (2) 루트 _layout.tsx에 RootStack: 화면=(tabs)(headerShown:false)·shipment/[id]·register·onboarding, screenOptions로 headerTitle:()=>null·headerBackVisible:false·headerLeft=ChevronLeft(router.back, a11y '뒤로')·headerShadowVisible:false — 각 화면의 <Stack.Screen title> 전부 제거(Stack import 정리). (3) api.ts: Shipment에 statusChangedAt:number(?? createdAt 폴백)·muted:boolean(?? false), interface Contact{name?,regionName?}, getShipment 반환에 recipient:Contact|null 추가, 신규 muteShipment(id,muted,deps):Promise<void>=PATCH /shipments/:id {muted}. 라우트: 탭 / ·/settings, 스택 /shipment/[id]·/register·/onboarding(딥링크 routeForNotification '/shipment/:id' 유지). verify green(app 89·worker 147+2todo·harness 51).",
-      "completed_at": "2026-06-17T20:42:00+0900"
+      "completed_at": "2026-06-17T20:43:12+0900"
     },
     {
       "step": 2,
