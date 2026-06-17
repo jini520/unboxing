@@ -1,0 +1,11 @@
+{
+  "project": "unboxing",
+  "phase": "ui",
+  "steps": [
+    { "step": 0, "name": "svg-icons", "status": "pending" },
+    { "step": 1, "name": "navigation", "status": "pending" },
+    { "step": 2, "name": "home-page", "status": "pending" },
+    { "step": 3, "name": "detail-page", "status": "pending" },
+    { "step": 4, "name": "settings-privacy", "status": "pending" }
+  ]
+}

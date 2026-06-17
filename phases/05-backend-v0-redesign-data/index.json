@@ -1,0 +1,9 @@
+{
+  "project": "unboxing",
+  "phase": "backend",
+  "steps": [
+    { "step": 0, "name": "status-changed-at", "status": "pending" },
+    { "step": 1, "name": "subscription-mute", "status": "pending" },
+    { "step": 2, "name": "recipient-passthrough", "status": "pending" }
+  ]
+}
