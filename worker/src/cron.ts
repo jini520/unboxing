@@ -9,7 +9,7 @@
  *  - 1회 실행당 외부 subrequest ≤ 50 — due 처리 건수를 50으로 제한(나머지는 다음 fire 이월).
  *  - 단계 전환은 compare-and-set(영향행=1)으로 멱등 — 경쟁/재실행에도 정확히 1회 발송.
  *  - 처리 시작 시 last_polled_at=now 선점 갱신으로 중첩 실행 중복 처리 방지.
- *  - 배송완료 → 알림 후 shipment 삭제(개인정보 비영속, ADR-005).
+ *  - 배송완료 → 알림 후 보관(active=0 재폴링 중단; 사용자가 수동 삭제, ADR-005 개정).
  *  - now·fetch 주입(결정적 테스트) — Date.now()/실네트워크 호출 금지.
  *  - device_id·push_token·수령인 정보 로그/저장 금지.
  */
@@ -150,23 +150,17 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
   const ev = result.lastEvent ?? result.events[result.events.length - 1];
   const next = normalizeStatus(ev?.statusCode);
 
-  // 6. 배송완료: 토큰을 먼저 모으고(삭제 시 CASCADE로 사라짐) → delete-if-prev 로 CAS+삭제를 한 문장에 원자화
-  //    (좀비 방지) → 이긴 경우에만 알림. ADR-005(완료 즉시 삭제).
+  // 6. 배송완료: 자동 삭제하지 않고 **보관**한다(기본 사양 — 사용자가 수동 삭제). active=0 으로 재폴링만 멈춘다.
+  //    CAS(배송완료 + active=0)를 한 문장으로 원자화 → 좀비(완료·active=1) 방지 + 영향행으로 전환 차지 판정
+  //    → 이긴 경우에만 정확히 1회 알림. (배송완료 자동 삭제는 다음 phase 설정 옵션 → docs/PLAN_AUTO_DELETE_COMPLETED.md.)
   if (next === "배송완료" && prev !== "배송완료") {
-    // 토큰을 먼저 모은다(삭제 시 subscriptions가 CASCADE로 사라짐).
-    const tokens = await subscriberTokens(env, row.id);
-    // CAS(배송완료)+삭제를 한 트랜잭션(batch)으로 원자화 — 좀비(배송완료·active=1 잔존) 방지.
-    // 전환을 차지했는지는 UPDATE의 영향행으로 판정(경쟁/재실행에도 정확히 1회 발송).
-    const [casRes] = await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE shipments SET last_normalized_status = ? WHERE id = ? AND last_normalized_status IS ?",
-      ).bind("배송완료", row.id, stored),
-      env.DB.prepare("DELETE FROM shipments WHERE id = ? AND last_normalized_status = ?").bind(
-        row.id,
-        "배송완료",
-      ),
-    ]);
+    const casRes = await env.DB.prepare(
+      "UPDATE shipments SET last_normalized_status = ?, active = 0 WHERE id = ? AND last_normalized_status IS ?",
+    )
+      .bind("배송완료", row.id, stored)
+      .run();
     if ((casRes.meta.changes ?? 0) === 1) {
+      const tokens = await subscriberTokens(env, row.id);
       const last4 = row.tracking_no.slice(-4);
       const messages = tokens
         .map((token) => buildMessage("배송완료", { token, shipmentId: row.id, carrier: row.carrier, last4 }))

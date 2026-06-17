@@ -174,7 +174,7 @@ describe("cron — 배치 폴링", () => {
     expect(await statusOf("S")).toBe("이동중");
   });
 
-  it("배송완료 전환 → 푸시 후 shipment 삭제(CASCADE)", async () => {
+  it("배송완료 전환 → 푸시 후 보관(active=0·재폴링 중단, 자동 삭제 아님)", async () => {
     await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: null });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     const f = makeFetch({ trackStatus: "DELIVERED" });
@@ -182,8 +182,9 @@ describe("cron — 배치 폴링", () => {
     await runPollingBatch(env, { now: NOW, fetch: f.fetch });
 
     expect(f.sendCalls).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S'")).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM subscriptions")).toBe(0); // CASCADE
+    expect(await statusOf("S")).toBe("배송완료"); // 보관됨(삭제 아님 — 사용자가 수동 삭제)
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1); // 재폴링 중단
+    expect(await count("SELECT COUNT(*) AS c FROM subscriptions")).toBe(1); // 구독 유지(좀비 아님)
   });
 
   it("등록 후 30일 경과(미완료) → active=0", async () => {
@@ -291,7 +292,7 @@ describe("cron — 배치 폴링", () => {
 
     expect(f.sendCalls).toBe(1); // 긴급 → 야간에도 즉시
     expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S'")).toBe(0); // 완료 삭제
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1); // 완료 보관(재폴링 중단)
   });
 
   it("collapse: 한 송장 다중 보류 → 아침 플러시 시 최신 1건만 발송", async () => {
