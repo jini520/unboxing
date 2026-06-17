@@ -47,6 +47,18 @@
 - **원인**: `CREATE TABLE IF NOT EXISTS` 는 **기존 테이블을 변경하지 않는다**(존재 → skip). 또 `schema.sql` 의 `ALTER TABLE ... ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` 으로 throw 하여 **그 뒤 문장이 통째로 미적용**된다(예: 뒤에 오는 `notification_queue` 생성이 안 됨).
 - **수정/재발 방지**: 스키마 변경 시 **로컬도** `docs/MIGRATION.md` 절차로 마이그레이션. 등록 같은 핫패스는 스키마 변경 후 **실제 요청 1회**로 검증. `npx wrangler d1 execute unboxing --local --command "PRAGMA table_info(<t>)"` 로 로컬 = `schema.sql` 일치 확인.
 
+## P-4. Expo: 네이티브 모듈 추가 후 Metro 빌드가 babel 플러그인 누락으로 깨짐
+
+- **증상**: `react-native-gesture-handler`(+svg) 직접 의존성 추가 후 시뮬레이터에서 빨간 화면 — `[Worklets] Babel plugin exception: Cannot find module '@babel/plugin-transform-shorthand-properties'`. jest(`npm run verify`)는 Metro babel 파이프라인을 안 타서 **green 인데도** 앱이 로드 불가.
+- **원인**: `babel-preset-expo`(SDK56)가 gesture-handler 존재를 감지해 worklets babel 플러그인을 활성화하는데, 그 하위 의존(`@babel/plugin-transform-shorthand-properties`)이 설치 트리에 hoist 안 돼 있음.
+- **수정/재발 방지**: 누락 플러그인을 `devDependencies` 로 추가(`npm i -D @babel/plugin-transform-shorthand-properties`). **네이티브 의존성을 추가하면 반드시 시뮬레이터 실구동 1회**로 Metro 번들이 뜨는지 확인(jest로는 못 잡음). gesture-handler 의 worklets 부담이 싫으면 RN 코어 `PanResponder` 로 대체 가능.
+
+## P-5. expo-router v56: `headerTitle: () => null` 이 title 을 못 지운다
+
+- **증상**: 루트 `Stack` `screenOptions` 에 `headerTitle: () => null` 을 줘도 stack 화면 헤더에 **route 이름**(`register`·`privacy` 등)이 그대로 표시됨. `headerLeft` 등 다른 screenOptions 는 적용되는데 title 만 남음.
+- **원인**: 이 버전의 native-stack 은 함수가 null 을 반환하면 기본 title(route name)로 폴백한다.
+- **수정/재발 방지**: title 을 비우려면 **`headerTitle: ""`**(빈 문자열) 또는 `title: ""` 을 쓴다. **헤더 변경은 시뮬 실구동으로 확인**(CI 모드 Metro 는 watch 비활성이라 편집이 반영 안 될 수 있음 → Expo Go 종료 후 재실행/`--clear` 로 강제 리빌드).
+
 ---
 
 ## 외부 경계 검증 체크리스트 (머지·배포 전 필수)
