@@ -65,6 +65,7 @@ function RootStack() {
       <Stack.Screen name="shipment/[id]" />
       <Stack.Screen name="register" />
       <Stack.Screen name="onboarding" />
+      <Stack.Screen name="privacy" />
     </Stack>
   );
 }

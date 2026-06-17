@@ -43,6 +43,15 @@ export function ChevronLeft({ size = 20, color, strokeWidth = 1.5, ...a11y }: Ic
   );
 }
 
+/** 더보기/진입(>). */
+export function ChevronRight({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M9 18l6-6-6-6" />
+    </Svg>
+  );
+}
+
 /** 운송장 추가(+). */
 export function Plus({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (

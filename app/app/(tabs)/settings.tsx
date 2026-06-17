@@ -21,16 +21,9 @@ import { cacheStore, clearCache } from "../../src/lib/cache";
 import { deleteDeviceId, deviceStorage } from "../../src/lib/device";
 import { pushDeps, registerForPush, registerPushIfGranted } from "../../src/lib/push";
 import { wipeAllData } from "../../src/lib/wipe";
+import { Check, ChevronRight } from "../../src/components/icons";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import type { ThemePreference } from "../../src/theme/tokens";
-
-/**
- * 개인정보처리방침(한글) URL — 스토어 제출 필수.
- * 방침 내용은 docs/PRIVACY_POLICY.md 가 단일 출처. 아래 URL 은 게시 예정(canonical) 주소.
- * TODO(배포): docs/PRIVACY_POLICY.md 를 이 URL 에 호스팅한 뒤 실제 라이브 URL 로 확정한다.
- *   (#12 — repo 산출물 완료, 호스팅은 배포 시 외부 작업. 조용한 placeholder 가 아니라 명시적 미배포 표시.)
- */
-const PRIVACY_POLICY_URL = "https://unboxing.app/privacy";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "system", label: "시스템 설정 따름" },
@@ -128,9 +121,17 @@ export default function SettingsScreen() {
                 : "꺼짐 — 배송 상태가 바뀌면 알려드려요"}
             </Text>
           </View>
-          <Text style={{ color: tokens.text.secondary }}>
-            {notifGranted ? "시스템 설정 ›" : "켜기 ›"}
-          </Text>
+          <View style={styles.rowEnd}>
+            <Text style={{ color: tokens.text.secondary }}>
+              {notifGranted ? "시스템 설정" : "켜기"}
+            </Text>
+            <ChevronRight
+              size={18}
+              color={tokens.text.secondary}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+          </View>
         </Pressable>
 
         {/* 테마 */}
@@ -149,21 +150,33 @@ export default function SettingsScreen() {
                 <Text style={{ color: selected ? tokens.stage.outForDelivery : tokens.text.body }}>
                   {opt.label}
                 </Text>
-                {selected && <Text style={{ color: tokens.stage.outForDelivery }}>✓</Text>}
+                {selected && (
+                  <Check
+                    size={18}
+                    color={tokens.stage.outForDelivery}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
+                )}
               </Pressable>
             );
           })}
         </View>
 
-        {/* 개인정보처리방침 */}
+        {/* 개인정보처리방침 — 인앱 화면으로 이동(웹에서 보기 링크는 화면 내 제공) */}
         <Pressable
-          onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+          onPress={() => router.push("/privacy")}
           style={[styles.card, styles.cardSpaced, { backgroundColor: tokens.bg.surface, borderColor: tokens.border }]}
-          accessibilityRole="link"
+          accessibilityRole="button"
           accessibilityLabel="개인정보처리방침 열기"
         >
           <Text style={[styles.rowTitle, { color: tokens.text.primary }]}>개인정보처리방침</Text>
-          <Text style={{ color: tokens.text.secondary }}>›</Text>
+          <ChevronRight
+            size={18}
+            color={tokens.text.secondary}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
         </Pressable>
 
         {/* 모든 데이터 삭제 */}
@@ -203,6 +216,7 @@ const styles = StyleSheet.create({
   },
   cardSpaced: { marginTop: 24 },
   rowText: { flex: 1, gap: 4, paddingRight: 12 },
+  rowEnd: { flexDirection: "row", alignItems: "center", gap: 4 },
   rowTitle: { fontSize: 16 },
   rowSub: { fontSize: 13 },
   group: { borderWidth: 1, borderRadius: 8, overflow: "hidden" },
