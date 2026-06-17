@@ -3,7 +3,7 @@
  * 단위 테스트(device/api/cache/wipe/push/tokens.test.ts)가 각 모듈을 따로 보는 것과 달리, 여기선
  * 여러 모듈을 묶어 사용자 여정의 불변식을 확인한다. 외부 의존(fetch·storage)은 주입 mock — 실 네트워크·네이티브 호출 금지.
  *
- * QA 철칙: 버그를 고치지 않는다. 갭은 it.todo + docs/QA_FINDINGS.md. verify green 유지.
+ * QA 철칙: 버그를 고치지 않는다. 갭은 it.todo + docs/QA.md. verify green 유지.
  * 정적 감사(안티패턴·색 단독·에러코드·EXPO_PUBLIC)는 grep 으로 수행해 FINDINGS '정적 감사 결과(Step 4)' 표에 기록.
  */
 import { describe, it, expect } from "@jest/globals";

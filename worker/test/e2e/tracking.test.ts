@@ -13,7 +13,7 @@ import { runPollingBatch } from "../../src/cron";
  * 결정적으로 만든다(실 tracker/Expo 호출 없음). now 는 등록 직후 Date.now() 를 base 로 잡아 created_at 과
  * 정합시킨다(lifecycle keep 보장). 단위·통합은 worker/test/cron.test.ts 가 DB 시드로 따로 커버한다.
  *
- * 발견한 갭은 verify 를 빨갛게 만들지 않는다: 사양 미충족은 it.todo("QA-NNN: …") + docs/QA_FINDINGS.md.
+ * 발견한 갭은 verify 를 빨갛게 만들지 않는다: 사양 미충족은 it.todo("QA-NNN: …") + docs/QA.md.
  */
 
 const TOKEN_A = "ExponentPushToken[AAAAAAAAAAAAAAAAAAAAAA]";
@@ -372,7 +372,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
   });
 
-  // ── 나머지 PRD 알림 정책 갭(미구현) — 발견·기록만(QA_FINDINGS) ──
+  // ── 나머지 PRD 알림 정책 갭(미구현) — 발견·기록만(QA) ──
   // 사양(PRD UX·UI_GUIDE): 여러 송장 알림은 묶음/요약 — 미구현(개별 N건 발송).
   it.todo("QA-005: 알림 그룹화/요약이 없어 동시 전환 시 개별 푸시 N건 발송(과알림)");
   // 사양(PRD 마이크로카피): 사용자 노출 문구는 친근한 한글 택배사명(기술 id 비노출).

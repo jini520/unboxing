@@ -1,4 +1,43 @@
-# 계획: 배송완료 자동 삭제 (옵트인 설정) — 다음 phase
+# ROADMAP & 진행 현황
+
+> **비메인 참고 문서.** 메모리가 없어도 **무엇을 했는지(진행 현황)·무엇을 해야 하는지(예정 작업)**를 한 파일에서 파악하기 위한 문서.
+> 권위 출처: 완료 단계는 `phases/index.json`·git 히스토리, 결정은 `ADR`, 발견 갭은 `QA`. 본 문서는 그 요약 + 예정 작업 계획.
+
+## 진행 현황 (무엇을 했는가)
+
+**Phase 1 (MVP) — 국내·익명·tracker.delivery Free.** 핵심 경로 구현·QA·런타임 버그 수정까지 완료, 로컬 iOS 시뮬레이터 + 로컬 worker 로 동작 확인됨.
+
+완료 단계(`phases/` — 상세는 각 phase index.json·step):
+- `01-backend-v0-mvp-worker` — Cloudflare Worker HTTP API + cron 폴링 + 멱등 푸시 + D1 (PR #1)
+- `02-ui-v0-mvp-app` — Expo 앱: 목록/상세/등록/온보딩/설정 (PR #2)
+- `03-qa-v0-mvp` — MVP QA: E2E 시나리오 + 사양 감사 (발견 12건, PR #4)
+- `04-qa-v0-mvp-fixes` — P0~P2 수정: 등록 데드락·택배사·조용시간·데모·스토어 준비 (PR #16)
+
+QA 이후 런타임 버그·UX 수정(main 머지):
+- PR #17 — `fetch` this-binding(`Illegal invocation`) 수정: 실제 tracker.delivery 호출 복구. 재발 방지 문서화(`ENGINEERING` A절).
+- PR #18 — CI flaky 타임아웃 해소(테스트 즉시 track no-op) + 목록·상세 **택배사 한글명** 표기.
+- PR #19 — 등록 직후 목록에 **실제 상태 즉시 표시**(비종료 단계 저장).
+- PR #20 — **배송완료 시 보관**(자동 삭제 폐기, 사용자 수동 삭제 — ADR-005 개정).
+
+## 예정 작업 (무엇을 해야 하는가)
+
+**열린 이슈(GitHub):**
+- `#8` (P3) 알림 그룹화/요약 — 과알림 방지.
+- `#9` (P3) 푸시 **title** 의 택배사 id(`kr.cjlogistics`) → 한글명. (목록·상세는 PR #18에서 해결, **푸시 발송 문구는 worker `buildMessage` 쪽 별개**로 남아 있음.)
+- `#12` (P1·제출차단) 개인정보처리방침 URL — repo 방침 문서(`PRIVACY_POLICY.md`) 완료, **호스팅·URL 확정은 배포 시 외부 작업**.
+- `#14` (P1·제출차단) App Privacy/Data Safety 신고 — 초안(`QA` D절) 완료, **콘솔 제출은 외부 작업**.
+
+**계획된 기능(아래 §상세):**
+- 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
+
+**Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
+
+<a id="plan-auto-delete"></a>
+
+---
+
+# 계획: 배송완료 자동 삭제 (옵트인 설정) — 구 `PLAN_AUTO_DELETE_COMPLETED.md`
+
 
 > **상태**: 계획(미구현). 본 phase에서 **기본 사양을 "완료 시 보관(active=0) + 사용자 수동 삭제"로 변경**했고(ADR-005 개정), 자동 삭제는 **옵트인 설정**으로 다음 phase에 추가한다.
 > 관련: `docs/ADR.md` ADR-005 · `worker/src/cron.ts` `pollOne`(배송완료 처리) · `app/app/settings.tsx` · `worker/src/index.ts`(devices 등록·삭제).
@@ -18,7 +57,7 @@
 ### 권장: 서버측 per-device 설정 (앱이 꺼져 있어도 동작)
 **데이터 모델**
 - `devices`에 컬럼 추가: `auto_delete_completed INTEGER NOT NULL DEFAULT 0`.
-- 마이그레이션: `ALTER TABLE devices ADD COLUMN auto_delete_completed INTEGER NOT NULL DEFAULT 0;` (기존 행은 DEFAULT 0 = 현 기본값 유지, 안전). `docs/MIGRATION.md`에 추가. **주의(PITFALLS P-2)**: 단순 ADD COLUMN이라 RENAME 전파 이슈 없음.
+- 마이그레이션: `ALTER TABLE devices ADD COLUMN auto_delete_completed INTEGER NOT NULL DEFAULT 0;` (기존 행은 DEFAULT 0 = 현 기본값 유지, 안전). `docs/ENGINEERING.md`에 추가. **주의(PITFALLS P-2)**: 단순 ADD COLUMN이라 RENAME 전파 이슈 없음.
 
 **API**
 - 설정 저장: `POST /devices` 바디에 `auto_delete_completed?: boolean` 수용(기존 upsert에 컬럼 추가), 또는 전용 `PATCH /me/settings`. 마찰 최소 원칙상 기존 `/devices` upsert 확장이 간단.
@@ -49,7 +88,7 @@
   - 설정 ON·**다중 구독 혼합**(A=ON, B=OFF): A 구독만 제거, shipment·B 구독 유지(active=0), 알림 1회.
   - 멱등: 재실행 시 재삭제·재발송 없음.
 - **app**: 설정 토글 렌더·저장 호출(jest-expo, api mock). 순수 로직 없으니 통합 수준.
-- 외부 경계는 실호출 스모크로 별도 확인(`docs/PITFALLS.md`).
+- 외부 경계는 실호출 스모크로 별도 확인(`docs/ENGINEERING.md`).
 
 ## 6. Acceptance Criteria
 ```bash
