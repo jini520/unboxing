@@ -24,10 +24,22 @@ export interface TrackEvent {
   location?: string; // 허브명(비개인정보)
 }
 
+/**
+ * 수취인 정보(화면 전용·미저장, ADR-005). 실시간 track 응답에서 그대로 패스스루만 하고
+ * D1 에 절대 저장하지 않는다. phoneNumber 는 받지 않는다(PII 최소화 — 표시 가치 낮고 위험만 큼).
+ * regionName = ContactInfo.location.name (지역명, 비개인정보).
+ */
+export interface Contact {
+  name?: string;
+  regionName?: string;
+}
+
 export interface TrackResult {
   lastEvent: TrackEvent | null;
   /** upstream가 반환한 순서를 그대로 유지(시간 정렬 보장 안 함). lastEvent = 가장 최근 이벤트. */
   events: TrackEvent[];
+  /** 수취인(이름·지역명) — GET /shipments/:id 패스스루용. 없으면 undefined. 절대 미저장(ADR-005). */
+  recipient?: Contact;
 }
 
 export interface CarrierInfo {
@@ -84,10 +96,17 @@ interface RawEvent {
   location?: string | null; // 스키마 확정 시 매핑 보강(ADR Open Questions)
 }
 
+/** TrackInfo.recipient(ContactInfo) — name·location.name 만 받는다(phoneNumber 미수신, ADR-005). */
+interface RawContact {
+  name?: string | null;
+  location?: { name?: string | null } | null;
+}
+
 interface TrackQueryData {
   track: {
     lastEvent: RawEvent | null;
     events: { edges: { node: RawEvent }[] } | null;
+    recipient?: RawContact | null;
   } | null;
 }
 
@@ -99,6 +118,7 @@ const TRACK_QUERY = `query Track($carrierId: ID!, $trackingNumber: String!) {
   track(carrierId: $carrierId, trackingNumber: $trackingNumber) {
     lastEvent { time status { code name } description }
     events(last: 50) { edges { node { time status { code name } description } } }
+    recipient { name location { name } }
   }
 }`;
 
@@ -196,6 +216,15 @@ function toEvent(raw: RawEvent | null | undefined): TrackEvent | null {
   };
 }
 
+/** ContactInfo → Contact(이름·지역명). 둘 다 비면 undefined. phoneNumber 는 다루지 않는다(ADR-005). */
+function toContact(raw: RawContact | null | undefined): Contact | undefined {
+  if (!raw) return undefined;
+  const name = raw.name ?? undefined;
+  const regionName = raw.location?.name ?? undefined;
+  if (!name && !regionName) return undefined;
+  return { name, regionName };
+}
+
 /**
  * 심사용 캔드 결과 — 외부 호출 없이 단계 진행(등록→이동중→배송출발)을 보여준다(ADR-019).
  * 잔존(M3, bounded 수용): 캔드가 '배송출발'에서 멈춰 60분마다 재폴링(외부 호출은 계속 우회)·30일 후 active=0.
@@ -222,7 +251,12 @@ function demoResult(now: number): TrackResult {
       location: "강남 배송점",
     },
   ];
-  return { lastEvent: events[events.length - 1], events };
+  // 마스킹된 캔드 수취인(실 PII 아님) — 상세 화면이 수취인 영역을 보여줄 수 있게(ADR-019).
+  return {
+    lastEvent: events[events.length - 1],
+    events,
+    recipient: { name: "홍**", regionName: "서울 강남" },
+  };
 }
 
 /** track(carrierId, trackingNumber). 데모 번호면 캔드 결과 반환(외부 호출 우회). carrierId 예: kr.cjlogistics. */
@@ -238,7 +272,11 @@ export async function track(
   const events = (data.track?.events?.edges ?? [])
     .map((edge) => toEvent(edge.node))
     .filter((e): e is TrackEvent => e !== null);
-  return { lastEvent: toEvent(data.track?.lastEvent) ?? null, events };
+  return {
+    lastEvent: toEvent(data.track?.lastEvent) ?? null,
+    events,
+    recipient: toContact(data.track?.recipient),
+  };
 }
 
 /** 지원 택배사 목록(자동인식 검증·미지원 판별용). */

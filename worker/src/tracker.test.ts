@@ -92,6 +92,53 @@ describe("track (정상 응답 파싱)", () => {
   });
 });
 
+describe("track (recipient 패스스루 — 미저장, ADR-005)", () => {
+  it("recipient { name, location.name } → Contact{ name, regionName } 매핑", async () => {
+    const body = {
+      data: {
+        track: {
+          lastEvent: { time: "2026-06-16T10:00:00Z", status: { code: "DELIVERED" } },
+          events: { edges: [] },
+          recipient: { name: "홍길동", location: { name: "서울 강남구" } },
+        },
+      },
+    };
+    const rec = scriptedFetch({ graphql: [body] });
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), rec.fetch);
+
+    const result = await track("kr.cjlogistics", "123456789", deps);
+
+    expect(result.recipient).toEqual({ name: "홍길동", regionName: "서울 강남구" });
+  });
+
+  it("recipient 필드 없음 → recipient undefined", async () => {
+    const rec = scriptedFetch({ graphql: [okTrackBody] }); // recipient 없는 본문
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), rec.fetch);
+
+    const result = await track("kr.cjlogistics", "123456789", deps);
+
+    expect(result.recipient).toBeUndefined();
+  });
+
+  it("recipient 값이 모두 비면(null) → recipient undefined", async () => {
+    const body = {
+      data: {
+        track: {
+          lastEvent: null,
+          events: { edges: [] },
+          recipient: { name: null, location: { name: null } },
+        },
+      },
+    };
+    const rec = scriptedFetch({ graphql: [body] });
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), rec.fetch);
+
+    const result = await track("kr.cjlogistics", "123456789", deps);
+
+    expect(result.recipient).toBeUndefined();
+  });
+});
+
 describe("track (UNAUTHENTICATED 재인증)", () => {
   it("토큰 만료 본문 1회 → 재발급 후 1회 재시도 성공", async () => {
     const rec = scriptedFetch({
@@ -156,6 +203,8 @@ describe("track (데모 번호)", () => {
     expect(rec.urls).toHaveLength(0);
     expect(result.events).toHaveLength(3);
     expect(result.lastEvent?.statusCode).toBe("OUT_FOR_DELIVERY");
+    // 데모 경로도 마스킹된 캔드 수취인을 패스스루(ADR-019). 실 PII 아님.
+    expect(result.recipient).toEqual({ name: "홍**", regionName: "서울 강남" });
   });
 
   it("데모 번호와 다른 번호는 외부 호출을 탄다", async () => {

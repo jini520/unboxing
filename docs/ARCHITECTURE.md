@@ -78,7 +78,7 @@ unboxing/
 | `POST /devices` | 기기 등록/갱신(upsert) — `push_token` 은 **선택**(없으면 토큰 없이 부트스트랩, QA-001) | `{platform, push_token?}` | `200 {device_id}` | `400 INVALID_BODY`(platform 누락), `422 INVALID_TOKEN` |
 | `POST /shipments` | 운송장 등록(dedupe + 구독 + 즉시 1회 조회) | `{carrier, tracking_no}` | `201 {shipment}` / 이미 구독 시 `200 {shipment}`(멱등) | `400`, `422 INVALID_TRACKING`, `401`, `429 RATE_LIMITED`, `409 CARRIER_UNSUPPORTED`(딥링크 안내) |
 | `GET /shipments` | 내 송장 목록 + 정규화 상태 | — | `200 {shipments:[...]}` | `401` |
-| `GET /shipments/:id` | 상세 = 실시간 track 타임라인 (→ ADR-011) | — | `200 {shipment, timeline:[...]}` | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |
+| `GET /shipments/:id` | 상세 = 실시간 track 타임라인 + 수취인 패스스루 (→ ADR-011·005) | — | `200 {shipment, timeline:[...], recipient}` (`recipient`=`{name,regionName}` 또는 track 실패 시 `null`, **미저장**) | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |
 
 - `shipment` 객체(목록·상세 공통)는 `id`·`carrier`·`tracking_no`·`status`·`active`·`created_at`·`status_changed_at`(현재 단계 시작 시각; 컬럼이 비면 `created_at` 으로 폴백)·`muted`(이 기기 구독의 음소거 여부, per-구독 — ADR-020)를 포함한다.
 | `PATCH /shipments/:id` | 이 기기 구독의 알림 음소거 토글 (per-구독, → ADR-020) | `{muted: boolean}` | `204` | `400 INVALID_BODY`, `401`, `404`(미소유). 레이트리밋 미적용 |
@@ -111,7 +111,7 @@ unboxing/
 - 엔드포인트: `https://apis.tracker.delivery/graphql` (GraphQL).
 - 인증: API Key(권장) 또는 OAuth2 **client_credentials → Bearer**. 현 스캐폴드는 `DELIVERY_TRACKER_CLIENT_ID/_SECRET` 시크릿(client_credentials). access token은 D1 캐시 + 만료 전 cron 재발급(→ ADR-013).
 - **에러는 GraphQL 응답 본문**(`errors[]`)에 담기며 **HTTP status는 무의미**. 예: 토큰 만료 시 `UNAUTHENTICATED`.
-- `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치). 권장 timeout **15s**.
+- `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치), `recipient`(수취인 이름·지역명=`location.name`). 권장 timeout **15s**. **수취인은 화면 전용 패스스루(미저장, ADR-005)** — `GET /shipments/:id` 응답에만 싣고 D1 에 저장 금지. `phoneNumber` 는 받지 않는다(PII 최소화). 상품명·사진 필드는 스키마에 없다.
 - `carriers` 쿼리 → 지원 택배사 목록(자동인식 검증·미지원 판별).
 - carrierId 형식 예: `kr.cjlogistics`, `kr.epost` 등.
 - **CRITICAL(구현)**: `TrackerDeps.fetch` 에 전역 `fetch` 를 주입할 땐 **반드시 `fetch.bind(globalThis)`**. 맨 `fetch` 를 객체로 넘기면 호출 시 `this` 유실로 `Illegal invocation` throw → 모든 조회가 null("미등록")이 된다. mock fetch 를 쓰는 테스트는 이를 못 잡으므로 실 API 스모크로 확인(→ `docs/ENGINEERING.md` P-1). 주입 뿌리: `index.ts` `tryTrack`·`scheduled`.

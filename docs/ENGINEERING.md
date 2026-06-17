@@ -54,6 +54,7 @@
 `npm run verify` 가 green 이어도 아래는 **수동/실호출**로 확인한다. 외부 경계는 mock 으로 가려져 단위테스트가 못 잡는다.
 
 1. **tracker.delivery**: 실제 운송장 번호 1건을 로컬 worker(`wrangler dev`)에 등록 → 응답 status 가 실제 단계로 나오는지. (예: `522093451360`=CJ, `44593463530`=로젠 → `배송완료`.) `미등록` 만 나오면 `Illegal invocation`(P-1)·자격증명·NOT_FOUND 중 무엇인지 로그로 구분.
+   - **수취인 패스스루(step2)**: `GET /shipments/:id` 응답의 `recipient`(이름·지역명)가 실제로 채워지는지·마스킹 형태 확인(쿼리 필드명 `recipient { name location { name } }` 변경은 외부 경계라 mock verify 가 못 잡음). 수취인은 **GET /:id track 패스스루(미저장, ADR-005)** — D1 저장·로그 금지, `phoneNumber` 미수신.
 2. **cron 폴링**: `curl "http://localhost:8787/cdn-cgi/handler/scheduled"` 트리거 후 목록 status 가 저장·갱신되는지. (로컬 cron 은 자동 실행 안 됨.)
 3. **Expo Push**(가능 시): 실제 토큰 1건으로 발송/리시트 경로 확인.
 4. **로컬 D1**: `schema.sql` 과 로컬 스키마 일치(P-3).

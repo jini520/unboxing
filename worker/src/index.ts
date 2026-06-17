@@ -380,7 +380,14 @@ async function handleGetShipment(env: Env, deviceId: string, id: string): Promis
         location: e.location,
       }))
     : [];
-  return Response.json({ shipment: { ...serializeShipment(row), muted: row.muted === 1 }, timeline });
+  // 수취인(이름·지역명)은 track 응답을 **화면 전용으로 패스스루만** 한다 — D1 미저장(ADR-005).
+  // tryTrack 이 null(자격증명 없음·외부 실패)이면 recipient 도 null(앱이 섹션 숨김).
+  const recipient = result?.recipient ?? null;
+  return Response.json({
+    shipment: { ...serializeShipment(row), muted: row.muted === 1 },
+    timeline,
+    recipient,
+  });
 }
 
 /**

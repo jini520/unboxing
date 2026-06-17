@@ -140,6 +140,61 @@ describe("HTTP API — shipments", () => {
     expect(await count("subscriptions")).toBe(1);
   });
 
+  // ── GET /shipments/:id — recipient 패스스루(화면 전용·미저장, ADR-005, step2) ──
+
+  it("GET /:id — recipient 키 포함, 자격증명 없음(tryTrack=null) → recipient null", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const created = await createShipment("dev-A", "kr.cjlogistics", "123456789012");
+    const { shipment } = (await created.json()) as { shipment: { id: string } };
+
+    const res = await SELF.fetch(`${BASE}/shipments/${shipment.id}`, { headers: bearer("dev-A") });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { recipient: unknown };
+    // 테스트 env 는 자격증명이 비어 tryTrack=null → recipient null(앱이 섹션 숨김). 키는 항상 존재.
+    expect("recipient" in body).toBe(true);
+    expect(body.recipient).toBeNull();
+
+    // 미저장(ADR-005): shipments 스키마에 recipient/sender 컬럼이 없다(스키마 불변).
+    const cols = await env.DB.prepare("PRAGMA table_info(shipments)").all<{ name: string }>();
+    const names = cols.results.map((c) => c.name);
+    expect(names).not.toContain("recipient");
+    expect(names).not.toContain("sender");
+  });
+
+  it("GET /:id — 데모 recipient 패스스루는 D1 어디에도 저장되지 않는다(ADR-005 CRITICAL)", async () => {
+    // 데모 경로는 외부 호출 없이 캔드 recipient 를 반환한다(network 차단 무관). creds 가드를 통과시켜
+    // tryTrack 이 track()까지 도달하게 한 뒤(데모 분기는 graphql 호출 없이 단락) finally 로 복원한다.
+    const saved = {
+      id: env.DELIVERY_TRACKER_CLIENT_ID,
+      secret: env.DELIVERY_TRACKER_CLIENT_SECRET,
+      demo: env.DEMO_TRACKING_NUMBER,
+    };
+    try {
+      env.DELIVERY_TRACKER_CLIENT_ID = "x";
+      env.DELIVERY_TRACKER_CLIENT_SECRET = "y";
+      env.DEMO_TRACKING_NUMBER = "00000000000000";
+
+      await registerDevice("dev-A", TOKEN_A);
+      const created = await createShipment("dev-A", "kr.cjlogistics", "00000000000000");
+      const { shipment } = (await created.json()) as { shipment: { id: string } };
+
+      const res = await SELF.fetch(`${BASE}/shipments/${shipment.id}`, { headers: bearer("dev-A") });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { recipient: { name: string; regionName: string } | null };
+      expect(body.recipient).toEqual({ name: "홍**", regionName: "서울 강남" });
+
+      // 패스스루 응답 뒤에도 어떤 행에도 수령인 이름이 저장되지 않는다(저장 경로 부재).
+      const ships = await env.DB.prepare("SELECT * FROM shipments").all();
+      expect(JSON.stringify(ships.results)).not.toContain("홍**");
+      const subs = await env.DB.prepare("SELECT * FROM subscriptions").all();
+      expect(JSON.stringify(subs.results)).not.toContain("홍**");
+    } finally {
+      env.DELIVERY_TRACKER_CLIENT_ID = saved.id;
+      env.DELIVERY_TRACKER_CLIENT_SECRET = saved.secret;
+      env.DEMO_TRACKING_NUMBER = saved.demo;
+    }
+  });
+
   it("DELETE /:id 마지막 구독 → shipment 삭제(orphan 정리)", async () => {
     await registerDevice("dev-A", TOKEN_A);
     const created = await createShipment("dev-A", "kr.cjlogistics", "123456789012");
