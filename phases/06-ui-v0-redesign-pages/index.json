@@ -24,7 +24,7 @@
       "status": "completed",
       "started_at": "2026-06-17T20:43:12+0900",
       "summary": "택배함(목록) 화면 개편. (1) react-native-gesture-handler@2.31.2 직접 의존성 승격 + 루트 _layout.tsx 를 GestureHandlerRootView(flex:1)로 감쌈. (2) 헤더: 우상단 '설정' 텍스트 → Plus 아이콘 버튼(router.push('/register'), a11y '운송장 추가', iconBtn padding 으로 터치≥44). (3) ShipmentCard 재작성: 끝4자리→운송장 전체번호(잘림 없이 줄바꿈 허용), 상대시간 소스 createdAt→statusChangedAt, muted 시 BellOff 아이콘+a11y '알림 꺼짐'. PanResponder→gesture-handler legacy Swipeable(reanimated 불필요) 양방향: 좌스와이프=renderRightActions 삭제·우스와이프=renderLeftActions 음소거. 첫 스와이프는 버튼 노출만(openedRef), 버튼 탭 또는 같은 방향 추가 스와이프(onSwipeableOpen 재발화) 시 실행. 삭제=낙관+Undo(확인 다이얼로그 없음), 음소거=낙관 토글+실패 롤백+notice 토스트. reduce motion 시 overshoot off. (4) 멀티선택: 새 순수 모듈 selection.ts(toggleSelected·selectAll·allSelected·pruneSelected)+selection.test.ts(9). 롱프레스 진입(selectionMode=selectedIds.size>0 파생), 카드 탭=선택 토글·스와이프 비활성·체크박스(Check 아이콘 신규). 헤더 'N개 선택'·전체선택·취소·일괄삭제(확인 다이얼로그·Undo 없음·Promise.allSettled 부분실패 복원·404 멱등 성공). (5) sync 시 pruneSelected 로 허상 선택 제거, 선택 진입 시 flushPending. 정렬·오프라인·캐시·당겨서 새로고침 보존. UI_GUIDE '송장 카드 해부'·'인터랙션' 갱신(좌=삭제/우=음소거·노출후 실행·전체번호·멀티선택). verify green(app 98·worker 147+2todo·harness 51).",
-      "completed_at": "2026-06-17T21:00:00+0900"
+      "completed_at": "2026-06-17T20:56:36+0900"
     },
     {
       "step": 3,
