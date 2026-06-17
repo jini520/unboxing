@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -32,6 +33,7 @@ import { loadMemos, memoStore, setMemo } from "../../src/lib/memo";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
+import { Pencil } from "../../src/components/icons";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -52,8 +54,10 @@ export default function DetailScreen() {
   // 수취인은 실시간 조회분만 화면 state 로(미저장 — ADR-005). 캐시·로그 금지, 화면 이탈 시 폐기.
   const [recipient, setRecipient] = useState<Contact | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  // 메모(로컬 전용) — 이 택배가 무엇인지. 진입 시 로드, 편집 종료(blur) 시 저장.
+  // 메모(로컬 전용) — 이 택배가 무엇인지. 진입 시 로드, 헤더 연필 → 모달에서 편집·저장.
   const [memo, setMemoState] = useState("");
+  const [memoModal, setMemoModal] = useState(false);
+  const [memoDraft, setMemoDraft] = useState("");
   const deleting = useRef(false);
 
   useEffect(() => {
@@ -67,9 +71,16 @@ export default function DetailScreen() {
     };
   }, [id]);
 
+  const openMemo = useCallback(() => {
+    setMemoDraft(memo);
+    setMemoModal(true);
+  }, [memo]);
+
   const saveMemo = useCallback(() => {
-    if (id) void setMemo(id, memo, { store: memoStore });
-  }, [id, memo]);
+    setMemoState(memoDraft);
+    if (id) void setMemo(id, memoDraft, { store: memoStore });
+    setMemoModal(false);
+  }, [id, memoDraft]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -150,7 +161,19 @@ export default function DetailScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
-      <ScreenHeader />
+      <ScreenHeader
+        right={
+          <Pressable
+            onPress={openMemo}
+            hitSlop={8}
+            style={styles.headerEdit}
+            accessibilityRole="button"
+            accessibilityLabel="메모 편집"
+          >
+            <Pencil size={22} color={tokens.text.primary} />
+          </Pressable>
+        }
+      />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
@@ -192,25 +215,18 @@ export default function DetailScreen() {
           </View>
         )}
 
-        {/* 메모(로컬 전용·미전송) — 이 택배가 무엇인지. */}
-        <View style={styles.memoSection}>
+        {/* 메모(로컬 전용·미전송) — 읽기 전용 표시. 탭 또는 헤더 연필 → 모달 편집. */}
+        <Pressable
+          onPress={openMemo}
+          style={[styles.memoSection, { backgroundColor: tokens.bg.secondary, borderColor: tokens.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="메모 편집"
+        >
           <Text style={[styles.memoLabel, { color: tokens.text.secondary }]}>메모</Text>
-          <TextInput
-            value={memo}
-            onChangeText={setMemoState}
-            onBlur={saveMemo}
-            onEndEditing={saveMemo}
-            placeholder="이 택배가 무엇인지 적어두세요"
-            placeholderTextColor={tokens.text.disabled}
-            style={[
-              styles.memoInput,
-              { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
-            ]}
-            multiline
-            maxLength={100}
-            accessibilityLabel="메모"
-          />
-        </View>
+          <Text style={[styles.memoText, { color: memo ? tokens.text.body : tokens.text.disabled }]}>
+            {memo || "이 택배가 무엇인지 적어두세요"}
+          </Text>
+        </Pressable>
 
         <View style={styles.timelineWrap}>
           {timeline.kind === "loading" ? (
@@ -242,6 +258,37 @@ export default function DetailScreen() {
           <Text style={[styles.deleteLabel, { color: tokens.stage.exception }]}>삭제</Text>
         </Pressable>
       )}
+
+      {/* 메모 편집 모달 — 헤더 연필/메모 카드 탭으로 진입. */}
+      <Modal visible={memoModal} transparent animationType="fade" onRequestClose={() => setMemoModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setMemoModal(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
+            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>메모</Text>
+            <TextInput
+              value={memoDraft}
+              onChangeText={setMemoDraft}
+              placeholder="이 택배가 무엇인지 적어두세요"
+              placeholderTextColor={tokens.text.disabled}
+              style={[
+                styles.memoInput,
+                { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
+              ]}
+              multiline
+              maxLength={100}
+              autoFocus
+              accessibilityLabel="메모 입력"
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setMemoModal(false)} hitSlop={8} accessibilityRole="button">
+                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
+              </Pressable>
+              <Pressable onPress={saveMemo} hitSlop={8} accessibilityRole="button">
+                <Text style={[styles.modalSave, { color: tokens.text.primary }]}>저장</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -269,10 +316,18 @@ const styles = StyleSheet.create({
   statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 16, marginBottom: 24 },
   skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
   progressWrap: { marginBottom: 20 },
-  // 메모 — 로컬 전용 입력.
-  memoSection: { marginBottom: 24 },
-  memoLabel: { fontSize: 12, fontWeight: "600", marginBottom: 6 },
-  memoInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minHeight: 44 },
+  // 메모 — 로컬 전용. 상세는 읽기 전용 박스(탭→모달), 편집은 모달 입력.
+  headerEdit: { paddingVertical: 8, paddingHorizontal: 16 },
+  memoSection: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 24, gap: 4 },
+  memoLabel: { fontSize: 12, fontWeight: "600" },
+  memoText: { fontSize: 15, lineHeight: 21 },
+  memoInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minHeight: 80 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: 24 },
+  modalCard: { borderRadius: 12, padding: 16, gap: 12 },
+  modalTitle: { fontSize: 16, fontWeight: "700" },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 24 },
+  modalCancel: { fontSize: 15 },
+  modalSave: { fontSize: 15, fontWeight: "700" },
   // 타임라인 — 좌우 패딩 약간 추가(요청).
   timelineWrap: { minHeight: 80, paddingHorizontal: 8 },
   retry: { gap: 8, alignItems: "flex-start" },

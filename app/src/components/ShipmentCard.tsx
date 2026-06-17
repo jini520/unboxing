@@ -8,15 +8,18 @@
  * 색은 토큰만(하드코딩 금지). 상태는 색 단독 금지 — StageBadge(색+글리프+라벨), 음소거는 아이콘+a11y 라벨.
  * 택배사명은 carrierName(carrier.ts) 로 한글 표기(미상 id 는 그대로 폴백).
  */
-import { memo, useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { memo, useCallback, useEffect, useRef } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import type { Shipment } from "../lib/api";
 import { carrierName } from "../lib/carrier";
-import { relativeTime } from "../lib/time";
+import { dateKST, relativeTime } from "../lib/time";
 import { useTheme } from "../theme/ThemeProvider";
 import { Bell, BellOff, Check, Trash } from "./icons";
 import { StageBadge } from "./StageBadge";
+
+/** 풀스와이프(2단계) 실행 임계(px) — dragX 가 이 이상이면 dom 이 넘어가며 실행. rest 노출 폭보다 충분히 크다. */
+const FULL_SWIPE = 200;
 
 function ShipmentCardBase({
   shipment,
@@ -45,8 +48,38 @@ function ShipmentCardBase({
 }) {
   const { tokens } = useTheme();
   const swipeRef = useRef<Swipeable>(null);
-  // 첫 스와이프는 노출만, 같은 방향 추가 스와이프(=이미 열린 상태에서 onSwipeableOpen 재발화)에 실행한다.
-  const openedRef = useRef<"left" | "right" | null>(null);
+  // 2단계 풀스와이프 감지: dragX(=transX)가 임계 FULL_SWIPE 를 넘으면 즉시 실행(이 제스처에서 1회).
+  // 1단계(가벼운 스와이프)는 버튼 노출만(rest), 2단계(끝까지 더 스와이프)는 dom 이 넘어가며 실행.
+  const firedRef = useRef(false);
+  const dragXRef = useRef<Animated.AnimatedInterpolation<number> | null>(null);
+
+  // 액션 render 콜백의 dragX 에 리스너 1회 등록 → 풀스와이프 감지.
+  // 좌측 스와이프(우측 패널=삭제)는 음수, 우측 스와이프(좌측 패널=음소거)는 양수.
+  const attachDrag = useCallback(
+    (dragX: Animated.AnimatedInterpolation<number>) => {
+      if (dragXRef.current) return;
+      dragXRef.current = dragX;
+      dragX.addListener(({ value }) => {
+        if (firedRef.current) {
+          // 닫혀 원위치(≈0)로 돌아오면 다음 제스처 허용 — 닫힘 애니메이션 중 재발동 방지.
+          if (Math.abs(value) < 8) firedRef.current = false;
+          return;
+        }
+        if (value <= -FULL_SWIPE) {
+          firedRef.current = true;
+          swipeRef.current?.close();
+          onDelete();
+        } else if (value >= FULL_SWIPE) {
+          firedRef.current = true;
+          swipeRef.current?.close();
+          onToggleMute();
+        }
+      });
+    },
+    [onDelete, onToggleMute],
+  );
+
+  useEffect(() => () => dragXRef.current?.removeAllListeners(), []);
 
   const a11yLabel =
     `${carrierName(shipment.carrier)} ${shipment.trackingNo}, ${shipment.status}` +
@@ -105,12 +138,12 @@ function ShipmentCardBase({
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
             {carrierName(shipment.carrier)} · {shipment.trackingNo}
           </Text>
-          {/* 메모(로컬) — 있으면 메모, 없으면 안내 문구(통일감 위해 항상 한 줄). */}
+          {/* 메모(로컬) — 있으면 메모, 없으면 등록일 기반 기본 문구(통일감 위해 항상 한 줄). */}
           <Text
             style={[styles.summary, { color: memo ? tokens.text.body : tokens.text.disabled }]}
             numberOfLines={1}
           >
-            {memo || "메모를 추가해 보세요"}
+            {memo || `${dateKST(shipment.createdAt)}에 등록한 택배`}
           </Text>
         </View>
       </View>
@@ -136,68 +169,61 @@ function ShipmentCardBase({
     return <View style={styles.wrap}>{inner}</View>;
   }
 
-  const renderDelete = () => (
-    <Pressable
-      style={[styles.action, { backgroundColor: tokens.bg.secondary }]}
-      onPress={() => {
-        swipeRef.current?.close();
-        onDelete();
-      }}
-      accessibilityRole="button"
-      accessibilityLabel="삭제"
-    >
-      <Trash
-        size={20}
-        color={tokens.stage.exception}
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-      />
-      <Text style={[styles.actionText, { color: tokens.stage.exception }]}>삭제</Text>
-    </Pressable>
-  );
-
-  const renderMute = () => (
-    <Pressable
-      style={[styles.action, { backgroundColor: tokens.bg.secondary }]}
-      onPress={() => {
-        swipeRef.current?.close();
-        onToggleMute();
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={shipment.muted ? "알림 켜기" : "알림 끄기"}
-    >
-      {shipment.muted ? (
-        <Bell
-          size={20}
-          color={tokens.text.secondary}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
+  // 액션은 **fragment** 로 반환한다 — 배경(absoluteFill)을 Swipeable 의 액션 컨테이너(카드 폭 전체)에
+  // 직접 깔아야 과스와이프 시 빈 틈이 없다(컨테이너 overflow:hidden 으로 카드에 클립). 콘텐츠(아이콘+라벨)는
+  // **고정 폭**(actionBtn)이라 스냅 폭이 그 폭으로 측정된다(폭 회귀 금지 — DO NOT shrink/clip, docs UI_GUIDE).
+  const renderDelete = (_progress: unknown, dragX: Animated.AnimatedInterpolation<number>) => {
+    attachDrag(dragX);
+    return (
+      <>
+        <View
+          style={[StyleSheet.absoluteFill, { backgroundColor: tokens.bg.secondary }]}
+          pointerEvents="none"
         />
-      ) : (
-        <BellOff
-          size={20}
-          color={tokens.text.secondary}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        />
-      )}
-      <Text style={[styles.actionText, { color: tokens.text.secondary }]}>
-        {shipment.muted ? "알림 켜기" : "알림 끄기"}
-      </Text>
-    </Pressable>
-  );
+        <Pressable
+          style={styles.actionBtn}
+          onPress={() => {
+            swipeRef.current?.close();
+            onDelete();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="삭제"
+        >
+          <Trash size={22} color={tokens.stage.exception} accessibilityElementsHidden importantForAccessibility="no" />
+          <Text style={[styles.actionText, { color: tokens.stage.exception }]}>삭제</Text>
+        </Pressable>
+      </>
+    );
+  };
 
-  const onOpen = (direction: "left" | "right", swipeable: Swipeable) => {
-    if (openedRef.current === direction) {
-      // 이미 노출된 상태에서 같은 방향으로 한 번 더(끝까지) 스와이프 → 실행.
-      openedRef.current = null;
-      swipeable.close();
-      if (direction === "right") onDelete(); // 우측 패널(=좌측 스와이프) = 삭제
-      else onToggleMute(); // 좌측 패널(=우측 스와이프) = 음소거
-    } else {
-      // 첫 스와이프: 버튼 노출만(실행 금지 — reveal 게이트).
-      openedRef.current = direction;
-    }
+  const renderMute = (_progress: unknown, dragX: Animated.AnimatedInterpolation<number>) => {
+    attachDrag(dragX);
+    return (
+      <>
+        <View
+          style={[StyleSheet.absoluteFill, { backgroundColor: tokens.bg.secondary }]}
+          pointerEvents="none"
+        />
+        <Pressable
+          style={styles.actionBtn}
+          onPress={() => {
+            swipeRef.current?.close();
+            onToggleMute();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={shipment.muted ? "알림 켜기" : "알림 끄기"}
+        >
+          {shipment.muted ? (
+            <Bell size={22} color={tokens.text.secondary} accessibilityElementsHidden importantForAccessibility="no" />
+          ) : (
+            <BellOff size={22} color={tokens.text.secondary} accessibilityElementsHidden importantForAccessibility="no" />
+          )}
+          <Text style={[styles.actionText, { color: tokens.text.secondary }]}>
+            {shipment.muted ? "알림 켜기" : "알림 끄기"}
+          </Text>
+        </Pressable>
+      </>
+    );
   };
 
   return (
@@ -207,16 +233,12 @@ function ShipmentCardBase({
         friction={2}
         leftThreshold={28}
         rightThreshold={28}
-        // overshoot 비활성 — 카드가 버튼 폭 이상으로 안 밀려 빈 틈이 안 생긴다(사용자 요구).
-        // reduce motion 과 무관하게 항상 끈다(시각적 안정·잘림 방지 우선).
-        overshootLeft={false}
-        overshootRight={false}
+        // overshoot 활성 — rest 노출(1단계) 후 **끝까지 더 스와이프(2단계)** 가능. 배경 absoluteFill 이 깔려
+        // 과스와이프해도 카드-버튼 사이 틈이 없다(고정폭+overshoot 비활성으로 회귀시키지 말 것 — 사용자 요구).
+        overshootLeft
+        overshootRight
         renderLeftActions={renderMute} // 우측 스와이프 → 왼쪽 패널 = 음소거
         renderRightActions={renderDelete} // 좌측 스와이프 → 오른쪽 패널 = 삭제
-        onSwipeableOpen={onOpen}
-        onSwipeableClose={() => {
-          openedRef.current = null;
-        }}
       >
         {inner}
       </Swipeable>
@@ -275,11 +297,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
-  // 스와이프로 드러나는 액션 버튼 — 고정 폭 96(터치 타깃 ≥44). overshoot 비활성이라 카드가 버튼 폭
-  // 이상으로 밀리지 않아 버튼·카드 사이 빈 틈이 생기지 않는다(잘려보임 방지). 색은 토큰만(destructive=예외 색).
-  action: {
+  // 스와이프 액션 콘텐츠 — **고정 폭 96**(스냅 폭·터치 타깃 ≥44). 배경은 별도 absoluteFill 로 카드 폭 전체를
+  // 채우므로(틈 없음) 여기엔 배경/라운드를 두지 않는다. 색은 토큰만(destructive=예외 색).
+  actionBtn: {
     width: 96,
-    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,

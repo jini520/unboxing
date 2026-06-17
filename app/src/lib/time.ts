@@ -56,3 +56,11 @@ export function absoluteKSTLong(input: number | string): string {
   const mi = String(d.getUTCMinutes()).padStart(2, "0");
   return `${month}월 ${day}일 (${weekday}) ${hh}:${mi}`;
 }
+
+/** KST 날짜만 "M월 D일"(연도 생략). 메모 없는 카드의 기본 문구용. 파싱 불가면 "". */
+export function dateKST(input: number | string): string {
+  const t = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(t)) return "";
+  const d = new Date(t + 9 * HOUR);
+  return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일`;
+}

@@ -31,7 +31,7 @@ import { apiDeps } from "../../src/lib/deps";
 import { cacheShipments, cacheStore, readCachedShipments } from "../../src/lib/cache";
 import { loadMemos, memoStore, pruneMemos, type MemoMap } from "../../src/lib/memo";
 import { sortShipments } from "../../src/lib/sort";
-import { allSelected, pruneSelected, selectAll, toggleSelected } from "../../src/lib/selection";
+import { pruneSelected, selectAll, toggleSelected } from "../../src/lib/selection";
 import { relativeTime } from "../../src/lib/time";
 import { Plus, Trash } from "../../src/components/icons";
 import { ShipmentCard } from "../../src/components/ShipmentCard";
@@ -219,6 +219,8 @@ export default function ListScreen() {
   const selectAllVisible = useCallback(() => {
     if (shipments) setSelectedIds(selectAll(shipments.map((s) => s.id)));
   }, [shipments]);
+  // 전체 해제 — 선택만 비우고 선택 모드는 유지(취소와 다름).
+  const deselectAll = useCallback(() => setSelectedIds(new Set()), []);
 
   // 일괄 삭제는 Undo 없음 — N건 복원은 복잡·오작동 위험이라 두지 않는다(단건 스와이프 삭제만 Undo).
   const runBulkDelete = useCallback(async (targets: Shipment[]) => {
@@ -267,52 +269,48 @@ export default function ListScreen() {
     [now, memos, selectionMode, selectedIds, reduceMotion, enterSelect, toggleSelect, doDelete, toggleMute],
   );
 
-  const allOn = shipments ? allSelected(selectedIds, shipments.map((s) => s.id)) : false;
-
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
       <View style={styles.header}>
         {selectionMode ? (
-          <View style={styles.headerRow}>
-            <Pressable
-              onPress={cancelSelect}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="선택 취소"
-            >
-              <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>취소</Text>
-            </Pressable>
-            <Text style={[styles.countTitle, { color: tokens.text.primary }]}>
-              {selectedIds.size}개 선택
-            </Text>
-            <View style={styles.headerRight}>
-              {!allOn && (
-                <Pressable
-                  onPress={selectAllVisible}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="전체 선택"
-                >
-                  <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>
-                    전체선택
-                  </Text>
-                </Pressable>
-              )}
+          <>
+            <View style={styles.headerRow}>
+              <Pressable
+                onPress={cancelSelect}
+                hitSlop={8}
+                style={styles.headerSide}
+                accessibilityRole="button"
+                accessibilityLabel="선택 취소"
+              >
+                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>취소</Text>
+              </Pressable>
+              <Text style={[styles.countTitle, { color: tokens.text.primary }]}>
+                {selectedIds.size}개 선택
+              </Text>
               <Pressable
                 onPress={confirmBulkDelete}
                 hitSlop={8}
-                style={styles.iconBtn}
+                style={[styles.headerSide, styles.headerSideEnd]}
                 accessibilityRole="button"
                 accessibilityLabel={`선택한 ${selectedIds.size}개 삭제`}
               >
                 <Trash size={24} color={tokens.stage.exception} />
               </Pressable>
             </View>
-          </View>
+            {/* 전체 선택 / 전체 해제 — 헤더 아래 별도 행(카운트 가운데 유지). */}
+            <View style={styles.selectAllRow}>
+              <Pressable onPress={selectAllVisible} hitSlop={8} accessibilityRole="button" accessibilityLabel="전체 선택">
+                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>전체 선택</Text>
+              </Pressable>
+              <Pressable onPress={deselectAll} hitSlop={8} accessibilityRole="button" accessibilityLabel="전체 해제">
+                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>전체 해제</Text>
+              </Pressable>
+            </View>
+          </>
         ) : (
           <>
             <View style={styles.headerRow}>
-              <Text style={[styles.title, { color: tokens.text.primary }]}>택배</Text>
+              <Text style={[styles.title, { color: tokens.text.primary }]}>택배함</Text>
               <Pressable
                 onPress={() => router.push("/register")}
                 hitSlop={8}
@@ -323,11 +321,9 @@ export default function ListScreen() {
                 <Plus size={24} color={tokens.text.primary} />
               </Pressable>
             </View>
-            {lastUpdated !== null && (
-              <Text style={[styles.freshness, { color: tokens.text.secondary }]}>
-                마지막 업데이트 {relativeTime(lastUpdated, now)}
-              </Text>
-            )}
+            <Text style={[styles.pageDesc, { color: tokens.text.secondary }]}>
+              등록한 택배의 배송 상태를 모아 봐요
+            </Text>
           </>
         )}
       </View>
@@ -349,6 +345,14 @@ export default function ListScreen() {
           data={shipments}
           keyExtractor={(s) => s.id}
           contentContainerStyle={styles.list}
+          // 마지막 업데이트(신선도) — 첫 카드 위 오른쪽.
+          ListHeaderComponent={
+            lastUpdated !== null && !selectionMode ? (
+              <Text style={[styles.listFresh, { color: tokens.text.secondary }]}>
+                {relativeTime(lastUpdated, now)} 업데이트
+              </Text>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -404,13 +408,17 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 16 },
   headerAction: { fontSize: 15 },
+  // 양 끝 동일 폭 → 가운데 카운트가 화면 중앙에 온다.
+  headerSide: { minWidth: 56 },
+  headerSideEnd: { alignItems: "flex-end" },
+  selectAllRow: { flexDirection: "row", gap: 20, marginTop: 10 },
   // 터치 타깃 ≥44(아이콘 24 + 패딩 10*2).
   iconBtn: { padding: 10, margin: -10 },
   title: { fontSize: 30, fontWeight: "600" },
-  countTitle: { fontSize: 17, fontWeight: "600" },
-  freshness: { fontSize: 12, marginTop: 4 },
+  countTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "600" },
+  pageDesc: { fontSize: 13, marginTop: 4 },
+  listFresh: { fontSize: 12, textAlign: "right", marginBottom: 8 },
   banner: { marginHorizontal: 16, marginVertical: 8, padding: 12, borderRadius: 8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 20 },
   list: { padding: 16 },
