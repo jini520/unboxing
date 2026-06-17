@@ -1,6 +1,6 @@
 {
   "project": "unboxing",
-  "phase": "qa-fixes",
+  "phase": "qa",
   "steps": [
     {
       "step": 0,

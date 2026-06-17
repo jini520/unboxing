@@ -152,7 +152,7 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
 
   // 6. 배송완료: 자동 삭제하지 않고 **보관**한다(기본 사양 — 사용자가 수동 삭제). active=0 으로 재폴링만 멈춘다.
   //    CAS(배송완료 + active=0)를 한 문장으로 원자화 → 좀비(완료·active=1) 방지 + 영향행으로 전환 차지 판정
-  //    → 이긴 경우에만 정확히 1회 알림. (배송완료 자동 삭제는 다음 phase 설정 옵션 → docs/PLAN_AUTO_DELETE_COMPLETED.md.)
+  //    → 이긴 경우에만 정확히 1회 알림. (배송완료 자동 삭제는 다음 phase 설정 옵션 → docs/ROADMAP.md.)
   if (next === "배송완료" && prev !== "배송완료") {
     const casRes = await env.DB.prepare(
       "UPDATE shipments SET last_normalized_status = ?, active = 0 WHERE id = ? AND last_normalized_status IS ?",

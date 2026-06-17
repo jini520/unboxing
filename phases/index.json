@@ -1,22 +1,22 @@
 {
   "phases": [
     {
-      "dir": "worker-backend",
+      "dir": "01-backend-v0-mvp-worker",
       "status": "completed",
       "completed_at": "2026-06-16T18:57:54+0900"
     },
     {
-      "dir": "app-ui",
+      "dir": "02-ui-v0-mvp-app",
       "status": "completed",
       "completed_at": "2026-06-16T21:14:41+0900"
     },
     {
-      "dir": "qa-mvp",
+      "dir": "03-qa-v0-mvp-audit",
       "status": "completed",
       "completed_at": "2026-06-17T03:33:11+0900"
     },
     {
-      "dir": "qa-fixes",
+      "dir": "04-qa-v0-mvp-fixes",
       "status": "completed",
       "completed_at": "2026-06-17T06:15:44+0900"
     }

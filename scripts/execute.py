@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -20,6 +21,10 @@ from pathlib import Path
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# phase 디렉토리명 규칙: NN-category-vX-descriptor (글로벌 넘버링·카테고리·버전). 상세 → .claude/commands/harness.md.
+#   NN: 2자리 글로벌 순번(카테고리 무관 증가)  ·  category: 정의된 카테고리  ·  vX: 제품 버전(v0=MVP)  ·  descriptor: kebab
+PHASE_DIR_RE = re.compile(r"^\d{2}-[a-z0-9]+-v\d+-[a-z0-9][a-z0-9-]*$")
 
 
 @contextlib.contextmanager
@@ -80,6 +85,16 @@ class StepExecutor:
         self._phase_name = idx.get("phase", phase_dir_name)
         self._total = len(idx["steps"])
 
+        # 디렉토리명 규칙(NN-category-vX-descriptor) 검증 → 커밋 scope=category. 비표준이면 경고 후 폴백.
+        if PHASE_DIR_RE.match(phase_dir_name):
+            self._scope = phase_dir_name.split("-")[1]
+        else:
+            print(
+                f"  WARN: phase 디렉토리명 '{phase_dir_name}' 이 규칙 'NN-category-vX-descriptor' 과 다릅니다 "
+                f"(scope 를 '{self._phase_name}' 로 폴백). harness.md 의 네이밍 규칙을 확인하세요."
+            )
+            self._scope = self._phase_name
+
     def run(self):
         self._print_header()
         self._check_blockers()
@@ -111,7 +126,8 @@ class StepExecutor:
         return subprocess.run(cmd, cwd=self._root, capture_output=True, text=True)
 
     def _checkout_branch(self):
-        branch = f"feat-{self._phase_name}"
+        # 브랜치는 디렉토리명 전체로 — phase 증가 시 충돌 없는 유니크·추적 가능 이름(feat-01-backend-v0-mvp-worker).
+        branch = f"feat-{self._phase_dir_name}"
 
         r = self._run_git("rev-parse", "--abbrev-ref", "HEAD")
         if r.returncode != 0:
@@ -142,7 +158,7 @@ class StepExecutor:
         self._run_git("reset", "HEAD", "--", index_rel)
 
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
-            msg = self.FEAT_MSG.format(phase=self._phase_name, num=step_num, name=step_name)
+            msg = self.FEAT_MSG.format(phase=self._scope, num=step_num, name=step_name)
             r = self._run_git("commit", "-m", msg)
             if r.returncode == 0:
                 print(f"  Commit: {msg}")
@@ -151,7 +167,7 @@ class StepExecutor:
 
         self._run_git("add", "-A")
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
-            msg = self.CHORE_MSG.format(phase=self._phase_name, num=step_num)
+            msg = self.CHORE_MSG.format(phase=self._scope, num=step_num)
             r = self._run_git("commit", "-m", msg)
             if r.returncode != 0:
                 print(f"  WARN: housekeeping 커밋 실패: {r.stderr.strip()}")
@@ -199,7 +215,7 @@ class StepExecutor:
     def _build_preamble(self, guardrails: str, step_context: str,
                         prev_error: Optional[str] = None) -> str:
         commit_example = self.FEAT_MSG.format(
-            phase=self._phase_name, num="N", name="<step-name>"
+            phase=self._scope, num="N", name="<step-name>"
         )
         retry_section = ""
         if prev_error:

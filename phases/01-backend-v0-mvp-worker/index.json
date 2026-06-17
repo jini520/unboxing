@@ -1,6 +1,6 @@
 {
   "project": "unboxing",
-  "phase": "worker-backend",
+  "phase": "backend",
   "steps": [
     {
       "step": 0,

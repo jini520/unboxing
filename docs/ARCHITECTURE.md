@@ -110,7 +110,7 @@ unboxing/
 - `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치). 권장 timeout **15s**.
 - `carriers` 쿼리 → 지원 택배사 목록(자동인식 검증·미지원 판별).
 - carrierId 형식 예: `kr.cjlogistics`, `kr.epost` 등.
-- **CRITICAL(구현)**: `TrackerDeps.fetch` 에 전역 `fetch` 를 주입할 땐 **반드시 `fetch.bind(globalThis)`**. 맨 `fetch` 를 객체로 넘기면 호출 시 `this` 유실로 `Illegal invocation` throw → 모든 조회가 null("미등록")이 된다. mock fetch 를 쓰는 테스트는 이를 못 잡으므로 실 API 스모크로 확인(→ `docs/PITFALLS.md` P-1). 주입 뿌리: `index.ts` `tryTrack`·`scheduled`.
+- **CRITICAL(구현)**: `TrackerDeps.fetch` 에 전역 `fetch` 를 주입할 땐 **반드시 `fetch.bind(globalThis)`**. 맨 `fetch` 를 객체로 넘기면 호출 시 `this` 유실로 `Illegal invocation` throw → 모든 조회가 null("미등록")이 된다. mock fetch 를 쓰는 테스트는 이를 못 잡으므로 실 API 스모크로 확인(→ `docs/ENGINEERING.md` P-1). 주입 뿌리: `index.ts` `tryTrack`·`scheduled`.
 
 ### 에러 분류 → 처리
 
@@ -143,7 +143,7 @@ unboxing/
 ### 알림 규칙
 - **단계 전환에만** 알림. `이동중`/`기타`/`미등록`은 무알림(타임라인만).
 - **멱등성**: `last_normalized_status` 비교해 단계가 바뀔 때만 1회 발송. 재독해도 중복 없음.
-- **등록 직후 목록 표시(즉시 저장)**: 등록 시 즉시 1회 `track` 결과가 **비종료 단계면 `last_normalized_status` 에 저장**해 목록이 등록 직후 실제 상태를 보인다. `last_polled_at` 은 NULL 유지 → cron 다음 틱에 재폴링(전환 감지). **트레이드오프**: 등록 시점 단계는 `prev==stored` 라 **푸시하지 않는다**(등록 이후 변화만 알림). `배송완료`(종료)는 저장하지 않아 cron 첫 폴링이 `미등록→배송완료` 전환을 잡아 알림 후 보관(active=0, 사용자가 수동 삭제 — ADR-005 개정). 미허용/자격증명 없음/외부 실패 시엔 저장 안 함(`미등록` 유지) — 테스트 환경은 자격증명을 비워 즉시 track 을 no-op 으로 둔다(`docs/PITFALLS.md` 외부경계 검증).
+- **등록 직후 목록 표시(즉시 저장)**: 등록 시 즉시 1회 `track` 결과가 **비종료 단계면 `last_normalized_status` 에 저장**해 목록이 등록 직후 실제 상태를 보인다. `last_polled_at` 은 NULL 유지 → cron 다음 틱에 재폴링(전환 감지). **트레이드오프**: 등록 시점 단계는 `prev==stored` 라 **푸시하지 않는다**(등록 이후 변화만 알림). `배송완료`(종료)는 저장하지 않아 cron 첫 폴링이 `미등록→배송완료` 전환을 잡아 알림 후 보관(active=0, 사용자가 수동 삭제 — ADR-005 개정). 미허용/자격증명 없음/외부 실패 시엔 저장 안 함(`미등록` 유지) — 테스트 환경은 자격증명을 비워 즉시 track 을 no-op 으로 둔다(`docs/ENGINEERING.md` 외부경계 검증).
 
 ## 적응형 폴링 + cron 실행 모델
 
@@ -202,7 +202,7 @@ unboxing/
 
 | 트리거 | 동작 |
 |---|---|
-| `배송완료` 감지 | 알림 발송 → **보관**(`active=0` 재폴링 중단, 레코드 유지) → **사용자가 수동 삭제**(ADR-005 개정). 자동 삭제는 옵트인 설정으로 다음 phase(`docs/PLAN_AUTO_DELETE_COMPLETED.md`) |
+| `배송완료` 감지 | 알림 발송 → **보관**(`active=0` 재폴링 중단, 레코드 유지) → **사용자가 수동 삭제**(ADR-005 개정). 자동 삭제는 옵트인 설정으로 다음 phase(`docs/ROADMAP.md`) |
 | 미등록 7일 / 예외 7일 | 자동 비활성(`active=0`) + 안내 |
 | 등록 30일 경과(완료/예외 아님) | 강제 비활성 + "분실 의심" 알림 |
 | 마지막 구독 DELETE | orphan shipment(구독 0) 정리 |

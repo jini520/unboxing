@@ -7,7 +7,7 @@ import { runPollingBatch } from "../../src/cron";
 /**
  * 등록 사용자 여정 E2E — 앱이 실제로 하는 HTTP 호출 순서 그대로(지름길 없음, scenario.call 만 사용).
  * device 를 임의 INSERT 하지 않는다(그 지름길이 QA-001 데드락을 통합 테스트가 놓친 원인이다).
- * 발견한 갭은 verify 를 빨갛게 만들지 않는다: 사양 미충족은 it.todo("QA-NNN: …") + docs/QA_FINDINGS.md.
+ * 발견한 갭은 verify 를 빨갛게 만들지 않는다: 사양 미충족은 it.todo("QA-NNN: …") + docs/QA.md.
  *
  * QA-001(#3) 수정 후: 기기 등록을 push_token 에서 분리 — 토큰 없이 POST /devices {platform} 가 되고,
  * 그 device 로 POST /shipments 가 201. 푸시 거부 사용자도 등록 가능(데드락 해소).
@@ -201,7 +201,7 @@ describe("E2E 등록 여정 — 지름길 없이 사용자 순서 그대로", ()
     expect((over.body as { code: string }).code).toBe("RATE_LIMITED");
   });
 
-  // ── 3. 형식/매핑(서버 검증). 앱 친근 카피 매핑은 QA_FINDINGS(QA-003) 감사 ──
+  // ── 3. 형식/매핑(서버 검증). 앱 친근 카피 매핑은 QA(QA-003) 감사 ──
   it("carrier 형식 오류 → 409, 운송장 형식 오류 → 422", async () => {
     await registerDevice("dev-A", TOKEN_A);
     const badCarrier = await call("POST", "/shipments", {
