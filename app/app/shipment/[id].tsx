@@ -24,6 +24,7 @@ import {
   type TimelineEvent,
 } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
+import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
 import { StageBadge } from "../../src/components/StageBadge";
 import { Timeline } from "../../src/components/Timeline";
@@ -120,7 +121,7 @@ export default function DetailScreen() {
           <View style={styles.head}>
             <StageBadge stage={shipment.status} />
             <Text style={[styles.meta, { color: tokens.text.secondary }]}>
-              {shipment.carrier} · {shipment.trackingNo.slice(-4)}
+              {carrierName(shipment.carrier)} · {shipment.trackingNo.slice(-4)}
             </Text>
           </View>
         ) : (

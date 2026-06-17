@@ -22,6 +22,11 @@ export const CARRIERS: CarrierCandidate[] = [
   { id: "kr.coupangls", name: "쿠팡 로지스틱스" },
 ];
 
+/** carrierId → 한글 택배사명. 미지원/미상 id 는 그대로 반환(폴백). 목록·상세·알림 표기 단일 출처. */
+export function carrierName(id: string): string {
+  return CARRIERS.find((c) => c.id === id)?.name ?? id;
+}
+
 /** 정규화 후 자릿수 → 후보 carrierId 순서(가능성 높은 순). 미매칭 길이는 흔한 기본값. */
 const BY_LENGTH: Record<number, string[]> = {
   13: ["kr.epost", "kr.cjlogistics", "kr.hanjin"],

@@ -23,6 +23,7 @@ import {
   type Shipment,
 } from "../src/lib/api";
 import { apiDeps } from "../src/lib/deps";
+import { carrierName } from "../src/lib/carrier";
 import { cacheShipments, cacheStore, readCachedShipments } from "../src/lib/cache";
 import { sortShipments } from "../src/lib/sort";
 import { relativeTime } from "../src/lib/time";
@@ -123,7 +124,7 @@ export default function ListScreen() {
     (s: Shipment) => {
       Alert.alert(
         "삭제할까요?",
-        `${s.carrier} · …${s.trackingNo.slice(-4)} 을(를) 목록에서 지워요.`,
+        `${carrierName(s.carrier)} · …${s.trackingNo.slice(-4)} 을(를) 목록에서 지워요.`,
         [
           { text: "취소", style: "cancel" },
           { text: "삭제", style: "destructive", onPress: () => doDelete(s) },
