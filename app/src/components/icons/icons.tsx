@@ -52,6 +52,25 @@ export function ChevronRight({ size = 20, color, strokeWidth = 1.5, ...a11y }: I
   );
 }
 
+/** 드롭다운 펼침(∨). 접힘 표시는 호출부에서 180° 회전. */
+export function ChevronDown({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M6 9l6 6 6-6" />
+    </Svg>
+  );
+}
+
+/** 닫기/제거(×). */
+export function Close({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M18 6L6 18" />
+      <Path d="M6 6l12 12" />
+    </Svg>
+  );
+}
+
 /** 운송장 추가(+). */
 export function Plus({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (
