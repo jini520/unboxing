@@ -19,6 +19,7 @@ import { isDue, type Stage } from "./lib/polling";
 import { normalizeStatus } from "./lib/normalize";
 import { shouldNotify } from "./lib/notify";
 import { lifecycleAction } from "./lib/lifecycle";
+import { isQuietHours, isUrgentStage } from "./lib/quiet";
 import { track, d1TokenStore } from "./tracker";
 import { buildMessage, sendPush, getReceipts, classifyPushError, type PushMessage } from "./push";
 
@@ -36,6 +37,8 @@ const RECEIPT_MIN_AGE_MS = 15 * 60_000;
 const RECEIPT_SWEEP_LIMIT = 1000;
 /** 등록 레이트 윈도(10분)의 2배 지난 rate_limits 행 정리(테이블 무한 증가 방지, ADR-008). */
 const RATE_LIMIT_RETENTION_MS = 20 * 60_000;
+/** 아침 묶음 플러시 1회당 스캔/발송 상한 — send 배치(≤100)·cron subrequest 예산 보호. 초과분은 다음 fire 이월. */
+const FLUSH_SCAN_LIMIT = 100;
 
 export interface CronDeps {
   now: number;
@@ -51,6 +54,16 @@ interface DueRow {
   created_at: number;
   fail_count: number;
   next_retry_at: number | null;
+}
+
+/** 조용시간 보류 큐 행 — 메시지 스냅샷(title·body) 저장(아침 묶음 발송용). */
+interface QueueRow {
+  id: string;
+  shipment_id: string | null;
+  push_token: string;
+  title: string | null;
+  body: string | null;
+  created_at: number;
 }
 
 /** 저장된 status(문자열|null)를 Stage로 — null(미폴링)은 '미등록'으로 본다. */
@@ -89,7 +102,12 @@ export async function runPollingBatch(env: Env, deps: CronDeps): Promise<void> {
   // 9. receipt 확인(ADR-010 2단계): ~15분 지난 ticket의 전달 결과 확인 → 무효 토큰 정리 + ticket 폐기.
   await sweepReceipts(env, deps);
 
-  // 10. 만료된 rate_limits 윈도 정리(ADR-008 throttle 테이블 무한 증가 방지).
+  // 10. 아침 묶음 플러시 — 조용시간이 아니면 야간 보류분을 device·송장당 최신 1건으로 묶어 발송(PRD 알림 정책).
+  if (!isQuietHours(deps.now)) {
+    await flushQueue(env, deps);
+  }
+
+  // 11. 만료된 rate_limits 윈도 정리(ADR-008 throttle 테이블 무한 증가 방지).
   await env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(deps.now - RATE_LIMIT_RETENTION_MS)
     .run();
@@ -153,7 +171,7 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
       const messages = tokens
         .map((token) => buildMessage("배송완료", { token, shipmentId: row.id, carrier: row.carrier, last4 }))
         .filter((m): m is PushMessage => m !== null);
-      await deliver(env, deps, messages);
+      await deliver(env, deps, messages, isUrgentStage("배송완료")); // 긴급 → 야간에도 즉시
     }
     return;
   }
@@ -166,12 +184,18 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
     }
   }
 
-  // 7. 만료/좀비: createdAt 기준. deactivate면 active=0 (+notify면 '분실 의심' 푸시). 데모 번호는 분실 알림 제외.
+  // 7. 만료/좀비: createdAt 기준. deactivate면 active=0 (+notify면 운영성 안내 1회). 데모 번호는 안내 제외.
+  //    비활성 후엔 active=0 이라 due 대상이 아님 → 재폴링 없음 → 안내는 정확히 1회(멱등, 과알림 방지).
+  //    reason 별 안내 분기: 미등록7일='번호 확인'(오타/잘못된 번호), 분실의심30일='분실 의심'(별개 경로). 예외7일은 notify:false(조용히).
   const action = lifecycleAction({ stage: next, createdAt: row.created_at, now });
   if (action.type === "deactivate") {
     await env.DB.prepare("UPDATE shipments SET active = 0 WHERE id = ?").bind(row.id).run();
     if (action.notify && row.tracking_no !== env.DEMO_TRACKING_NUMBER) {
-      await notifyLost(env, deps, row);
+      if (action.reason === "미등록7일") {
+        await notifyCheckNumber(env, deps, row);
+      } else {
+        await notifyLost(env, deps, row);
+      }
     }
   }
 }
@@ -214,29 +238,38 @@ async function casStage(env: Env, id: string, prev: string | null, next: Stage):
   return (r.meta.changes ?? 0) === 1;
 }
 
-/** 송장 구독자들의 push_token (device_id·push_token은 로그 금지). */
+/**
+ * 송장 구독자들의 push_token (device_id·push_token은 로그 금지).
+ * push_token IS NOT NULL 만 — 토큰이 nullable(QA-001) 이 된 뒤 토큰 없는 구독자에게
+ * sendPush({to: null}) 로 오발송/에러 내지 않도록 거른다(C1 회귀 방지).
+ */
 async function subscriberTokens(env: Env, shipmentId: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
-    "SELECT d.push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id WHERE sub.shipment_id = ?",
+    "SELECT d.push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id " +
+      "WHERE sub.shipment_id = ? AND d.push_token IS NOT NULL",
   )
     .bind(shipmentId)
     .all<{ push_token: string }>();
   return results.map((r) => r.push_token);
 }
 
-/** 구독자별 메시지 생성 → 발송 (notifyTransition/notifyLost 공용 fan-out). */
+/**
+ * 구독자별 메시지 생성 → 발송 (notifyTransition/notifyCheckNumber/notifyLost 공용 fan-out).
+ * urgent=false 인 알림은 조용시간(야간)에 deliver 가 보류 큐로 돌린다(아침 묶음 발송).
+ */
 async function fanOut(
   env: Env,
   deps: CronDeps,
   shipmentId: string,
   build: (token: string) => PushMessage | null,
+  urgent: boolean,
 ): Promise<void> {
   const messages: PushMessage[] = [];
   for (const token of await subscriberTokens(env, shipmentId)) {
     const msg = build(token);
     if (msg) messages.push(msg);
   }
-  await deliver(env, deps, messages);
+  await deliver(env, deps, messages, urgent);
 }
 
 /** 단계 전환 푸시 — 구독자별 buildMessage(step5). eventTime으로 '오늘 도착'(KST) 판정. */
@@ -250,27 +283,48 @@ async function notifyTransition(
   const last4 = row.tracking_no.slice(-4);
   const parsed = eventTime ? Date.parse(eventTime) : NaN;
   const eventTimeMs = Number.isNaN(parsed) ? undefined : parsed;
-  await fanOut(env, deps, row.id, (token) =>
-    buildMessage(stage, {
-      token,
-      shipmentId: row.id,
-      carrier: row.carrier,
-      last4,
-      eventTimeMs,
-      nowMs: deps.now,
-    }),
+  await fanOut(
+    env,
+    deps,
+    row.id,
+    (token) =>
+      buildMessage(stage, {
+        token,
+        shipmentId: row.id,
+        carrier: row.carrier,
+        last4,
+        eventTimeMs,
+        nowMs: deps.now,
+      }),
+    isUrgentStage(stage), // 예외·배송완료만 야간 즉시, 그 외 단계 전환은 야간 보류
   );
 }
 
-/** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림이라 직접 구성. */
-async function notifyLost(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+/** 운영성 안내 푸시(번호 확인·분실 의심) — 단계 전환이 아니라 직접 구성하는 비긴급(야간 보류) 알림. body 만 다르다. */
+async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: string): Promise<void> {
   const last4 = row.tracking_no.slice(-4);
-  await fanOut(env, deps, row.id, (token) => ({
-    to: token,
-    title: `${row.carrier} · …${last4}`,
-    body: "오래 변동이 없어요 — 배송 상태를 확인해 주세요",
-    data: { shipment_id: row.id },
-  }));
+  await fanOut(
+    env,
+    deps,
+    row.id,
+    (token) => ({
+      to: token,
+      title: `${row.carrier} · …${last4}`,
+      body,
+      data: { shipment_id: row.id },
+    }),
+    false, // 운영성 안내 — 비긴급(야간 보류 대상)
+  );
+}
+
+/** '번호 확인'(미등록 7일) 안내 — 7일째 데이터 미수신(오타/잘못된 번호 의심). */
+async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+  await notifyOperational(env, deps, row, "운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요");
+}
+
+/** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림. */
+async function notifyLost(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+  await notifyOperational(env, deps, row, "오래 변동이 없어요 — 배송 상태를 확인해 주세요");
 }
 
 /**
@@ -304,12 +358,79 @@ async function sweepReceipts(env: Env, deps: CronDeps): Promise<void> {
 }
 
 /**
- * 발송 + ticket 보관 + 무효 토큰 정리.
+ * 알림 발송 게이트 — 조용시간(야간 KST 22–08) + 비긴급이면 보류 큐에 적재(아침 묶음 발송), 아니면 즉시 발송.
+ * 긴급(예외·배송완료, urgent=true)은 야간에도 즉시 발송한다(PRD 알림 정책). 보류는 "발송 시점"만 미룰 뿐
+ * 단계 상태(CAS)는 이미 적용됐으므로 멱등은 깨지지 않는다.
+ */
+async function deliver(
+  env: Env,
+  deps: CronDeps,
+  messages: PushMessage[],
+  urgent: boolean,
+): Promise<void> {
+  if (messages.length === 0) return;
+  if (!urgent && isQuietHours(deps.now)) {
+    await enqueue(env, deps, messages);
+    return;
+  }
+  await sendAndRecord(env, deps, messages);
+}
+
+/** 조용시간 비긴급 알림을 보류 큐에 적재 — 메시지 스냅샷(title·body)을 저장(아침에 재구성 안 함, E2). */
+async function enqueue(env: Env, deps: CronDeps, messages: PushMessage[]): Promise<void> {
+  await env.DB.batch(
+    messages.map((m) =>
+      env.DB.prepare(
+        "INSERT INTO notification_queue (id, shipment_id, push_token, title, body, created_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?)",
+      ).bind(crypto.randomUUID(), m.data.shipment_id, m.to, m.title, m.body, deps.now),
+    ),
+  );
+}
+
+/**
+ * 아침(주간) 묶음 플러시 — 야간 보류분을 (송장, push_token)당 **최신 1건**으로 collapse 해 발송 후 큐 삭제.
+ * 한 송장 야간 다중 전환(등록→집화→배송출발)은 최신 단계 1건만 보낸다(과알림 방지, PRD "묶어 전달").
+ * (R2) 경계 stale 은 감수: 스냅샷 그대로 발송하고 현재 단계와 재대조하지 않는다(단순·결정적 유지).
+ * subrequest 예산 보호: 1회 ≤FLUSH_SCAN_LIMIT 행만 처리하고(send 배치 ≤100) 초과분은 다음 fire 로 이월.
+ * 송장 소멸(완료·orphan·DELETE /me) 보류분은 FK CASCADE/토큰 폐기로 이미 정리돼 죽은 토큰 발송을 막는다.
+ */
+async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
+  const { results } = await env.DB.prepare(
+    "SELECT shipment_id, push_token, title, body, MAX(created_at) AS created_at FROM notification_queue " +
+      "GROUP BY shipment_id, push_token LIMIT ?",
+  )
+    .bind(FLUSH_SCAN_LIMIT)
+    .all<QueueRow>();
+  if (results.length === 0) return;
+
+  // SQL GROUP BY 가 이미 (shipment_id, push_token)당 MAX(created_at) 1건으로 collapse 했다(SQLite MAX bare-column 규칙).
+  const messages: PushMessage[] = results.map((r) => ({
+    to: r.push_token,
+    title: r.title ?? "",
+    body: r.body ?? "",
+    data: { shipment_id: r.shipment_id ?? "" },
+  }));
+
+  // 발송 먼저(실패해도 행 보존 = at-least-once) → 스캔한 행 전체 삭제(collapse 로 버린 오래된 보류분 포함).
+  await sendAndRecord(env, deps, messages);
+  await env.DB.batch(
+    results.map((r) =>
+      env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?").bind(
+        r.shipment_id,
+        r.push_token,
+      ),
+    ),
+  );
+}
+
+/**
+ * 실제 발송 + ticket 보관 + 무효 토큰 정리(조용시간 판정 없음 — 호출자가 보류/즉시를 이미 결정).
  * sendPush(step5)는 입력 순서와 1:1 정렬된 ticket을 반환 → messages[i] 와 짝이 보장된다(배치 패딩).
  * ok ticket은 receipt 확인 대기로 push_tickets에 보관(ADR-010, sweepReceipts가 확인·폐기).
- * DeviceNotRegistered → 해당 토큰의 device 정리(push_token NOT NULL이라 행 삭제, ARCHITECTURE 토큰 위생).
+ * DeviceNotRegistered → 해당 토큰을 가진 device 행 삭제(무효 토큰 정리, ARCHITECTURE 토큰 위생).
  */
-async function deliver(env: Env, deps: CronDeps, messages: PushMessage[]): Promise<void> {
+async function sendAndRecord(env: Env, deps: CronDeps, messages: PushMessage[]): Promise<void> {
   if (messages.length === 0) return;
   const tickets = await sendPush(messages, {
     fetch: deps.fetch,

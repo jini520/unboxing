@@ -20,6 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { ApiError, createShipment } from "../src/lib/api";
+import { ensureDeviceRegistered } from "../src/lib/bootstrap";
 import { apiDeps } from "../src/lib/deps";
 import { pushDeps } from "../src/lib/push";
 import {
@@ -105,6 +106,8 @@ export default function RegisterScreen() {
     setSubmitting(true);
     setError(null);
     try {
+      // 송장 등록 전 device 가 서버에 등록돼 있음을 보장(푸시 거부 사용자도 통과 — QA-001 데드락 방지).
+      await ensureDeviceRegistered();
       await createShipment(selectedId, normalizeTrackingNumber(input), apiDeps);
       // 첫 등록 직후(가치 시점)에 푸시 미허용이면 온보딩(priming)으로 유도한다 — PRD 권한 온보딩.
       // 이걸 안 하면 신규 사용자는 권한 팝업을 못 봐 '앱이 꺼져 있어도 푸시'가 동작하지 않는다. priming은 1회만.

@@ -12,4 +12,10 @@ binding = "DB"
 database_name = "unboxing"
 database_id = "2222ba46-7652-4085-8e6a-69604d2fc4b5"
 
+# 비밀 아닌 설정값(var). secret 으로 다루지 말 것 — docs/ARCHITECTURE.md "환경변수 & 시크릿".
+[vars]
+# 심사용 데모 운송장(ADR-019) — 이 번호면 tracker.ts 가 외부 호출 없이 캔드 타임라인 반환.
+# 형식 검증(^\d{9,14}$)·지원 carrier 대조 통과 + 실 운송장과 충돌 없는 예약값(14자리 0).
+DEMO_TRACKING_NUMBER = "00000000000000"
+
 # tracker.delivery 자격증명은 시크릿으로: `wrangler secret put DELIVERY_TRACKER_CLIENT_ID` (+ `..._CLIENT_SECRET`)

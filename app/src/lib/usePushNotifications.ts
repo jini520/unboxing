@@ -14,7 +14,7 @@ import {
   configureForegroundHandler,
   ensureAndroidChannel,
   pushDeps,
-  registerForPush,
+  registerPushIfGranted,
   routeForNotification,
 } from "./push";
 
@@ -27,11 +27,8 @@ export function usePushNotifications(): void {
   useEffect(() => {
     void (async () => {
       try {
-        const perm = await pushDeps.getPermissions();
-        if (!perm.granted) return; // 미허용이면 팝업 없이 종료(온보딩에서 priming 후 요청).
-        const result = await registerForPush(pushDeps);
-        if ("denied" in result) return;
-        await registerDevice(result.token, PLATFORM, apiDeps);
+        // 이미 허용된 경우에만 토큰 갱신·서버 등록(팝업 금지 — priming 후 최초 요청은 온보딩에서).
+        await registerPushIfGranted(pushDeps, (token) => registerDevice(token, PLATFORM, apiDeps));
       } catch {
         // 오프라인/401/5xx 등 토큰 갱신·등록 실패는 조용히 무시(미처리 rejection 방지). 알림만 비활성.
       }

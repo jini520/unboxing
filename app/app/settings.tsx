@@ -15,15 +15,21 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { deleteMe, registerDevice } from "../src/lib/api";
+import { resetDeviceRegistered } from "../src/lib/bootstrap";
 import { apiDeps, PLATFORM } from "../src/lib/deps";
 import { cacheStore, clearCache } from "../src/lib/cache";
 import { deleteDeviceId, deviceStorage } from "../src/lib/device";
-import { pushDeps, registerForPush } from "../src/lib/push";
+import { pushDeps, registerForPush, registerPushIfGranted } from "../src/lib/push";
 import { wipeAllData } from "../src/lib/wipe";
 import { useTheme } from "../src/theme/ThemeProvider";
 import type { ThemePreference } from "../src/theme/tokens";
 
-/** 개인정보처리방침(한글) URL — 스토어 제출 필수. 실제 URL은 배포 시 확정(ARCHITECTURE 스토어 정책). */
+/**
+ * 개인정보처리방침(한글) URL — 스토어 제출 필수.
+ * 방침 내용은 docs/PRIVACY_POLICY.md 가 단일 출처. 아래 URL 은 게시 예정(canonical) 주소.
+ * TODO(배포): docs/PRIVACY_POLICY.md 를 이 URL 에 호스팅한 뒤 실제 라이브 URL 로 확정한다.
+ *   (#12 — repo 산출물 완료, 호스팅은 배포 시 외부 작업. 조용한 placeholder 가 아니라 명시적 미배포 표시.)
+ */
 const PRIVACY_POLICY_URL = "https://unboxing.app/privacy";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
@@ -76,13 +82,11 @@ export default function SettingsScreen() {
         deleteDeviceId: () => deleteDeviceId({ storage: deviceStorage }),
       });
       // device_id 가 폐기됐다 — 다음 api 호출이 새 device_id 를 생성한다(getDeviceId 멱등).
+      // 부트스트랩 캐시를 비워 새 device_id 가 다음 등록 시 재등록되게 한다(QA-001 데드락 재발 방지).
+      resetDeviceRegistered();
       // OS 권한이 남아 있으면 새 device_id 에 push_token 을 즉시 재등록한다(앱 재시작 전까지 푸시 누락 방지).
       try {
-        const perm = await pushDeps.getPermissions();
-        if (perm.granted) {
-          const result = await registerForPush(pushDeps); // 이미 허용 상태 → 팝업 없음.
-          if ("token" in result) await registerDevice(result.token, PLATFORM, apiDeps);
-        }
+        await registerPushIfGranted(pushDeps, (token) => registerDevice(token, PLATFORM, apiDeps));
       } catch {
         // 재등록 실패는 조용히 — 다음 앱 재시작 시 usePushNotifications 가 재시도.
       }

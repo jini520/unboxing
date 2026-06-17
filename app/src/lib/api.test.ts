@@ -1,5 +1,6 @@
 import { describe, it, expect } from "@jest/globals";
 import {
+  ensureDevice,
   registerDevice,
   createShipment,
   listShipments,
@@ -71,6 +72,18 @@ describe("getShipment — 방어", () => {
     const d = deps(res(200, { shipment: rawShipment })); // timeline 필드 없음
     const { timeline } = await getShipment("ship-1", d);
     expect(timeline).toEqual([]);
+  });
+});
+
+describe("ensureDevice", () => {
+  it("POST /devices · body{platform} 만(push_token 없음) · Bearer 부착", async () => {
+    const d = deps(res(200, { device_id: DEVICE_ID }));
+    await ensureDevice("ios", d);
+    expect(d.calls[0].url).toBe(`${BASE}/devices`);
+    expect(d.calls[0].init.method).toBe("POST");
+    // 토큰 없이 platform 만 — 푸시 거부/미허용도 기기 등록(QA-001).
+    expect(JSON.parse(d.calls[0].init.body as string)).toEqual({ platform: "ios" });
+    expect(d.calls[0].init.headers?.Authorization).toBe(`Bearer ${DEVICE_ID}`);
   });
 });
 

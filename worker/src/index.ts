@@ -25,8 +25,22 @@ const MAX_ACTIVE_PER_DEVICE = 100;
 /** IP별 등록 레이트 throttle 윈도/상한 (ADR-008 silent throttle). device_id 순환 우회 방어. */
 const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_MAX_PER_WINDOW = 60;
-/** 택배사 id 형식(예: kr.cjlogistics). 명백히 잘못된 값만 거른다(실제 지원목록 대조는 후속). */
-const CARRIER_RE = /^[a-z]{2,}\.[a-z0-9_.-]+$/i;
+/**
+ * 자동 추적 지원 택배사(tracker.delivery carrierId). 미지원이면 409 CARRIER_UNSUPPORTED → 앱 딥링크 폴백(QA-002).
+ * 단일 출처는 앱 드롭다운 `app/src/lib/carrier.ts`의 CARRIERS — 두 곳을 같은 8종으로 동기화한다(드리프트 시 함께 갱신).
+ * 앱은 이 8종만 제시하므로 정상 경로에선 409 가 안 뜬다; 409 는 직접 API 호출·오추정 carrier 방어용(ADR-009).
+ * 등록 핫패스에서 외부 carriers() 동기 호출(subrequest/지연)을 피하려 코드 상수로 둔다(ARCHITECTURE).
+ */
+const SUPPORTED_CARRIERS = new Set([
+  "kr.cjlogistics",
+  "kr.epost",
+  "kr.hanjin",
+  "kr.lotte",
+  "kr.logen",
+  "kr.kdexp",
+  "kr.cupost",
+  "kr.coupangls",
+]);
 /** 국내 운송장: 공백·하이픈 제거 후 9~14자리 숫자 (app tracking.ts와 동일 규칙, 서버 재검증). */
 const TRACKING_RE = /^\d{9,14}$/;
 /** Expo 푸시 토큰 형식. */
@@ -160,24 +174,62 @@ async function tryTrack(env: Env, carrier: string, trackingNo: string): Promise<
   }
 }
 
-/** POST /devices — 푸시 토큰 등록/갱신(upsert). id = Bearer device_id. */
+/**
+ * POST /devices — 기기 등록/갱신(upsert). id = Bearer device_id (ADR-007).
+ * push_token 은 **선택** — 푸시를 거부/미허용한 기기(시뮬레이터 포함)도 등록되게 한다(QA-001 데드락 해소).
+ * 토큰이 없으면 NULL 로 행만 만들고(기존 토큰은 덮어쓰지 않음), 있으면 검증 후 저장한다.
+ */
 async function handleRegisterDevice(request: Request, env: Env, deviceId: string): Promise<Response> {
   await enforceIpRateLimit(env, request);
   const body = await parseBody(request);
-  const pushToken = typeof body.push_token === "string" ? body.push_token : "";
   const platform = typeof body.platform === "string" ? body.platform : "";
-  if (!pushToken || (platform !== "ios" && platform !== "android")) {
-    throw new ApiError(400, "INVALID_BODY", "push_token·platform이 필요해요");
+  if (platform !== "ios" && platform !== "android") {
+    throw new ApiError(400, "INVALID_BODY", "platform이 필요해요");
   }
-  if (!EXPO_TOKEN_RE.test(pushToken)) {
-    throw new ApiError(422, "INVALID_TOKEN", "푸시 토큰 형식이 올바르지 않아요");
+  // push_token 선택: 없으면(undefined/null) 토큰 없이 부트스트랩, 있으면 형식 검증.
+  const rawToken = body.push_token;
+  let pushToken: string | null = null;
+  if (rawToken !== undefined && rawToken !== null) {
+    if (typeof rawToken !== "string" || !EXPO_TOKEN_RE.test(rawToken)) {
+      throw new ApiError(422, "INVALID_TOKEN", "푸시 토큰 형식이 올바르지 않아요");
+    }
+    pushToken = rawToken;
   }
-  await env.DB.prepare(
-    "INSERT INTO devices (id, push_token, platform, created_at) VALUES (?, ?, ?, ?) " +
-      "ON CONFLICT(id) DO UPDATE SET push_token = excluded.push_token, platform = excluded.platform",
-  )
-    .bind(deviceId, pushToken, platform, Date.now())
-    .run();
+
+  const now = Date.now();
+  if (pushToken === null) {
+    // 토큰 없는 부트스트랩 — 기존 push_token 을 NULL 로 덮어쓰지 않는다(platform 만 갱신).
+    await env.DB.prepare(
+      "INSERT INTO devices (id, push_token, platform, created_at) VALUES (?, NULL, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET platform = excluded.platform",
+    )
+      .bind(deviceId, platform, now)
+      .run();
+  } else {
+    // 토큰 등록/갱신 — 같은 토큰을 보유한 다른 기기(재설치/복원)의 토큰을 먼저 NULL 로 정리해
+    // UNIQUE(push_token) 충돌을 흡수한다(E1). 토큰은 전역 유일을 유지한다.
+    const steal = await env.DB.prepare(
+      "UPDATE devices SET push_token = NULL WHERE push_token = ? AND id != ?",
+    )
+      .bind(pushToken, deviceId)
+      .run();
+    const stmts: D1PreparedStatement[] = [
+      env.DB.prepare(
+        "INSERT INTO devices (id, push_token, platform, created_at) VALUES (?, ?, ?, ?) " +
+          "ON CONFLICT(id) DO UPDATE SET push_token = excluded.push_token, platform = excluded.platform",
+      ).bind(deviceId, pushToken, platform, now),
+    ];
+    // 토큰이 실제로 다른 기기에서 이동했다면(steal>0), 옛 기기의 보류 ticket/queue 도 정리한다 —
+    // 그 행들이 옛 토큰을 가리켜 새 기기로 잘못 발송되는 교차기기 누설 방지(F3). 자기 토큰 재갱신(steal=0)은
+    // 자기 보류분을 지우면 안 되므로 제외한다(조건부).
+    if ((steal.meta.changes ?? 0) > 0) {
+      stmts.unshift(
+        env.DB.prepare("DELETE FROM push_tickets WHERE push_token = ?").bind(pushToken),
+        env.DB.prepare("DELETE FROM notification_queue WHERE push_token = ?").bind(pushToken),
+      );
+    }
+    await env.DB.batch(stmts);
+  }
   return Response.json({ device_id: deviceId });
 }
 
@@ -194,12 +246,13 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   if (!carrier || !rawTracking) {
     throw new ApiError(400, "INVALID_BODY", "carrier·tracking_no가 필요해요");
   }
-  if (!CARRIER_RE.test(carrier)) {
-    throw new ApiError(409, "CARRIER_UNSUPPORTED", "자동 추적을 지원하지 않는 택배사예요");
-  }
   const trackingNo = rawTracking.replace(/[\s-]/g, "");
   if (!TRACKING_RE.test(trackingNo)) {
     throw new ApiError(422, "INVALID_TRACKING", "운송장 번호 형식이 올바르지 않아요");
+  }
+  // 미지원 택배사 — 형식 검증(422) 뒤에 본다(무효 번호는 '번호 확인'이 우선, 에러매트릭스 순서, F5).
+  if (!SUPPORTED_CARRIERS.has(carrier)) {
+    throw new ApiError(409, "CARRIER_UNSUPPORTED", "자동 추적을 지원하지 않는 택배사예요");
   }
 
   // 이미 이 기기가 같은 송장을 구독 중이면 새 행 없이 멱등 200.
@@ -331,8 +384,24 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
     .bind(deviceId)
     .all<{ shipment_id: string }>();
 
-  // device 삭제 → subscriptions CASCADE, push_token 도 함께 폐기.
-  await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(deviceId).run();
+  // 이 기기의 push_token 을 먼저 읽어 둔다 — receipt 대기/보류 버퍼의 토큰 사본까지 즉시 폐기하기 위함(ADR-017).
+  const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
+    .bind(deviceId)
+    .first<{ push_token: string | null }>();
+
+  // device 삭제(→subscriptions CASCADE) + push_token 사본(비-FK: receipt 대기 push_tickets·야간 보류
+  // notification_queue)을 **한 batch 로 원자 폐기** — devices 만 지우면 ~15분 sweep 까지 토큰 잔존.
+  // ADR-017 "푸시 토큰 폐기"는 즉시·완전, 크래시 창 최소화(QA-008/#11, CL4).
+  const wipeStmts: D1PreparedStatement[] = [
+    env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(deviceId),
+  ];
+  if (dev?.push_token) {
+    wipeStmts.push(
+      env.DB.prepare("DELETE FROM push_tickets WHERE push_token = ?").bind(dev.push_token),
+      env.DB.prepare("DELETE FROM notification_queue WHERE push_token = ?").bind(dev.push_token),
+    );
+  }
+  await env.DB.batch(wipeStmts);
 
   // 이 기기가 보던 송장 중 구독이 0이 된 orphan을 한 문장으로 정리(순차 루프 제거).
   const ids = results.map((r) => r.shipment_id);

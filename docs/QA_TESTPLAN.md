@@ -7,8 +7,9 @@
 > 사양 출처: `docs/PRD.md`(플로우·알림 정책·스토어 컴플라이언스), `docs/ARCHITECTURE.md`(푸시 파이프라인·데모 경로),
 > `docs/UI_GUIDE.md`(화면·상태별 UI), `docs/ADR.md`(ADR-016~019).
 >
-> ⚠️ **알려진 차단**: QA-001(P0) — 푸시 거부 시 등록 데드락. 거부 graceful 케이스(§1-C)는 현재 실패 예상이며
-> QA-001 수정 전까지 재현 확인용. 데모 경로(§3) 도 QA-010 미설정 상태에선 비활성.
+> ✅ **QA-001(P0) 수정됨**(qa-fixes step0, #3): 기기 등록을 push_token 에서 분리 — 토큰 없이 device 등록 가능,
+> 앱이 등록 전 device 를 부트스트랩한다. 거부 graceful 케이스(§1-C)는 이제 **성공 기대**(실기기 최종 확인 필요).
+> 데모 경로(§3) 는 QA-010(미설정) 미해결 시 비활성.
 
 ## 1. 실기기 푸시 시나리오
 
@@ -29,11 +30,13 @@
 3. ⚠️ QA-004: 야간(KST 22:00–08:00)에 비긴급 단계 전환 발생 시 즉시 발송되는지(조용시간 미구현 — 새벽 알림 재현).
 4. ⚠️ QA-005: 여러 송장 동시 전환 시 개별 N건인지/묶음 요약인지(그룹화 미구현 재현).
 
-### 1-C. 권한 거부 graceful (⚠️ QA-001 차단)
+### 1-C. 권한 거부 graceful (✅ QA-001 수정됨 — 최종 확인)
 1. priming → OS 팝업 → **"거부"**.
 2. 기대(사양): 등록·조회는 계속 가능, 알림만 비활성 + "알림 꺼짐 — 켜기" 배너로 설정 유도.
-3. **현재(QA-001)**: 푸시 토큰이 없어 device 미등록 → 등록 시 `401` 데드락(거부 graceful 실패). 재현 확인.
-4. 설정 화면에서 "배송 상태 알림 > 켜기" → 시스템 설정 이동 → 권한 허용 후 복귀 시 "켜짐" 반영.
+3. **확인(QA-001 #3 수정)**: 푸시 거부 상태에서 운송장 등록 → `401` 데드락 없이 **등록 성공**(목록에 표시).
+   앱이 토큰 없이 `POST /devices {platform}` 로 device 를 부트스트랩하기 때문(시작 시 1회 + 등록 직전 ensure).
+   *앱→실 worker E2E 자동화는 RNTL 보류라 부재 — 이 항목으로 시뮬레이터/실기기 최종 확인.*
+4. 설정 화면에서 "배송 상태 알림 > 켜기" → 시스템 설정 이동 → 권한 허용 후 복귀 시 "켜짐" 반영(새 토큰이 device 에 갱신).
 
 ### 1-D. 무효 토큰 위생 (receipt)
 1. 알림 허용 후 OS 레벨에서 앱 알림 끄기/재설치로 토큰 무효화 → 다음 발송 후 ~15분 receipt sweep 에서 `DeviceNotRegistered` → 토큰 삭제(이후 발송 중단). (서버 로그/스테이징 확인.)
@@ -68,15 +71,18 @@
 ## 3. 스토어 제출 체크리스트
 
 > 제출/심사 통과 필수 — 코드만으로 검증 불가(콘솔 설정·심사 노트 포함). 갭은 `QA_FINDINGS.md` QA-009~012.
+> **repo 산출물(qa-fixes step5)**: 방침 `docs/PRIVACY_POLICY.md` · 신고 초안 `docs/STORE_PRIVACY_FILING.md`(아래 §3-B 표의 권위 출처) · 배포 마이그레이션 `docs/MIGRATION.md`.
 
 ### 3-A. 공통
-- [ ] **개인정보처리방침(한글) URL** 게시 + 앱(`settings.tsx PRIVACY_POLICY_URL`)·스토어 양쪽 반영 (⚠️ QA-009: 현재 placeholder). 방침에 수집항목(운송장·푸시토큰)·목적·**제3자 제공**(tracker.delivery)·**국외이전**(Cloudflare)·보유/삭제·문의처 명시.
+- [ ] **개인정보처리방침(한글) URL** 게시 + 앱(`settings.tsx PRIVACY_POLICY_URL`)·스토어 양쪽 반영 (⚠️ QA-009: 방침 문서 `docs/PRIVACY_POLICY.md` 작성됨, URL 은 호스팅 후 확정 — TODO 주석). 방침에 수집항목(운송장·푸시토큰)·목적·**제3자 제공**(tracker.delivery)·**국외이전**(Cloudflare)·보유/삭제·문의처 명시.
 - [ ] **인앱 "모든 데이터 삭제"** 동작 확인(설정 → 확인 다이얼로그 → 빈 상태 복귀, `DELETE /me`). ✅ 구현됨.
 - [ ] **데모/리뷰 노트**: `DEMO_TRACKING_NUMBER` 설정(⚠️ QA-010 미설정) + 리뷰 노트에 샘플 번호·예상 동작("등록→이동중→배송출발 캔드 타임라인, 실폴링 없음") 기재.
 - [ ] **전송 암호화**: 전 통신 HTTPS → Apple 수출규정 표준 면제 선언.
 - [ ] 스크린샷(주요 화면), 연령 등급(**4+** 예상), 앱 아이콘/메타.
 
 ### 3-B. App Privacy / Data Safety 신고 초안 (QA-011 — 콘솔 입력용)
+
+> 권위 출처: `docs/STORE_PRIVACY_FILING.md`(데이터 인벤토리·Apple/Google 콘솔별 표). 아래는 요약.
 
 | 데이터 | 수집? | 공유(제3자)? | 용도 | 비고 |
 |---|---|---|---|---|
@@ -90,7 +96,7 @@
 - **Apple**: App Privacy Nutrition Labels 에 위 표 반영, ATT 미사용 선언. **Google**: Data Safety form 에 **제3자 SDK(Expo Push·Cloudflare)도 포함**, "데이터 삭제 메커니즘 제공" 표기.
 
 ### 3-C. 플랫폼별
-- [ ] **Apple Privacy Manifest**(`PrivacyInfo.xcprivacy`) + required-reason API 신고(⚠️ QA-012): `expo prebuild` 산출물 확인, 클립보드 사용 사유 문자열(`app.json ios.infoPlist`) 검토.
+- [ ] **Apple Privacy Manifest**(`PrivacyInfo.xcprivacy`) + required-reason API 신고(QA-012): `app.json ios.privacyManifests` 선언됨(UserDefaults `CA92.1`·FileTimestamp `C617.1`) → `expo prebuild` 산출 `PrivacyInfo.xcprivacy` 병합 결과 확인. 클립보드는 iOS Info.plist 키·required-reason 없음(미추가, 근거 `STORE_PRIVACY_FILING.md` §3-A).
 - [ ] **Apple 4.2 minimum functionality**: 데모 경로로 핵심 가치(상태 변화→알림) 입증.
 - [ ] **Apple 푸시 정책**: 거부해도 앱 동작(§1-C), 광고 용도 금지(ADR-018).
 - [ ] **Google `POST_NOTIFICATIONS`**(Android 13+) 런타임 권한 — priming 후 요청, 거부 graceful.

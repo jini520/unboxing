@@ -9,7 +9,7 @@
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS devices (
   id          TEXT PRIMARY KEY,
-  push_token  TEXT NOT NULL UNIQUE,
+  push_token  TEXT UNIQUE,
   platform    TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 )`,
@@ -44,6 +44,14 @@ export const SCHEMA_STATEMENTS: string[] = [
   ip           TEXT PRIMARY KEY,
   window_start INTEGER NOT NULL,
   count        INTEGER NOT NULL
+)`,
+  `CREATE TABLE IF NOT EXISTS notification_queue (
+  id          TEXT PRIMARY KEY,
+  shipment_id TEXT REFERENCES shipments(id) ON DELETE CASCADE,
+  push_token  TEXT NOT NULL,
+  title       TEXT,
+  body        TEXT,
+  created_at  INTEGER
 )`,
   `ALTER TABLE shipments ADD COLUMN last_event_time INTEGER`,
   `ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,

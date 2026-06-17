@@ -113,6 +113,14 @@ async function request(
   return res;
 }
 
+/**
+ * POST /devices — 토큰 없이 기기만 등록(부트스트랩). 푸시 거부/미허용도 기기 등록이 되게 한다(QA-001, ADR-007).
+ * 송장 등록 전 device 가 서버에 존재함을 보장하는 용도. 멱등 upsert.
+ */
+export async function ensureDevice(platform: "ios" | "android", deps: ApiDeps): Promise<void> {
+  await request("/devices", { method: "POST", body: { platform } }, deps);
+}
+
 /** POST /devices — 푸시 토큰 등록/갱신(upsert). */
 export async function registerDevice(
   pushToken: string,

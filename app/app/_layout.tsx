@@ -10,6 +10,8 @@ import { usePushNotifications } from "../src/lib/usePushNotifications";
 
 export default function RootLayout() {
   usePushNotifications();
+  // device 서버 등록은 첫 운송장 등록 직전 ensureDeviceRegistered 가 보장한다(register.tsx).
+  // 시작 시 무조건 호출은 등록 안 하는 사용자에게도 /devices·IP rate-limit 를 소모하므로 제거(CL5).
   return (
     <SafeAreaProvider>
       <ThemeProvider>

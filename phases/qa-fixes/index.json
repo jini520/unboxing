@@ -1,0 +1,56 @@
+{
+  "project": "unboxing",
+  "phase": "qa-fixes",
+  "steps": [
+    {
+      "step": 0,
+      "name": "register-fix",
+      "status": "completed",
+      "started_at": "2026-06-17T05:22:47+0900",
+      "summary": "기기 등록을 push_token 에서 분리(nullable) — 토큰 없이 POST /devices {platform} + 앱 ensureDeviceRegistered 부트스트랩으로 푸시 거부 사용자 등록 데드락 해소; cron subscriberTokens NULL 토큰 제외(C1) · UNIQUE 충돌 흡수(E1). fixes #3 (#6 자동 해소)",
+      "completed_at": "2026-06-17T05:36:00+0900"
+    },
+    {
+      "step": 1,
+      "name": "carrier-support",
+      "status": "completed",
+      "started_at": "2026-06-17T05:36:00+0900",
+      "summary": "미지원 택배사 409 — worker 에 지원 carrierId 허용집합(SUPPORTED_CARRIERS 8종, 앱 carrier.ts 와 동기화) 추가, 형식만 검사하던 CARRIER_RE 를 대조로 교체. 미지원이면 409 CARRIER_UNSUPPORTED(행 미생성) → 앱 register.tsx 가 이미 409→딥링크 폴백 연결. 등록 핫패스 외부 carriers() 호출 없음(코드 상수). fixes #5",
+      "completed_at": "2026-06-17T05:39:36+0900"
+    },
+    {
+      "step": 2,
+      "name": "lifecycle-notice",
+      "status": "completed",
+      "started_at": "2026-06-17T05:39:36+0900",
+      "summary": "미등록7일 '번호 확인' 안내 1회 — lifecycle 미등록7일 notify:true + cron notifyCheckNumber(fanOut/deliver 중앙 경로 → step3 조용시간 적용 가능, NULL 토큰 제외 재사용). 예외7일은 정책상 안내 생략(이미 예외 푸시 1회 받음 — 과알림 방지). 비활성 후 active=0 → due 아님이라 정확히 1회(재폴링 무재발송). 데모 제외·30일 분실알림 불변. E2E now 주간(KST) 고정. fixes #10",
+      "completed_at": "2026-06-17T05:46:10+0900"
+    },
+    {
+      "step": 3,
+      "name": "quiet-hours",
+      "status": "completed",
+      "started_at": "2026-06-17T05:46:10+0900",
+      "summary": "조용시간(KST 22–08) 야간 보류·아침 묶음 — 순수 헬퍼 quiet.ts(isQuietHours·isUrgentStage) + notification_queue 보류 큐(메시지 스냅샷). cron deliver 가 비긴급·야간이면 큐 적재, 긴급(예외·배송완료)은 즉시; runPollingBatch 주간 fire 가 flushQueue 로 (송장,토큰)당 최신 1건 collapse 발송 후 삭제(≤100/이월). NULL토큰 제외·전환 CAS 멱등 불변. handleDeleteMe 가 push_tickets·notification_queue 의 토큰 사본도 즉시 폐기(ADR-017). 조용시간이 시계를 유의미하게 만들어 cron/E2E now 를 주간 고정(보류 케이스만 야간). fixes #7 #11",
+      "completed_at": "2026-06-17T06:02:53+0900"
+    },
+    {
+      "step": 4,
+      "name": "demo-path",
+      "status": "completed",
+      "started_at": "2026-06-17T06:02:53+0900",
+      "summary": "심사 데모 경로 활성화 — wrangler.toml [vars] DEMO_TRACKING_NUMBER=00000000000000(비밀 아닌 var, 실 운송장·기존 테스트 번호와 비충돌 예약값) 설정으로 tracker.ts 데모 분기가 외부 호출 우회·캔드 타임라인(등록→이동중→배송출발) 반환. 데모 carrier kr.cjlogistics 는 step1 지원목록 통과, 등록은 step0 device ensure 경로 사용. demoResult 주석에 bounded 잔존(M3: 30일 비활성·분실안내 데모가드 제외) 명시 + docs/REVIEW_NOTES.md 작성(심사 제출용 데모 번호·절차·예상 동작). fixes #13",
+      "completed_at": "2026-06-17T06:06:39+0900"
+    },
+    {
+      "step": 5,
+      "name": "store-prep",
+      "status": "completed",
+      "started_at": "2026-06-17T06:06:39+0900",
+      "summary": "스토어 제출 준비물 — docs/PRIVACY_POLICY.md(한글 방침: 수집·제3자제공·국외이전·삭제·문의처, ADR-002/005/017/018 일치) + settings.tsx PRIVACY_POLICY_URL 명시 TODO 주석(조용한 placeholder 해소). docs/STORE_PRIVACY_FILING.md(D1 전체 인벤토리 기반 Apple App Privacy·Google Data Safety·PIPA 국외이전 초안, push_token 선택수집·notification_queue 반영). app.json ios.privacyManifests 선언(UserDefaults CA92.1·FileTimestamp C617.1, NSPrivacyTracking:false; 클립보드는 iOS Info.plist 키·required-reason 없어 미추가) + app-config.test.ts JSON sanity(E3). docs/MIGRATION.md(devices.push_token nullable 테이블 재생성·notification_queue 신규 적용 절차). prepares #12 #14 (repo 산출물, 호스팅·콘솔 제출 잔여), fixes #15",
+      "completed_at": "2026-06-17T06:15:44+0900"
+    }
+  ],
+  "created_at": "2026-06-17T05:22:47+0900",
+  "completed_at": "2026-06-17T06:15:44+0900"
+}
