@@ -99,6 +99,15 @@ export function Gear({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps
   );
 }
 
+/** 선택 체크(✓ 단독) — 멀티선택 체크박스용. */
+export function Check({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M20 6L9 17l-5-5" />
+    </Svg>
+  );
+}
+
 /** 택배함(상자). */
 export function Package({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (

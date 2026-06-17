@@ -9,6 +9,7 @@
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Pressable } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ChevronLeft } from "../src/components/icons";
 import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
@@ -19,12 +20,15 @@ export default function RootLayout() {
   // device 서버 등록은 첫 운송장 등록 직전 ensureDeviceRegistered 가 보장한다(register.tsx).
   // 시작 시 무조건 호출은 등록 안 하는 사용자에게도 /devices·IP rate-limit 를 소모하므로 제거(CL5).
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <RootStack />
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    // gesture-handler: 카드 스와이프(Swipeable) 제스처를 위해 최상위를 RootView 로 감싼다(v56 요구).
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <RootStack />
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
