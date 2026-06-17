@@ -300,10 +300,10 @@ export default function ListScreen() {
             {/* 전체 선택 / 전체 해제 — 헤더 아래 별도 행(카운트 가운데 유지). */}
             <View style={styles.selectAllRow}>
               <Pressable onPress={selectAllVisible} hitSlop={8} accessibilityRole="button" accessibilityLabel="전체 선택">
-                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>전체 선택</Text>
+                <Text style={[styles.headerAction, { color: tokens.stage.outForDelivery, fontWeight: "600" }]}>전체 선택</Text>
               </Pressable>
               <Pressable onPress={deselectAll} hitSlop={8} accessibilityRole="button" accessibilityLabel="전체 해제">
-                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>전체 해제</Text>
+                <Text style={[styles.headerAction, { color: tokens.stage.outForDelivery, fontWeight: "600" }]}>전체 해제</Text>
               </Pressable>
             </View>
           </>
@@ -412,12 +412,12 @@ const styles = StyleSheet.create({
   // 양 끝 동일 폭 → 가운데 카운트가 화면 중앙에 온다.
   headerSide: { minWidth: 56 },
   headerSideEnd: { alignItems: "flex-end" },
-  selectAllRow: { flexDirection: "row", gap: 20, marginTop: 10 },
+  selectAllRow: { flexDirection: "row", justifyContent: "flex-end", gap: 20, marginTop: 10 },
   // 터치 타깃 ≥44(아이콘 24 + 패딩 10*2).
   iconBtn: { padding: 10, margin: -10 },
   title: { fontSize: 30, fontWeight: "600" },
   countTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "600" },
-  pageDesc: { fontSize: 13, marginTop: 4 },
+  pageDesc: { fontSize: 13, lineHeight: 19, marginTop: 10 },
   listFresh: { fontSize: 12, textAlign: "right", marginBottom: 8 },
   banner: { marginHorizontal: 16, marginVertical: 8, padding: 12, borderRadius: 8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 20 },

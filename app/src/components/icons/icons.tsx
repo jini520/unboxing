@@ -148,14 +148,15 @@ export function Package({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPr
   );
 }
 
-/** 택배함(열린 상자 — 뚜껑이 펼쳐진 형태) — 탭 활성. Lucide package-open. */
+/** 택배함(열린 상자 — 몸통 + 위로 펼쳐진 좌·우 뚜껑) — 탭 활성. */
 export function PackageOpen({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (
     <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
-      <Path d="M12 22v-9" />
-      <Path d="M15.17 2.21a1.67 1.67 0 0 1 1.63 0L21 4.57a1.93 1.93 0 0 1 0 3.36L8.82 14.79a1.655 1.655 0 0 1-1.64 0L3 12.43a1.93 1.93 0 0 1 0-3.36z" />
-      <Path d="M20 13v3.87a2.06 2.06 0 0 1-1.11 1.83l-6 3.08a1.93 1.93 0 0 1-1.78 0l-6-3.08A2.06 2.06 0 0 1 4 16.87V13" />
-      <Path d="M21 12.43a1.93 1.93 0 0 0 0-3.36L8.83 2.2a1.64 1.64 0 0 0-1.63 0L3 4.57a1.93 1.93 0 0 0 0 3.36z" />
+      <Path d="M4 11v6l8 4 8-4v-6" />
+      <Path d="M4 11l8 3 8-3" />
+      <Path d="M12 14v7" />
+      <Path d="M4 11l4-5 4 2" />
+      <Path d="M20 11l-4-5-4 2" />
     </Svg>
   );
 }

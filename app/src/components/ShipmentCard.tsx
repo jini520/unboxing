@@ -143,7 +143,7 @@ function ShipmentCardBase({
             style={[styles.summary, { color: memo ? tokens.text.body : tokens.text.disabled }]}
             numberOfLines={1}
           >
-            {memo || `${dateKST(shipment.createdAt)}에 등록한 택배`}
+            {memo || `${dateKST(shipment.createdAt)}에 등록한 상품`}
           </Text>
         </View>
       </View>
@@ -177,7 +177,10 @@ function ShipmentCardBase({
     return (
       <>
         <View
-          style={[StyleSheet.absoluteFill, { backgroundColor: tokens.bg.secondary }]}
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: tokens.bg.secondary, borderTopRightRadius: 8, borderBottomRightRadius: 8 },
+          ]}
           pointerEvents="none"
         />
         <Pressable
@@ -201,7 +204,10 @@ function ShipmentCardBase({
     return (
       <>
         <View
-          style={[StyleSheet.absoluteFill, { backgroundColor: tokens.bg.secondary }]}
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: tokens.bg.secondary, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 },
+          ]}
           pointerEvents="none"
         />
         <Pressable
@@ -293,9 +299,12 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginTop: 8,
   },
+  // 메모(또는 등록일 기반 default) — 택배사·번호보다 중요한 식별 정보라 **중앙·강조** typography.
   summary: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 15,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 8,
   },
   // 스와이프 액션 콘텐츠 — **고정 폭 96**(스냅 폭·터치 타깃 ≥44). 배경은 별도 absoluteFill 로 카드 폭 전체를
   // 채우므로(틈 없음) 여기엔 배경/라운드를 두지 않는다. 색은 토큰만(destructive=예외 색).

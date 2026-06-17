@@ -53,5 +53,5 @@ const styles = StyleSheet.create({
   // 배경 없음 — 아이콘만. 터치 타깃 ≥44(아이콘 26 + 패딩).
   back: { alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 16 },
   title: { fontSize: 22, fontWeight: "700", paddingHorizontal: 16, marginTop: 4 },
-  description: { fontSize: 13, lineHeight: 19, paddingHorizontal: 16, marginTop: 6 },
+  description: { fontSize: 13, lineHeight: 19, paddingHorizontal: 16, marginTop: 10 },
 });
