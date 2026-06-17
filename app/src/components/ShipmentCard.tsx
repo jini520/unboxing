@@ -2,7 +2,7 @@
  * 송장 카드 — 좌측정렬: 단계배지 · 택배사·끝4자리 · 한 줄 요약 · 상대시간.
  * 탭 → 상세, 좌측 스와이프 → 삭제(부모가 Undo 토스트 처리). RN 코어(PanResponder/Animated)만 사용.
  * 색은 토큰만(하드코딩 금지). 상태는 색 단독 금지 — StageBadge가 색+글리프+라벨로 표시.
- * 택배사 한글명 매핑은 등록(자동인식) step 소관 — 여기선 carrier id 를 그대로 표기.
+ * 택배사명은 carrierName(carrier.ts) 로 한글 표기(미상 id 는 그대로 폴백).
  */
 import { memo, useRef } from "react";
 import {
@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import type { Shipment, Stage } from "../lib/api";
+import { carrierName } from "../lib/carrier";
 import { relativeTime } from "../lib/time";
 import { useTheme } from "../theme/ThemeProvider";
 import { StageBadge } from "./StageBadge";
@@ -82,7 +83,7 @@ function ShipmentCardBase({
         <Pressable
           onPress={onPress}
           accessibilityRole="button"
-          accessibilityLabel={`${shipment.carrier} ${last4}, ${shipment.status}`}
+          accessibilityLabel={`${carrierName(shipment.carrier)} ${last4}, ${shipment.status}`}
           accessibilityHint="두 번 탭하면 상세를 봐요"
         >
           <View style={styles.topRow}>
@@ -92,7 +93,7 @@ function ShipmentCardBase({
             </Text>
           </View>
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
-            {shipment.carrier} · {last4}
+            {carrierName(shipment.carrier)} · {last4}
           </Text>
           <Text style={[styles.summary, { color: tokens.text.body }]}>
             {STAGE_SUMMARY[shipment.status]}
