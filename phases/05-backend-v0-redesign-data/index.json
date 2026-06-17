@@ -7,7 +7,8 @@
       "name": "status-changed-at",
       "status": "completed",
       "started_at": "2026-06-17T20:01:35+0900",
-      "summary": "shipments.status_changed_at(단계 시작 시각) 컬럼 추가 — 등록 시 created_at 초기화·cron CAS(전환+배송완료) 시 이벤트 시각 기록(폴링·백오프엔 미갱신), serializeShipment ?? created_at 폴백 노출. schema.sql↔schema.ts·ARCHITECTURE·ENGINEERING 갱신, cron/shipments/e2e 테스트 추가(verify green)."
+      "summary": "shipments.status_changed_at(단계 시작 시각) 컬럼 추가 — 등록 시 created_at 초기화·cron CAS(전환+배송완료) 시 이벤트 시각 기록(폴링·백오프엔 미갱신), serializeShipment ?? created_at 폴백 노출. schema.sql↔schema.ts·ARCHITECTURE·ENGINEERING 갱신, cron/shipments/e2e 테스트 추가(verify green).",
+      "completed_at": "2026-06-17T20:09:04+0900"
     },
     {
       "step": 1,
