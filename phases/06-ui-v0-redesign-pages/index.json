@@ -2,10 +2,33 @@
   "project": "unboxing",
   "phase": "ui",
   "steps": [
-    { "step": 0, "name": "svg-icons", "status": "pending" },
-    { "step": 1, "name": "navigation", "status": "pending" },
-    { "step": 2, "name": "home-page", "status": "pending" },
-    { "step": 3, "name": "detail-page", "status": "pending" },
-    { "step": 4, "name": "settings-privacy", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "svg-icons",
+      "status": "completed",
+      "started_at": "2026-06-17T20:26:00+0900",
+      "summary": "react-native-svg@15.15.4 직접 의존성 추가 + SVG 라인 아이콘 세트(app/src/components/icons/icons.tsx, 배럴 index.ts): 네비/액션 ChevronLeft·Plus·Trash·Bell·BellOff·Gear·Package, 단계 글리프 Clock·DotSmall·Truck·CheckCircle·AlertTriangle (공통 IconProps{size,color,strokeWidth,a11y}, 색은 prop 주입·hex 하드코딩 없음). StageBadge 의 텍스트 글리프(○•▸✓!)를 SVG 아이콘으로 교체(색+SVG+라벨 유지, 아이콘 a11y 숨김). jest-expo peer dep @react-native/jest-preset@0.85.3 devDep 명시(expo install 부작용 복원). verify green(app 84·worker 147+2todo·harness 51)."
+    },
+    {
+      "step": 1,
+      "name": "navigation",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "home-page",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "detail-page",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "settings-privacy",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-17T20:26:00+0900"
 }
