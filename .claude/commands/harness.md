@@ -24,7 +24,23 @@
 4. **시그니처 수준 지시** — 함수/클래스의 인터페이스만 제시하고 내부 구현은 에이전트 재량에 맡긴다. 단, 설계 의도에서 벗어나면 안 되는 핵심 규칙(멱등성, 보안, 데이터 무결성 등)은 반드시 명시한다.
 5. **AC는 실행 가능한 커맨드** — "~가 동작해야 한다" 같은 추상적 서술이 아닌 `npm run verify` 같은 실제 실행 가능한 검증 커맨드를 포함한다.
 6. **주의사항은 구체적으로** — "조심해라" 대신 "X를 하지 마라. 이유: Y" 형식으로 적는다.
-7. **네이밍** — step name은 kebab-case slug로, 해당 step의 핵심 모듈/작업을 한두 단어로 표현한다 (예: `project-setup`, `api-layer`, `auth-flow`).
+7. **네이밍 (CRITICAL — 체계적 디렉토리·넘버링)**
+
+   **Phase 디렉토리**: `NN-category-vX-descriptor` 형식으로 만든다. execute.py 가 이 규칙을 정규식으로 검증하고(어긋나면 경고), 브랜치(`feat-{디렉토리}`)·커밋 scope(`category`)를 이 이름에서 파생한다.
+   - `NN`: **2자리 글로벌 순번**. 카테고리와 무관하게 전체에서 1씩 증가(01, 02, 03 …). `phases/index.json` 의 **마지막 번호 + 1**.
+   - `category`: 아래 **정의된 카테고리** 중 하나(소문자). 모호하면 **주된 산출물/레이어** 기준으로 고른다.
+   - `vX`: **제품 버전/마일스톤**. `v0`=Phase 1 MVP(국내·익명), `v1`=Phase 2(해외·계정 동기화), 이후 증가. CLAUDE.md 의 Phase 정의를 따른다.
+   - `descriptor`: 해당 phase의 구체 작업을 1~3 단어 kebab 으로(예: `mvp-worker`, `pages`, `fixes`).
+   - 예: `01-backend-v0-mvp-worker` · `02-ui-v0-mvp-app` · `03-qa-v0-mvp-audit` · `05-ui-v1-overseas-pages`.
+
+   **카테고리 기준(확정 목록)** — 주된 산출물/레이어로 분류. 새 카테고리가 필요하면 이 목록에 **먼저 추가**하고 사용한다.
+   - `backend`: Cloudflare Worker·D1·cron·HTTP API·tracker.delivery 연동 등 서버.
+   - `ui`: Expo 앱 화면·컴포넌트·클라이언트 로직·네비게이션.
+   - `qa`: 테스트·사양 감사·버그 수정·스토어 제출 준비.
+   - `infra`: 툴링·CI·harness·빌드/배포 설정.
+   - `docs`: 문서 전용 작업.
+
+   **Step name**: kebab-case slug로 해당 step의 핵심 모듈/작업을 한두 단어로 표현한다 (예: `project-setup`, `api-layer`, `auth-flow`).
 
 ### D. 파일 생성
 
@@ -38,23 +54,23 @@
 {
   "phases": [
     {
-      "dir": "0-mvp",
+      "dir": "01-backend-v0-mvp-worker",
       "status": "pending"
     }
   ]
 }
 ```
 
-- `dir`: task 디렉토리명.
+- `dir`: phase 디렉토리명 — **`NN-category-vX-descriptor` 규칙(위 C-7)**. `NN` 은 이 배열의 마지막 번호 + 1.
 - `status`: `"pending"` | `"completed"` | `"error"` | `"blocked"`. execute.py가 실행 중 자동으로 업데이트한다.
 - 타임스탬프(`completed_at`, `failed_at`, `blocked_at`)는 execute.py가 상태 변경 시 자동 기록한다. 생성 시 넣지 않는다.
 
-#### D-2. `phases/{task-name}/index.json` (task 상세)
+#### D-2. `phases/{NN-category-vX-descriptor}/index.json` (task 상세)
 
 ```json
 {
   "project": "unboxing",
-  "phase": "<task-name>",
+  "phase": "backend",
   "steps": [
     { "step": 0, "name": "project-setup", "status": "pending" },
     { "step": 1, "name": "core-types", "status": "pending" },
@@ -66,7 +82,7 @@
 필드 규칙:
 
 - `project`: 프로젝트명 (CLAUDE.md 참조).
-- `phase`: task 이름. 디렉토리명과 일치시킨다.
+- `phase`: **카테고리**(커밋 scope·표시용) — 디렉토리명의 `category` 와 일치시킨다. 브랜치는 execute.py 가 디렉토리명 전체로 만든다(`feat-{디렉토리}`). 디렉토리명이 규칙과 다르면 execute.py 가 이 값을 scope 폴백으로 쓴다.
 - `steps[].step`: 0부터 시작하는 순번.
 - `steps[].name`: kebab-case slug.
 - `steps[].status`: 초기값은 모두 `"pending"`.

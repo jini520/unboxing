@@ -1,6 +1,6 @@
 {
   "project": "unboxing",
-  "phase": "app-ui",
+  "phase": "ui",
   "steps": [
     {
       "step": 0,
