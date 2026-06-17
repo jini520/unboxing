@@ -236,6 +236,9 @@ function ShipmentCardBase({
     <View style={styles.wrap}>
       <Swipeable
         ref={swipeRef}
+        // 컨테이너 overflow:hidden(기본)이 카드를 리스트 padding 경계에서 자른다 → visible 로 풀어
+        // **카드만** 경계 넘어 끝까지 밀리게 한다(버튼 패널·인셋·패딩은 그대로). 사용자 요구.
+        containerStyle={styles.swipeContainer}
         friction={2}
         leftThreshold={28}
         rightThreshold={28}
@@ -258,6 +261,10 @@ export const ShipmentCard = memo(ShipmentCardBase);
 const styles = StyleSheet.create({
   wrap: {
     marginBottom: 10,
+  },
+  // 카드가 리스트 padding 경계에서 잘리지 않고 끝까지 밀리도록 컨테이너 클립 해제(버튼 패널엔 영향 없음).
+  swipeContainer: {
+    overflow: "visible",
   },
   card: {
     borderRadius: 8,
