@@ -110,6 +110,7 @@ unboxing/
 - `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치). 권장 timeout **15s**.
 - `carriers` 쿼리 → 지원 택배사 목록(자동인식 검증·미지원 판별).
 - carrierId 형식 예: `kr.cjlogistics`, `kr.epost` 등.
+- **CRITICAL(구현)**: `TrackerDeps.fetch` 에 전역 `fetch` 를 주입할 땐 **반드시 `fetch.bind(globalThis)`**. 맨 `fetch` 를 객체로 넘기면 호출 시 `this` 유실로 `Illegal invocation` throw → 모든 조회가 null("미등록")이 된다. mock fetch 를 쓰는 테스트는 이를 못 잡으므로 실 API 스모크로 확인(→ `docs/PITFALLS.md` P-1). 주입 뿌리: `index.ts` `tryTrack`·`scheduled`.
 
 ### 에러 분류 → 처리
 
