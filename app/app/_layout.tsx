@@ -56,7 +56,8 @@ function RootStack() {
         headerStyle: { backgroundColor: tokens.bg.page },
         headerTintColor: tokens.text.primary,
         // 헤더 title 전체 삭제 + 기본 chevron/텍스트 숨김 → 아이콘만 뒤로가기.
-        headerTitle: () => null,
+        // headerTitle:()=>null 은 v56 에서 route 이름으로 폴백돼 title 이 남는다 → 빈 문자열로 확실히 제거.
+        headerTitle: "",
         headerBackVisible: false,
         headerLeft: () => <HeaderBack />,
       }}
