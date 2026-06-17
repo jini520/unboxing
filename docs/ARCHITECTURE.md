@@ -143,7 +143,7 @@ unboxing/
 ### 알림 규칙
 - **단계 전환에만** 알림. `이동중`/`기타`/`미등록`은 무알림(타임라인만).
 - **멱등성**: `last_normalized_status` 비교해 단계가 바뀔 때만 1회 발송. 재독해도 중복 없음.
-- **등록 직후 목록 표시(즉시 저장)**: 등록 시 즉시 1회 `track` 결과가 **비종료 단계면 `last_normalized_status` 에 저장**해 목록이 등록 직후 실제 상태를 보인다. `last_polled_at` 은 NULL 유지 → cron 다음 틱에 재폴링(전환 감지). **트레이드오프**: 등록 시점 단계는 `prev==stored` 라 **푸시하지 않는다**(등록 이후 변화만 알림). `배송완료`(종료)는 저장하지 않아 cron 첫 폴링이 `미등록→배송완료` 전환을 잡아 알림 후 삭제(ADR-005). 미허용/자격증명 없음/외부 실패 시엔 저장 안 함(`미등록` 유지) — 테스트 환경은 자격증명을 비워 즉시 track 을 no-op 으로 둔다(`docs/PITFALLS.md` 외부경계 검증).
+- **등록 직후 목록 표시(즉시 저장)**: 등록 시 즉시 1회 `track` 결과가 **비종료 단계면 `last_normalized_status` 에 저장**해 목록이 등록 직후 실제 상태를 보인다. `last_polled_at` 은 NULL 유지 → cron 다음 틱에 재폴링(전환 감지). **트레이드오프**: 등록 시점 단계는 `prev==stored` 라 **푸시하지 않는다**(등록 이후 변화만 알림). `배송완료`(종료)는 저장하지 않아 cron 첫 폴링이 `미등록→배송완료` 전환을 잡아 알림 후 보관(active=0, 사용자가 수동 삭제 — ADR-005 개정). 미허용/자격증명 없음/외부 실패 시엔 저장 안 함(`미등록` 유지) — 테스트 환경은 자격증명을 비워 즉시 track 을 no-op 으로 둔다(`docs/PITFALLS.md` 외부경계 검증).
 
 ## 적응형 폴링 + cron 실행 모델
 
@@ -202,7 +202,7 @@ unboxing/
 
 | 트리거 | 동작 |
 |---|---|
-| `배송완료` 감지 | 알림 발송 → **shipment 레코드 삭제**(유예 0, 추후 조정) → subscriptions CASCADE |
+| `배송완료` 감지 | 알림 발송 → **보관**(`active=0` 재폴링 중단, 레코드 유지) → **사용자가 수동 삭제**(ADR-005 개정). 자동 삭제는 옵트인 설정으로 다음 phase(`docs/PLAN_AUTO_DELETE_COMPLETED.md`) |
 | 미등록 7일 / 예외 7일 | 자동 비활성(`active=0`) + 안내 |
 | 등록 30일 경과(완료/예외 아님) | 강제 비활성 + "분실 의심" 알림 |
 | 마지막 구독 DELETE | orphan shipment(구독 0) 정리 |
@@ -294,7 +294,7 @@ unboxing/
 
 - 스키마는 **idempotent**(`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`)로 작성, `wrangler d1 execute --file=schema.sql --remote`로 적용.
 - 컬럼 추가는 `ALTER TABLE ... ADD COLUMN`(SQLite는 NOT NULL+DEFAULT 또는 nullable). 위 "예고 컬럼"을 구현 단계에서 단계적으로 추가.
-- 파괴적 변경(컬럼 삭제/타입 변경)은 SQLite 제약상 테이블 재생성 필요 → Phase 1 데이터는 비영속(완료 시 삭제)이라 영향 작음.
+- 파괴적 변경(컬럼 삭제/타입 변경)은 SQLite 제약상 테이블 재생성 필요 → Phase 1 데이터는 저민감(운송장·택배사·상태, 수령인 PII 없음)·사용자 삭제 가능이라 영향 작음.
 
 ## 테스트 전략
 
