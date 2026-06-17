@@ -17,10 +17,10 @@ import {
   type IconProps,
 } from "./icons";
 
-type StageColorKey = keyof ColorTokens["stage"];
+export type StageColorKey = keyof ColorTokens["stage"];
 
-/** 단계 → 색 키·SVG 아이콘. 라벨은 단계명 그대로(색에 의존하지 않는 텍스트 구분자). */
-const STAGE_META: Record<Stage, { color: StageColorKey; icon: ComponentType<IconProps> }> = {
+/** 단계 → 색 키·SVG 아이콘. 라벨은 단계명 그대로(색에 의존하지 않는 텍스트 구분자). StageProgress 도 재사용. */
+export const STAGE_META: Record<Stage, { color: StageColorKey; icon: ComponentType<IconProps> }> = {
   미등록: { color: "unregistered", icon: Clock },
   등록: { color: "neutral", icon: DotSmall },
   집화: { color: "neutral", icon: DotSmall },

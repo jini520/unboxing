@@ -20,13 +20,17 @@ import {
   ApiError,
   deleteShipment,
   getShipment,
+  type Contact,
   type Shipment,
   type TimelineEvent,
 } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
 import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
+import { STAGE_SUMMARY } from "../../src/lib/stage";
+import { absoluteKSTLong } from "../../src/lib/time";
 import { StageBadge } from "../../src/components/StageBadge";
+import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
 
@@ -43,16 +47,20 @@ export default function DetailScreen() {
   const { tokens } = useTheme();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [timeline, setTimeline] = useState<TimelineState>({ kind: "loading" });
+  // 수취인은 실시간 조회분만 화면 state 로(미저장 — ADR-005). 캐시·로그 금지, 화면 이탈 시 폐기.
+  const [recipient, setRecipient] = useState<Contact | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const deleting = useRef(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const { shipment: s, timeline: events } = await getShipment(id, apiDeps);
+      const { shipment: s, timeline: events, recipient: r } = await getShipment(id, apiDeps);
       setShipment(s);
+      setRecipient(r);
       setTimeline({ kind: "ok", events });
     } catch (e) {
+      setRecipient(null); // 실시간분 없음 → 수취인 숨김(저장된 수취인 없음)
       if (e instanceof ApiError && e.code === "NETWORK") setTimeline({ kind: "offline" });
       else if (e instanceof ApiError && (e.status === 404 || e.status === 403))
         setTimeline({ kind: "notfound" });
@@ -104,6 +112,19 @@ export default function DetailScreen() {
 
   const now = Date.now();
 
+  // 현재 상태 문구: 최신 이벤트(시각 내림차순 첫 항목) 기준. 실시간(ok)일 때만 — 오프라인/실패면 생략.
+  const latestEvent =
+    timeline.kind === "ok" && timeline.events.length > 0
+      ? [...timeline.events].sort((a, b) => Date.parse(b.time) - Date.parse(a.time))[0]
+      : null;
+  let statusText: string | null = null;
+  if (shipment && timeline.kind === "ok") {
+    // 시각: 최신 이벤트 없으면 status_changed_at 으로 폴백. 설명: 이벤트 설명 없으면 단계 요약.
+    const timePart = absoluteKSTLong(latestEvent?.time ?? shipment.statusChangedAt);
+    const desc = latestEvent?.description?.trim() || STAGE_SUMMARY[shipment.status];
+    statusText = timePart ? `${timePart} · ${desc}` : desc;
+  }
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
       <ScrollView
@@ -128,6 +149,35 @@ export default function DetailScreen() {
             <ActivityIndicator color={tokens.text.secondary} />
           </View>
         )}
+
+        {/* 단계 진행 인디케이터 — 캐시 단계로도 그린다(오프라인 포함). */}
+        {shipment && (
+          <View style={styles.progressWrap}>
+            <StageProgress stage={shipment.status} />
+          </View>
+        )}
+
+        {/* 현재 상태 한 줄 — 실시간 조회분 있을 때만. */}
+        {statusText && (
+          <Text style={[styles.statusLine, { color: tokens.text.body }]}>{statusText}</Text>
+        )}
+
+        {/* 받는 분 — 화면 전용 패스스루(미저장, ADR-005). null/빈 값이면 섹션 숨김. */}
+        {recipient && (recipient.name || recipient.regionName) ? (
+          <View style={styles.recipient}>
+            <Text style={[styles.recipientLabel, { color: tokens.text.secondary }]}>받는 분</Text>
+            {recipient.name ? (
+              <Text style={[styles.recipientValue, { color: tokens.text.body }]}>
+                {recipient.name}
+              </Text>
+            ) : null}
+            {recipient.regionName ? (
+              <Text style={[styles.recipientRegion, { color: tokens.text.secondary }]}>
+                {recipient.regionName}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.timelineWrap}>
           {timeline.kind === "loading" ? (
@@ -178,9 +228,15 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: 16 },
-  head: { gap: 8, marginBottom: 24 },
+  head: { gap: 8, marginBottom: 20 },
   meta: { fontSize: 14, fontWeight: "500" },
   skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
+  progressWrap: { marginBottom: 20 },
+  statusLine: { fontSize: 14, fontWeight: "500", marginBottom: 20 },
+  recipient: { gap: 2, marginBottom: 24 },
+  recipientLabel: { fontSize: 12, fontWeight: "600" },
+  recipientValue: { fontSize: 15 },
+  recipientRegion: { fontSize: 13 },
   timelineWrap: { minHeight: 80 },
   retry: { gap: 8, alignItems: "flex-start" },
   retryLabel: { fontSize: 14, fontWeight: "600" },

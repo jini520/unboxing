@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "detail-page",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-17T20:56:36+0900",
+      "summary": "배송 상세 화면 개편 — 단계 진행 인디케이터·현재 상태 문구·수취인 패스스루. (1) 순수 모듈 app/src/lib/stage.ts(신규): stageProgress(stage)→{index,track:'normal'|'exception'|'pre'}(등록=0…배송완료=4, 미등록·기타=pre/index-1, 예외=exception/index-1 — off-track 선형 매핑 금지) + STAGE_PROGRESS_STEPS(5단계) + STAGE_SUMMARY(ShipmentCard 에서 이전, 재사용) · stage.test.ts(5). (2) StageProgress.tsx(신규): happy-path 5단계 가로 스텝퍼 — 지난=채움 점·현재=stage 색+SVG 글리프(STAGE_META 재사용)+굵은 라벨·이후=빈 점, pre=전부 비활성, exception=AlertTriangle 배지+흐린 바. 색 단독 금지(색+글리프+라벨), 스텝은 a11y 숨기고 컨테이너 라벨 '배송 단계: {단계}, {i+1}/5' 단일 announce. (3) time.ts: absoluteKSTLong(number|string)→'M월 D일 (요일) HH:mm'(KST 한글요일, 파싱불가 '') + time.test.ts(요일·자정/정오 경계·KST변환·패딩·파싱실패, 7). (4) StageBadge: STAGE_META·StageColorKey export. ShipmentCard: 로컬 STAGE_SUMMARY 제거→lib/stage import. (5) shipment/[id].tsx: 인디케이터(캐시 stage로도 그림·오프라인 포함)+현재 상태 한 줄(최신 이벤트 시각·설명, 없으면 status_changed_at·STAGE_SUMMARY 폴백, 실시간 ok 일 때만)+받는 분 섹션(recipient name/regionName, 화면 state 한정 미저장·캐시·로그 금지 ADR-005, null/빈 값 숨김). 기존 분기(offline/notfound/unavailable·삭제·당겨서 새로고침) 보존. verify green(app 110·worker 147+2todo·harness 51).",
+      "completed_at": "2026-06-17T21:05:22+0900"
     },
     {
       "step": 4,

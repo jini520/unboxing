@@ -11,24 +11,13 @@
 import { memo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
-import type { Shipment, Stage } from "../lib/api";
+import type { Shipment } from "../lib/api";
 import { carrierName } from "../lib/carrier";
+import { STAGE_SUMMARY } from "../lib/stage";
 import { relativeTime } from "../lib/time";
 import { useTheme } from "../theme/ThemeProvider";
 import { Bell, BellOff, Check, Trash } from "./icons";
 import { StageBadge } from "./StageBadge";
-
-/** 단계별 친근한 한 줄 요약(목록 카드용). 기술 용어·에러 코드 노출 금지(PRD 톤). */
-const STAGE_SUMMARY: Record<Stage, string> = {
-  미등록: "아직 조회 전이에요",
-  등록: "접수가 확인됐어요",
-  집화: "택배사가 상품을 수거했어요",
-  이동중: "이동 중이에요",
-  배송출발: "오늘 도착 예정이에요",
-  배송완료: "배송이 완료됐어요",
-  예외: "확인이 필요해요",
-  기타: "상태를 확인 중이에요",
-};
 
 function ShipmentCardBase({
   shipment,
