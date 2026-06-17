@@ -301,13 +301,20 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
       active: 1,
       created_at: now,
     };
-    // 즉시 1회 조회(best-effort): 응답 표시용으로만 단계를 채우고 **DB에는 저장하지 않는다**.
-    // last_normalized_status/last_polled_at 을 NULL로 둬야 cron 첫 폴링이 단계를 '처음 잡아' 최초 알림을
-    // 보낸다(ARCHITECTURE: 등록 알림은 폴링이 데이터를 처음 잡은 시점에 발송). 저장하면 그 알림이 유실된다.
+    // 즉시 1회 조회(best-effort). 비종료 단계는 **DB에도 저장**해 목록이 등록 직후 실제 상태를 보인다.
     const result = await tryTrack(env, carrier, trackingNo);
     if (result) {
       const ev = result.lastEvent ?? result.events[result.events.length - 1];
-      shipment.last_normalized_status = normalizeStatus(ev?.statusCode); // 응답 전용(미저장)
+      const immediate = normalizeStatus(ev?.statusCode);
+      shipment.last_normalized_status = immediate; // 응답 표시용
+      // 비종료 단계만 저장(목록 즉시 표시). last_polled_at 은 NULL 유지 → cron 다음 틱에 재폴링해
+      // 전환을 잡는다(등록 시점 단계는 prev==stored 라 무알림 — 이후 변화만 알림).
+      // 배송완료(종료)는 저장하지 않는다: cron 첫 폴링이 미등록→배송완료 전환을 잡아 알림 후 삭제(ADR-005).
+      if (immediate !== "미등록" && immediate !== "배송완료") {
+        await env.DB.prepare("UPDATE shipments SET last_normalized_status = ? WHERE id = ?")
+          .bind(immediate, id)
+          .run();
+      }
     }
   } else {
     // dedupe 적중 — 기존 행을 읽는다.
