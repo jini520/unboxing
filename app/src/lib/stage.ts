@@ -25,6 +25,21 @@ export function stageProgress(
   return { index: STAGE_PROGRESS_STEPS.indexOf(stage as ProgressStage), track: "normal" };
 }
 
+/**
+ * 상세 상단 "현재 상태" 문구 — 택배사 원문 description 을 그대로 쓰지 않고 단계별로 친절히 교정.
+ * 이동중은 호출부에서 위치(허브명)를 괄호로 덧붙인다(예: "물건이 이동 중입니다 (옥천HUB)").
+ */
+export const STAGE_STATUS_MESSAGE: Record<Stage, string> = {
+  미등록: "아직 조회 전이에요",
+  등록: "물품을 인수받았습니다",
+  집화: "상품이 집화되었습니다",
+  이동중: "물건이 이동 중입니다",
+  배송출발: "배송을 출발하였습니다",
+  배송완료: "배송이 완료되었습니다",
+  예외: "배송에 문제가 있어요 — 확인이 필요해요",
+  기타: "상태를 확인 중이에요",
+};
+
 /** 단계별 친근한 한 줄 요약(목록 카드 · 상세 상태문구 폴백). 기술 용어·에러 코드 노출 금지(PRD 톤). */
 export const STAGE_SUMMARY: Record<Stage, string> = {
   미등록: "아직 조회 전이에요",

@@ -9,6 +9,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-na
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_POLICY_URL } from "../src/config";
 import { PRIVACY_POLICY } from "../src/content/privacyPolicy";
+import { ScreenHeader } from "../src/components/ScreenHeader";
 import { useTheme } from "../src/theme/ThemeProvider";
 
 export default function PrivacyScreen() {
@@ -21,6 +22,7 @@ export default function PrivacyScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
+      <ScreenHeader />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.title, { color: tokens.text.primary }]}>{PRIVACY_POLICY.title}</Text>
         <Text style={[styles.meta, { color: tokens.text.secondary }]}>

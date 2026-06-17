@@ -7,7 +7,7 @@
  * - 아이콘은 의미 중복을 막으려 부모(Pressable/배지)가 a11y 라벨을 제공하고,
  *   아이콘 자체는 accessibilityElementsHidden / importantForAccessibility 로 숨긴다.
  */
-import Svg, { Circle, Path, type SvgProps } from "react-native-svg";
+import Svg, { Circle, Path, Rect, type SvgProps } from "react-native-svg";
 
 export type IconProps = {
   /** 정사각 크기(px). 기본 20. */
@@ -198,6 +198,27 @@ export function AlertTriangle({ size = 20, color, strokeWidth = 1.5, ...a11y }: 
       <Path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
       <Path d="M12 9v4" />
       <Path d="M12 17h.01" />
+    </Svg>
+  );
+}
+
+/** 등록/접수(클립보드 + 체크). */
+export function ClipboardCheck({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <Rect x="8" y="2" width="8" height="4" rx="1" />
+      <Path d="M9 14l2 2 4-4" />
+    </Svg>
+  );
+}
+
+/** 배송출발/동네 도착(지도 핀). */
+export function MapPin({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <Circle cx="12" cy="10" r="3" />
     </Svg>
   );
 }

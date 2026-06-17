@@ -27,9 +27,9 @@ import {
 import { apiDeps } from "../../src/lib/deps";
 import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
-import { STAGE_SUMMARY } from "../../src/lib/stage";
+import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
-import { StageBadge } from "../../src/components/StageBadge";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -118,15 +118,20 @@ export default function DetailScreen() {
       ? [...timeline.events].sort((a, b) => Date.parse(b.time) - Date.parse(a.time))[0]
       : null;
   let statusText: string | null = null;
-  if (shipment && timeline.kind === "ok") {
-    // 시각: 최신 이벤트 없으면 status_changed_at 으로 폴백. 설명: 이벤트 설명 없으면 단계 요약.
+  if (shipment) {
+    // 시각: 최신 이벤트 없으면 status_changed_at 으로 폴백(오프라인에서도 표시).
+    // 문구: 택배사 원문(description)을 쓰지 않고 단계별로 친절히 교정. 이동중은 위치(허브명)를 덧붙인다.
     const timePart = absoluteKSTLong(latestEvent?.time ?? shipment.statusChangedAt);
-    const desc = latestEvent?.description?.trim() || STAGE_SUMMARY[shipment.status];
-    statusText = timePart ? `${timePart} · ${desc}` : desc;
+    const msg =
+      shipment.status === "이동중" && latestEvent?.location
+        ? `물건이 이동 중입니다 (${latestEvent.location})`
+        : STAGE_STATUS_MESSAGE[shipment.status];
+    statusText = timePart ? `${timePart} · ${msg}` : msg;
   }
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
+      <ScreenHeader />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
@@ -137,13 +142,9 @@ export default function DetailScreen() {
           />
         }
       >
+        {/* 현재 상태 — 가장 상단 중앙에 크게(택배사 원문 대신 친절 교정 문구). */}
         {shipment ? (
-          <View style={styles.head}>
-            <StageBadge stage={shipment.status} />
-            <Text style={[styles.meta, { color: tokens.text.secondary }]}>
-              {carrierName(shipment.carrier)} · {shipment.trackingNo.slice(-4)}
-            </Text>
-          </View>
+          <Text style={[styles.statusLine, { color: tokens.text.primary }]}>{statusText}</Text>
         ) : (
           <View style={styles.skeleton}>
             <ActivityIndicator color={tokens.text.secondary} />
@@ -157,9 +158,11 @@ export default function DetailScreen() {
           </View>
         )}
 
-        {/* 현재 상태 한 줄 — 실시간 조회분 있을 때만. */}
-        {statusText && (
-          <Text style={[styles.statusLine, { color: tokens.text.body }]}>{statusText}</Text>
+        {/* 택배사 · 운송장 전체번호 */}
+        {shipment && (
+          <Text style={[styles.meta, { color: tokens.text.secondary }]}>
+            {carrierName(shipment.carrier)} · {shipment.trackingNo}
+          </Text>
         )}
 
         {/* 받는 분 — 화면 전용 패스스루(미저장, ADR-005). null/빈 값이면 섹션 숨김. */}
@@ -227,12 +230,12 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { padding: 16 },
-  head: { gap: 8, marginBottom: 20 },
-  meta: { fontSize: 14, fontWeight: "500" },
+  content: { padding: 16, paddingTop: 8 },
+  // 현재 상태 — 가장 크고 상단 중앙.
+  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 4, marginBottom: 24 },
+  meta: { fontSize: 14, fontWeight: "500", textAlign: "center", marginBottom: 24 },
   skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
   progressWrap: { marginBottom: 20 },
-  statusLine: { fontSize: 14, fontWeight: "500", marginBottom: 20 },
   recipient: { gap: 2, marginBottom: 24 },
   recipientLabel: { fontSize: 12, fontWeight: "600" },
   recipientValue: { fontSize: 15 },

@@ -4,21 +4,38 @@
  * off-track 은 선형 매핑하지 않는다(stageProgress): pre(미등록·기타)=전부 비활성, exception(예외)=예외 배지 + 흐린 바.
  * 위치 계산은 순수 헬퍼 stageProgress(lib/stage). 색·아이콘 소스는 StageBadge 의 STAGE_META(단일 출처).
  */
+import type { ComponentType } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Stage } from "../lib/api";
 import { STAGE_PROGRESS_STEPS, stageProgress } from "../lib/stage";
 import { useTheme } from "../theme/ThemeProvider";
-import { AlertTriangle } from "./icons";
+import {
+  AlertTriangle,
+  CheckCircle,
+  ClipboardCheck,
+  MapPin,
+  Package,
+  Truck,
+  type IconProps,
+} from "./icons";
 import { STAGE_META } from "./StageBadge";
+
+/** 진행 5단계 각각의 아이콘(점 위에 표시) — STAGE_PROGRESS_STEPS 와 1:1 순서. */
+const STEP_ICONS: ComponentType<IconProps>[] = [
+  ClipboardCheck, // 등록
+  Package, // 집화
+  Truck, // 이동중
+  MapPin, // 배송출발
+  CheckCircle, // 배송완료
+];
 
 export function StageProgress({ stage }: { stage: Stage }) {
   const { tokens } = useTheme();
   const { index, track } = stageProgress(stage);
   const last = STAGE_PROGRESS_STEPS.length - 1;
 
-  // 현재 단계(normal track)의 색·글리프 — STAGE_META 재사용.
+  // 현재 단계(normal track)의 색 — STAGE_META 재사용(아이콘은 단계별 STEP_ICONS).
   const currentColor = tokens.stage[STAGE_META[stage].color];
-  const CurrentIcon = STAGE_META[stage].icon;
 
   const a11yLabel =
     track === "normal"
@@ -61,6 +78,14 @@ export function StageProgress({ stage }: { stage: Stage }) {
               ? tokens.text.body
               : tokens.text.disabled;
 
+          // 단계별 아이콘을 점 위에 — 현재=강조 색·크게, 지난=중립, 이후=비활성.
+          const StepIcon = STEP_ICONS[i];
+          const iconColor = isCurrent
+            ? currentColor
+            : isPast
+              ? tokens.text.secondary
+              : tokens.text.disabled;
+
           return (
             <View key={s} style={styles.step}>
               <View style={styles.nodeRow}>
@@ -68,13 +93,12 @@ export function StageProgress({ stage }: { stage: Stage }) {
                   style={[styles.line, { backgroundColor: i === 0 ? "transparent" : lineColor(leftActive) }]}
                 />
                 <View style={styles.nodeBox}>
-                  {isCurrent ? (
-                    <CurrentIcon size={20} color={currentColor} />
-                  ) : isPast ? (
-                    <View style={[styles.dot, { backgroundColor: tokens.text.secondary }]} />
-                  ) : (
-                    <View style={[styles.dotOutline, { borderColor: tokens.text.disabled }]} />
-                  )}
+                  <StepIcon
+                    size={isCurrent ? 24 : 20}
+                    color={iconColor}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
                 </View>
                 <View
                   style={[styles.line, { backgroundColor: i === last ? "transparent" : lineColor(rightActive) }]}
@@ -117,27 +141,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "stretch",
     justifyContent: "center",
-    height: 24,
+    height: 28,
   },
   line: {
     flex: 1,
     height: 2,
   },
   nodeBox: {
-    width: 24,
+    width: 30,
     alignItems: "center",
     justifyContent: "center",
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  dotOutline: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 1.5,
   },
   label: {
     fontSize: 11,

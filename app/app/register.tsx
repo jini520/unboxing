@@ -31,6 +31,7 @@ import {
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../src/lib/tracking";
 import { useTheme } from "../src/theme/ThemeProvider";
 import { ChevronDown, Close, Check } from "../src/components/icons";
+import { ScreenHeader } from "../src/components/ScreenHeader";
 
 /** 푸시 priming 안내를 이미 했는지 — 첫 등록 직후 1회만 온보딩으로 유도(반복 유도 금지). */
 const PRIMED_KEY = "unboxing.push_primed";
@@ -138,6 +139,10 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
+      <ScreenHeader
+        title="운송장 번호 등록"
+        description="운송장 번호를 입력하면 택배사가 자동으로 채워져요. 자동으로 채워지지 않으면 아래에서 직접 택배사를 선택해 주세요."
+      />
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"

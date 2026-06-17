@@ -10,6 +10,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   Pressable,
   RefreshControl,
@@ -48,9 +49,9 @@ export default function ListScreen() {
   const [now, setNow] = useState(() => Date.now());
   const [reduceMotion, setReduceMotion] = useState(false);
 
-  // 멀티선택: 선택 모드 = size>0 로 파생(별도 플래그 없음). 전부 해제되면 자동 종료.
+  // 멀티선택: 선택 모드는 명시적 플래그(롱프레스로 진입). **0개 선택이어도** 취소/뒤로 전까진 유지된다.
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
-  const selectionMode = selectedIds.size > 0;
+  const [selectionMode, setSelectionMode] = useState(false);
 
   // 삭제 Undo: 낙관적으로 숨기고 창이 지나면 서버 반영(PRD). 한 번에 하나만(단건 스와이프 전용).
   const [pending, setPending] = useState<Shipment | null>(null);
@@ -184,6 +185,7 @@ export default function ListScreen() {
   const enterSelect = useCallback(
     (id: string) => {
       flushPending(); // 대기 삭제 먼저 확정(허상 방지).
+      setSelectionMode(true);
       setSelectedIds((prev) => toggleSelected(prev, id));
     },
     [flushPending],
@@ -191,7 +193,21 @@ export default function ListScreen() {
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => toggleSelected(prev, id));
   }, []);
-  const cancelSelect = useCallback(() => setSelectedIds(new Set()), []);
+  // 명시적 종료만 — 취소 버튼 / Android 뒤로 / 일괄삭제 완료. 0개 선택으로는 종료되지 않는다.
+  const cancelSelect = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  // Android 하드웨어 뒤로 → 선택 모드면 종료(앱/화면 이탈 대신). iOS 는 무영향.
+  useEffect(() => {
+    if (!selectionMode) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      cancelSelect();
+      return true;
+    });
+    return () => sub.remove();
+  }, [selectionMode, cancelSelect]);
   const selectAllVisible = useCallback(() => {
     if (shipments) setSelectedIds(selectAll(shipments.map((s) => s.id)));
   }, [shipments]);
@@ -200,6 +216,7 @@ export default function ListScreen() {
   const runBulkDelete = useCallback(async (targets: Shipment[]) => {
     const ids = targets.map((s) => s.id);
     setShipments((prev) => prev?.filter((s) => !ids.includes(s.id)) ?? prev);
+    setSelectionMode(false);
     setSelectedIds(new Set());
     const results = await Promise.allSettled(ids.map((id) => deleteShipment(id, apiDeps)));
     // 404 = 이미 없음(다른 기기 삭제) → 멱등 성공. 그 외 실패만 복원.

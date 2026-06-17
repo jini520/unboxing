@@ -269,9 +269,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
-  // 스와이프로 드러나는 액션 버튼 — 폭 96(터치 타깃 ≥44). 색은 토큰만(destructive=예외 색).
+  // 스와이프로 드러나는 액션 버튼 — flex 로 드러난 영역을 꽉 채운다(과스와이프 시 잘려보임 방지).
+  // minWidth 96 로 스냅 폭·터치 타깃(≥44) 확보. 색은 토큰만(destructive=예외 색).
   action: {
-    width: 96,
+    flex: 1,
+    minWidth: 96,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
