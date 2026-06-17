@@ -300,8 +300,8 @@ async function notifyTransition(
   );
 }
 
-/** '번호 확인'(미등록 7일) 안내 — 7일째 데이터 미수신(오타/잘못된 번호 의심). notifyLost 동형의 운영성 안내. */
-async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+/** 운영성 안내 푸시(번호 확인·분실 의심) — 단계 전환이 아니라 직접 구성하는 비긴급(야간 보류) 알림. body 만 다르다. */
+async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: string): Promise<void> {
   const last4 = row.tracking_no.slice(-4);
   await fanOut(
     env,
@@ -310,28 +310,21 @@ async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise
     (token) => ({
       to: token,
       title: `${row.carrier} · …${last4}`,
-      body: "운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요",
+      body,
       data: { shipment_id: row.id },
     }),
     false, // 운영성 안내 — 비긴급(야간 보류 대상)
   );
 }
 
-/** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림이라 직접 구성. */
+/** '번호 확인'(미등록 7일) 안내 — 7일째 데이터 미수신(오타/잘못된 번호 의심). */
+async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+  await notifyOperational(env, deps, row, "운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요");
+}
+
+/** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림. */
 async function notifyLost(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
-  const last4 = row.tracking_no.slice(-4);
-  await fanOut(
-    env,
-    deps,
-    row.id,
-    (token) => ({
-      to: token,
-      title: `${row.carrier} · …${last4}`,
-      body: "오래 변동이 없어요 — 배송 상태를 확인해 주세요",
-      data: { shipment_id: row.id },
-    }),
-    false, // 운영성 안내 — 비긴급(야간 보류 대상)
-  );
+  await notifyOperational(env, deps, row, "오래 변동이 없어요 — 배송 상태를 확인해 주세요");
 }
 
 /**
@@ -404,21 +397,15 @@ async function enqueue(env: Env, deps: CronDeps, messages: PushMessage[]): Promi
  */
 async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, shipment_id, push_token, title, body, created_at FROM notification_queue " +
-      "ORDER BY created_at ASC LIMIT ?",
+    "SELECT shipment_id, push_token, title, body, MAX(created_at) AS created_at FROM notification_queue " +
+      "GROUP BY shipment_id, push_token LIMIT ?",
   )
     .bind(FLUSH_SCAN_LIMIT)
     .all<QueueRow>();
   if (results.length === 0) return;
 
-  // collapse: (shipment_id, push_token)당 최신(created_at)만 발송 대상으로 남긴다.
-  const latest = new Map<string, QueueRow>();
-  for (const r of results) {
-    const key = `${r.shipment_id ?? ""} ${r.push_token}`;
-    const cur = latest.get(key);
-    if (!cur || r.created_at >= cur.created_at) latest.set(key, r);
-  }
-  const messages: PushMessage[] = [...latest.values()].map((r) => ({
+  // SQL GROUP BY 가 이미 (shipment_id, push_token)당 MAX(created_at) 1건으로 collapse 했다(SQLite MAX bare-column 규칙).
+  const messages: PushMessage[] = results.map((r) => ({
     to: r.push_token,
     title: r.title ?? "",
     body: r.body ?? "",
@@ -428,7 +415,12 @@ async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
   // 발송 먼저(실패해도 행 보존 = at-least-once) → 스캔한 행 전체 삭제(collapse 로 버린 오래된 보류분 포함).
   await sendAndRecord(env, deps, messages);
   await env.DB.batch(
-    results.map((r) => env.DB.prepare("DELETE FROM notification_queue WHERE id = ?").bind(r.id)),
+    results.map((r) =>
+      env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?").bind(
+        r.shipment_id,
+        r.push_token,
+      ),
+    ),
   );
 }
 

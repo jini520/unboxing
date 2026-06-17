@@ -17,7 +17,7 @@
 | `push_tickets` | `ticket_id` · `push_token` · `created_at` | 낮음 | 푸시 토큰(발송 후 receipt 확인용 임시) |
 | `tracker_token` | tracker.delivery access token(우리 자격) | — | (사용자 데이터 아님) |
 | `rate_limits` | `ip` · 윈도 · count | 낮음 | (남용 방어용, 사용자 식별 미연계) |
-| `notification_queue` | `push_token` · `title` · `body`(메시지 스냅샷) · `shipment_id` | 낮음 | 푸시 토큰(조용시간 보류분, step3 신규) |
+| `notification_queue` | `push_token` · `title`·`body`(메시지 스냅샷: 택배사명·운송장 **끝 4자리**·안내문구) · `shipment_id` | 낮음(끝4자리·비식별) | 푸시 토큰·알림 스냅샷(조용시간 보류분, step3 신규) — 발송/`DELETE /me` 시 폐기 |
 
 - **수령인 이름·주소·연락처**: 어느 테이블에도 저장하지 않음(화면 표시 후 폐기, ADR-005) → **"수집 안 함"**.
 - **push_token 은 선택 수집**: 알림 권한 허용 시에만 저장(거부해도 등록·추적 가능, step0). `push_tickets`·`notification_queue` 의 토큰 사본은 `DELETE /me` 시 함께 즉시 폐기(ADR-017, step3).

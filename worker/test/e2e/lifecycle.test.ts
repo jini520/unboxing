@@ -117,7 +117,8 @@ async function count(sql: string): Promise<number> {
 
 /** D1 전 테이블을 덤프해 한 문자열로 — 개인정보 비영속 감사용(민감 문자열이 어디에도 없는지). */
 async function dumpAllRows(): Promise<string> {
-  const tables = ["shipments", "devices", "subscriptions", "push_tickets", "tracker_token"];
+  // notification_queue 도 포함 — 야간 보류 메시지 스냅샷(title/body)이 새 영속 저장면이라 비영속 감사 대상(F6).
+  const tables = ["shipments", "devices", "subscriptions", "push_tickets", "tracker_token", "notification_queue"];
   const parts: string[] = [];
   for (const t of tables) {
     const { results } = await env.DB.prepare(`SELECT * FROM ${t}`).all(); // t 는 상수 화이트리스트(user-input 아님)

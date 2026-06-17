@@ -19,7 +19,7 @@ import { resetDeviceRegistered } from "../src/lib/bootstrap";
 import { apiDeps, PLATFORM } from "../src/lib/deps";
 import { cacheStore, clearCache } from "../src/lib/cache";
 import { deleteDeviceId, deviceStorage } from "../src/lib/device";
-import { pushDeps, registerForPush } from "../src/lib/push";
+import { pushDeps, registerForPush, registerPushIfGranted } from "../src/lib/push";
 import { wipeAllData } from "../src/lib/wipe";
 import { useTheme } from "../src/theme/ThemeProvider";
 import type { ThemePreference } from "../src/theme/tokens";
@@ -86,11 +86,7 @@ export default function SettingsScreen() {
       resetDeviceRegistered();
       // OS 권한이 남아 있으면 새 device_id 에 push_token 을 즉시 재등록한다(앱 재시작 전까지 푸시 누락 방지).
       try {
-        const perm = await pushDeps.getPermissions();
-        if (perm.granted) {
-          const result = await registerForPush(pushDeps); // 이미 허용 상태 → 팝업 없음.
-          if ("token" in result) await registerDevice(result.token, PLATFORM, apiDeps);
-        }
+        await registerPushIfGranted(pushDeps, (token) => registerDevice(token, PLATFORM, apiDeps));
       } catch {
         // 재등록 실패는 조용히 — 다음 앱 재시작 시 usePushNotifications 가 재시도.
       }

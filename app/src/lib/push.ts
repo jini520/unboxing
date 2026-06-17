@@ -43,6 +43,22 @@ export async function registerForPush(
   return { token: data };
 }
 
+/**
+ * 이미 허용된 경우에만 토큰을 갱신해 서버에 등록한다(팝업 없음). 미허용/거부면 no-op.
+ * 콜드스타트(usePushNotifications)·wipe 후 재등록(settings.doWipe)이 공유 — priming 후 최초 권한 요청은 호출부가 한다.
+ * register 는 주입(기본은 registerDevice) — push.ts 가 api/deps 를 import 하지 않게 해 계층·순환을 막는다.
+ */
+export async function registerPushIfGranted(
+  deps: PushDeps,
+  register: (token: string) => Promise<unknown>,
+): Promise<void> {
+  const perm = await deps.getPermissions();
+  if (!perm.granted) return;
+  const result = await registerForPush(deps);
+  if ("denied" in result) return;
+  await register(result.token);
+}
+
 /** Android "배송 상태" 채널 설정(멱등 — 같은 id 재설정은 갱신). iOS 는 no-op. */
 export async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
