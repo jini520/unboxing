@@ -137,7 +137,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
   });
 
   // ── 1. 단계 진행 + 멱등 알림 + 무알림 + 완료 삭제(좀비 없음) ──
-  it("미등록→등록→집화→이동중→배송출발→배송완료: 알림 단계만 1회 발송·재폴링 무발송·완료 후 삭제(CASCADE)", async () => {
+  it("미등록→등록→집화→이동중→배송출발→배송완료: 알림 단계만 1회 발송·재폴링 무발송·완료 후 보관(active=0)", async () => {
     await registerDevice("dev-A", TOKEN_A);
     const id = await registerShipment("dev-A", "123456789012");
     const f = makeFetch();
@@ -186,13 +186,21 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(await statusOf(id)).toBe("배송출발");
     expect(f.sendCalls).toBe(3);
 
-    // 배송완료 — 알림 후 shipment 삭제(CASCADE), 좀비(완료·active=1) 잔존 없음.
+    // 배송완료 — 알림 1회 후 보관(기본 사양: 자동 삭제 아님). active=0 으로 재폴링 중단, 사용자가 수동 삭제.
     clock += DAY;
     f.status = "DELIVERED";
     await run();
     expect(f.sendCalls).toBe(4);
-    expect(await count("SELECT COUNT(*) AS c FROM shipments")).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM subscriptions")).toBe(0);
+    expect(await statusOf(id)).toBe("배송완료"); // 보관됨(삭제 아님)
+    expect(await count("SELECT COUNT(*) AS c FROM shipments")).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE active = 0")).toBe(1); // 재폴링 중단
+    expect(await count("SELECT COUNT(*) AS c FROM subscriptions")).toBe(1); // 구독 유지(좀비 아님)
+
+    // 재실행 — active=0 이라 due 아님 → 재폴링·재발송 없음(멱등, 좀비 알림 없음).
+    clock += DAY;
+    await run();
+    expect(f.sendCalls).toBe(4);
+    expect(await statusOf(id)).toBe("배송완료");
   });
 
   it("기타(미매핑 status) 전환은 무알림(타임라인만)", async () => {
