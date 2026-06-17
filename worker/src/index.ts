@@ -54,6 +54,7 @@ interface ShipmentRow {
   last_polled_at: number | null;
   active: number;
   created_at: number;
+  status_changed_at: number | null;
 }
 
 /** API 에러 → { error, code } + HTTP status (ARCHITECTURE 에러 매트릭스). */
@@ -99,6 +100,7 @@ const SHIPMENT_FIELDS = [
   "last_polled_at",
   "active",
   "created_at",
+  "status_changed_at",
 ] as const;
 function shipmentCols(alias = ""): string {
   const p = alias ? `${alias}.` : "";
@@ -151,6 +153,8 @@ function serializeShipment(row: ShipmentRow) {
     status: row.last_normalized_status ?? "미등록",
     active: row.active === 1,
     created_at: row.created_at,
+    // 현재 단계가 시작된 시각(전환 시에만 갱신). 컬럼이 비면(backfill 전) 등록 시각으로 폴백.
+    status_changed_at: row.status_changed_at ?? row.created_at,
   };
 }
 
@@ -282,16 +286,17 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   const id = crypto.randomUUID();
   const now = Date.now();
   const ins = await env.DB.prepare(
-    "INSERT INTO shipments (id, carrier, tracking_no, active, created_at) VALUES (?, ?, ?, 1, ?) " +
+    "INSERT INTO shipments (id, carrier, tracking_no, active, created_at, status_changed_at) VALUES (?, ?, ?, 1, ?, ?) " +
       "ON CONFLICT(carrier, tracking_no) DO NOTHING",
   )
-    .bind(id, carrier, trackingNo, now)
+    .bind(id, carrier, trackingNo, now, now)
     .run();
   const isNewShipment = (ins.meta.changes ?? 0) === 1;
 
   let shipment: ShipmentRow;
   if (isNewShipment) {
     // 새 행 — 값이 전부 메모리에 있으므로 재SELECT 불필요(등록 핫패스 round-trip 절약).
+    // status_changed_at 은 등록 시각으로 초기화(아직 단계 변동 없음 = 현재 단계 시작 시각).
     shipment = {
       id,
       carrier,
@@ -300,6 +305,7 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
       last_polled_at: null,
       active: 1,
       created_at: now,
+      status_changed_at: now,
     };
     // 즉시 1회 조회(best-effort). 비종료 단계는 **DB에도 저장**해 목록이 등록 직후 실제 상태를 보인다.
     const result = await tryTrack(env, carrier, trackingNo);
@@ -311,8 +317,14 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
       // 전환을 잡는다(등록 시점 단계는 prev==stored 라 무알림 — 이후 변화만 알림).
       // 배송완료(종료)는 저장하지 않는다: cron 첫 폴링이 미등록→배송완료 전환을 잡아 알림 후 삭제(ADR-005).
       if (immediate !== "미등록" && immediate !== "배송완료") {
-        await env.DB.prepare("UPDATE shipments SET last_normalized_status = ? WHERE id = ?")
-          .bind(immediate, id)
+        // status_changed_at 도 그 이벤트 시각으로 갱신(없으면 now). 단계를 처음 저장하는 시점.
+        const parsed = ev?.time ? Date.parse(ev.time) : NaN;
+        const changedAt = Number.isNaN(parsed) ? now : parsed;
+        shipment.status_changed_at = changedAt; // 응답·DB 일치
+        await env.DB.prepare(
+          "UPDATE shipments SET last_normalized_status = ?, status_changed_at = ? WHERE id = ?",
+        )
+          .bind(immediate, changedAt, id)
           .run();
       }
     }

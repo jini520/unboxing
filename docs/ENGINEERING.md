@@ -125,6 +125,21 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 - **적용**: `IF NOT EXISTS` 라 `schema.sql` 재실행 시 **자동 생성**된다(별도 수동 작업 불필요).
 - `shipment_id` 는 `shipments(id) ON DELETE CASCADE` 참조 — 송장 삭제 시 보류분 자동 정리.
 
+## 05-redesign-data phase 스키마 변경
+
+### 3. `shipments.status_changed_at` 신규 컬럼 (step0, 상태 변경 시각)
+
+- **변경**: `ALTER TABLE shipments ADD COLUMN status_changed_at INTEGER` 추가(현재 단계가 시작된 시각, epoch ms). 단계 전환 시에만 갱신한다(폴링마다 ❌).
+- **주의**: `ALTER TABLE ... ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` 으로 throw → `schema.sql` 전체 재실행으로 자동 반영되지 **않는다**. 기존 원격 `shipments` 에는 아래 명령을 **최초 1회만** 실행한다. 단순 ADD COLUMN 이라 RENAME 전파(P-2) 이슈는 없다.
+
+  ```bash
+  # worker/ 에서. 최초 1회만(재실행 시 duplicate column 에러).
+  npx wrangler d1 execute unboxing --remote --command "ALTER TABLE shipments ADD COLUMN status_changed_at INTEGER"
+  ```
+
+- **backfill 안전**: 기존 행은 컬럼이 NULL 이 되지만 API 직렬화가 `status_changed_at ?? created_at` 으로 폴백하므로 backfill 없이도 안전하다(등록 시각을 단계 시작 시각으로 표시).
+- **신규 배포(아직 `shipments` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
+
 ## 적용 후 확인
 
 ```bash
@@ -132,9 +147,11 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 npx wrangler d1 execute unboxing --command="SELECT name FROM sqlite_master WHERE type='table'" --remote
 # devices.push_token 이 nullable 인지(notnull=0)
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(devices)" --remote
+# shipments.status_changed_at 컬럼 존재 확인
+npx wrangler d1 execute unboxing --command="PRAGMA table_info(shipments)" --remote
 ```
 
-`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이면 적용 완료.
+`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at` 컬럼이 보이면 적용 완료.
 
 ## 관련 문서
 

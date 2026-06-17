@@ -85,6 +85,43 @@ describe("HTTP API — shipments", () => {
     expect(body.shipments[0].tracking_no).toBe("111111111111");
   });
 
+  it("GET /shipments 응답에 status_changed_at 포함(신규는 created_at 으로 초기화)", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    // 즉시 1회 track 은 outbound 차단 → 미저장. status_changed_at 은 INSERT 시 created_at 으로 초기화된다.
+    expect((await createShipment("dev-A", "kr.cjlogistics", "123456789012")).status).toBe(201);
+
+    const res = await SELF.fetch(`${BASE}/shipments`, { headers: bearer("dev-A") });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      shipments: { status_changed_at: number; created_at: number }[];
+    };
+    expect(body.shipments).toHaveLength(1);
+    const s = body.shipments[0];
+    expect(typeof s.status_changed_at).toBe("number");
+    expect(s.status_changed_at).toBe(s.created_at); // 단계 변동 전 = 등록 시각
+  });
+
+  it("status_changed_at NULL 행(backfill 전)은 created_at 으로 폴백", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const created = Date.now();
+    // status_changed_at 컬럼을 지정하지 않아 NULL(backfill 전 기존 행 모사).
+    await env.DB.prepare(
+      "INSERT INTO shipments (id, carrier, tracking_no, active, created_at) VALUES ('s1','kr.cjlogistics','999999999999',1,?)",
+    )
+      .bind(created)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO subscriptions (device_id, shipment_id, created_at) VALUES ('dev-A','s1',?)",
+    )
+      .bind(created)
+      .run();
+
+    const res = await SELF.fetch(`${BASE}/shipments`, { headers: bearer("dev-A") });
+    const body = (await res.json()) as { shipments: { id: string; status_changed_at: number }[] };
+    const s = body.shipments.find((x) => x.id === "s1")!;
+    expect(s.status_changed_at).toBe(created); // NULL → created_at 폴백
+  });
+
   it("타 device가 GET/DELETE /:id 호출 → 404(인가)", async () => {
     await registerDevice("dev-A", TOKEN_A);
     await registerDevice("dev-B", TOKEN_B);

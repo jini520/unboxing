@@ -50,7 +50,7 @@ unboxing/
 원본 스키마: `worker/schema.sql`.
 
 - `devices`: `id`(=secret device_id, PK), `push_token`(UNIQUE, **nullable** — 푸시 거부/미허용도 기기 등록, QA-001), `platform`(ios|android), `created_at`.
-- `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`. `UNIQUE(carrier, tracking_no)` = dedupe 키.
+- `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`, `status_changed_at`(현재 단계가 시작된 시각 — **단계 전환 시에만** 갱신, 폴링마다 ❌). `UNIQUE(carrier, tracking_no)` = dedupe 키.
 - `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거.
 - 인덱스 `idx_shipments_due (active, last_polled_at)` — due 조회용.
 
@@ -59,7 +59,8 @@ unboxing/
 | 테이블 | 컬럼 | 용도 |
 |---|---|---|
 | shipments | `registered_at` 또는 재사용 `created_at` | 30일 좀비 만료 기준 |
-| shipments | `last_event_time` | 동일 단계 내 새 이벤트 판별/타임라인 신선도 |
+| shipments | `last_event_time` | 동일 단계 내 새 이벤트 판별/타임라인 신선도 (**현재 미사용** — 기록 안 함) |
+| shipments | `status_changed_at` | **현재 단계가 시작된 시각**(단계 전환 시에만 갱신) — 앱 목록 "업데이트" 표시용. `last_event_time`(신선도용·미사용)과 의미가 다름 |
 | shipments | `fail_count` / `next_retry_at` | 외부 오류 백오프 |
 | shipments | `webhook_expires_at` | webhook 재등록 sweep 기준 (webhook 도입 시) |
 | (신규) `tracker_token` | `access_token`, `expires_at` | tracker.delivery 토큰 캐시 (→ ADR-013) |
@@ -78,6 +79,8 @@ unboxing/
 | `POST /shipments` | 운송장 등록(dedupe + 구독 + 즉시 1회 조회) | `{carrier, tracking_no}` | `201 {shipment}` / 이미 구독 시 `200 {shipment}`(멱등) | `400`, `422 INVALID_TRACKING`, `401`, `429 RATE_LIMITED`, `409 CARRIER_UNSUPPORTED`(딥링크 안내) |
 | `GET /shipments` | 내 송장 목록 + 정규화 상태 | — | `200 {shipments:[...]}` | `401` |
 | `GET /shipments/:id` | 상세 = 실시간 track 타임라인 (→ ADR-011) | — | `200 {shipment, timeline:[...]}` | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |
+
+- `shipment` 객체(목록·상세 공통)는 `id`·`carrier`·`tracking_no`·`status`·`active`·`created_at`·`status_changed_at`(현재 단계 시작 시각; 컬럼이 비면 `created_at` 으로 폴백)를 포함한다.
 | `DELETE /shipments/:id` | 구독 해제(마지막 구독이면 shipment도 정리) | — | `204` | `401`, `403 NOT_OWNER`, `404` |
 | `DELETE /me` | **모든 데이터 삭제** — device + 구독 + orphan 송장 + 푸시 토큰 폐기 (→ ADR-017, 스토어 정책) | — | `204` | `401` |
 | `POST /webhooks/track` | tracker.delivery 콜백 수신(웹훅 도입 시) | `{carrierId, trackingNumber}` (+서명) | `202` (1초 내) | 서명 불일치 `401`(조용히), 본문 오류 무시 |

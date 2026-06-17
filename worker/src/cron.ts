@@ -149,15 +149,18 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
   // 4. 정규화: lastEvent 우선, 없으면 events 최신값으로 폴백(upstream이 lastEvent를 비워도 단계 회귀 방지).
   const ev = result.lastEvent ?? result.events[result.events.length - 1];
   const next = normalizeStatus(ev?.statusCode);
+  // 단계 전환 시 기록할 status_changed_at: 전환을 일으킨 이벤트 시각(파싱 불가/누락이면 now).
+  const parsedEvent = ev?.time ? Date.parse(ev.time) : NaN;
+  const changedAt = Number.isNaN(parsedEvent) ? now : parsedEvent;
 
   // 6. 배송완료: 자동 삭제하지 않고 **보관**한다(기본 사양 — 사용자가 수동 삭제). active=0 으로 재폴링만 멈춘다.
   //    CAS(배송완료 + active=0)를 한 문장으로 원자화 → 좀비(완료·active=1) 방지 + 영향행으로 전환 차지 판정
   //    → 이긴 경우에만 정확히 1회 알림. (배송완료 자동 삭제는 다음 phase 설정 옵션 → docs/ROADMAP.md.)
   if (next === "배송완료" && prev !== "배송완료") {
     const casRes = await env.DB.prepare(
-      "UPDATE shipments SET last_normalized_status = ?, active = 0 WHERE id = ? AND last_normalized_status IS ?",
+      "UPDATE shipments SET last_normalized_status = ?, status_changed_at = ?, active = 0 WHERE id = ? AND last_normalized_status IS ?",
     )
-      .bind("배송완료", row.id, stored)
+      .bind("배송완료", changedAt, row.id, stored)
       .run();
     if ((casRes.meta.changes ?? 0) === 1) {
       const tokens = await subscriberTokens(env, row.id);
@@ -172,7 +175,7 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
 
   // 5. 멱등 단계 전환(compare-and-set): 단계가 실제로 바뀐 경우에만, 영향행=1일 때만 전환 인정 후 알림.
   if (next !== prev) {
-    const changed = await casStage(env, row.id, stored, next);
+    const changed = await casStage(env, row.id, stored, next, changedAt);
     if (changed && shouldNotify(prev, next)) {
       await notifyTransition(env, deps, row, next, ev?.time);
     }
@@ -222,12 +225,19 @@ function logPollError(row: DueRow, err: unknown, failCount: number): void {
 /**
  * compare-and-set: 저장된 단계가 prev 그대로일 때만 next 로 원자 갱신.
  * 영향행이 1이면 이 실행이 전환을 차지한 것(경쟁/재실행 시 정확히 1회).
+ * status_changed_at 도 같은 문장에서 전환 이벤트 시각(changedAt)으로 갱신한다(단계 전환 시에만).
  */
-async function casStage(env: Env, id: string, prev: string | null, next: Stage): Promise<boolean> {
+async function casStage(
+  env: Env,
+  id: string,
+  prev: string | null,
+  next: Stage,
+  changedAt: number,
+): Promise<boolean> {
   const r = await env.DB.prepare(
-    "UPDATE shipments SET last_normalized_status = ? WHERE id = ? AND last_normalized_status IS ?",
+    "UPDATE shipments SET last_normalized_status = ?, status_changed_at = ? WHERE id = ? AND last_normalized_status IS ?",
   )
-    .bind(next, id, prev)
+    .bind(next, changedAt, id, prev)
     .run();
   return (r.meta.changes ?? 0) === 1;
 }

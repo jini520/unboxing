@@ -23,6 +23,8 @@ interface FakeOpts {
   trackError?: boolean;
   /** getReceipts 가 모든 ticket 에 대해 이 에러를 반환(예: DeviceNotRegistered). */
   receiptError?: string;
+  /** lastEvent.time 오버라이드(키 존재 시 사용; 미지정이면 NOW). null/빈문자열로 파싱불가 폴백 검증. */
+  eventTime?: string | null;
 }
 
 interface FakeFetch {
@@ -51,7 +53,8 @@ function makeFetch(opts: FakeOpts = {}): FakeFetch {
       if (opts.trackError) {
         return Response.json({ errors: [{ message: "boom", extensions: { code: "INTERNAL" } }] });
       }
-      const mk = (code: string) => ({ time: new Date(NOW).toISOString(), status: { code }, description: "d" });
+      const evTime = "eventTime" in opts ? opts.eventTime : new Date(NOW).toISOString();
+      const mk = (code: string) => ({ time: evTime, status: { code }, description: "d" });
       if (opts.eventsOnlyStatus) {
         // lastEvent 는 null 이지만 events 에는 데이터가 있는 응답(폴백 경로 검증).
         return Response.json({
@@ -92,13 +95,22 @@ async function seedShipment(
     lastPolledAt?: number | null;
     createdAt?: number;
     active?: number;
+    statusChangedAt?: number | null;
   },
 ): Promise<void> {
   await env.DB.prepare(
-    "INSERT INTO shipments (id, carrier, tracking_no, last_normalized_status, last_polled_at, active, created_at) " +
-      "VALUES (?, 'kr.cjlogistics', ?, ?, ?, ?, ?)",
+    "INSERT INTO shipments (id, carrier, tracking_no, last_normalized_status, last_polled_at, active, created_at, status_changed_at) " +
+      "VALUES (?, 'kr.cjlogistics', ?, ?, ?, ?, ?, ?)",
   )
-    .bind(id, o.trackingNo, o.status ?? null, o.lastPolledAt ?? null, o.active ?? 1, o.createdAt ?? NOW)
+    .bind(
+      id,
+      o.trackingNo,
+      o.status ?? null,
+      o.lastPolledAt ?? null,
+      o.active ?? 1,
+      o.createdAt ?? NOW,
+      o.statusChangedAt ?? null,
+    )
     .run();
 }
 
@@ -119,6 +131,13 @@ async function statusOf(id: string): Promise<string | null> {
   const r = await env.DB.prepare("SELECT last_normalized_status AS s FROM shipments WHERE id = ?")
     .bind(id)
     .first<{ s: string | null }>();
+  return r?.s ?? null;
+}
+
+async function statusChangedAtOf(id: string): Promise<number | null> {
+  const r = await env.DB.prepare("SELECT status_changed_at AS s FROM shipments WHERE id = ?")
+    .bind(id)
+    .first<{ s: number | null }>();
   return r?.s ?? null;
 }
 
@@ -262,6 +281,61 @@ describe("cron — 배치 폴링", () => {
     expect(f.receiptsCalls).toBe(1);
     expect(await count("SELECT COUNT(*) AS c FROM devices WHERE push_token='ExponentPushToken[BBB]'")).toBe(0);
     expect(await count("SELECT COUNT(*) AS c FROM push_tickets")).toBe(0);
+  });
+
+  // ── status_changed_at(step0): 단계 전환 시각 기록(API 호출 시각 아님) ──
+
+  it("단계 전환 시 status_changed_at 을 이벤트 시각으로 기록(now 아님)", async () => {
+    const EVENT = NOW - 30 * MINUTE; // 이벤트 시각 ≠ now(NOW) — 구분 가능하게.
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY", eventTime: new Date(EVENT).toISOString() });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await statusOf("S")).toBe("배송출발");
+    expect(await statusChangedAtOf("S")).toBe(EVENT); // 호출 시각(NOW)이 아니라 이벤트 시각
+  });
+
+  it("단계 변화 없는 반복 폴링은 status_changed_at 을 갱신하지 않음", async () => {
+    const PRESET = NOW - 3 * 60 * MINUTE; // 기존 단계 시작 시각.
+    await seedShipment("S", {
+      trackingNo: "123456789012",
+      status: "배송출발",
+      lastPolledAt: NOW - 2 * 60 * MINUTE, // 간격(60분) 경과 → due
+      statusChangedAt: PRESET,
+    });
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" }); // 동일 단계(배송출발) → CAS 0행
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(f.graphqlCalls).toBe(1); // 폴링은 했지만
+    expect(await statusChangedAtOf("S")).toBe(PRESET); // 단계 불변 → 그대로
+  });
+
+  it("이벤트 시각이 파싱불가면 status_changed_at 은 now 로 폴백", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    // 시각이 있긴 하나 파싱불가(Date.parse → NaN). (time 이 falsy 면 tracker 가 이벤트 자체를 버린다.)
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY", eventTime: "not-a-date" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await statusOf("S")).toBe("배송출발");
+    expect(await statusChangedAtOf("S")).toBe(NOW); // 폴백 = now
+  });
+
+  it("배송완료 전환에서도 status_changed_at 기록(이벤트 시각)", async () => {
+    const EVENT = NOW - 10 * MINUTE;
+    await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "DELIVERED", eventTime: new Date(EVENT).toISOString() });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await statusOf("S")).toBe("배송완료");
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1);
+    expect(await statusChangedAtOf("S")).toBe(EVENT); // 완료 전환도 이벤트 시각
   });
 
   // ── 조용시간(step3, #7/QA-004): 야간 비긴급 보류 → 아침 묶음 발송 ──
