@@ -174,16 +174,8 @@ export default function DetailScreen() {
           </Pressable>
         }
       />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={tokens.text.secondary}
-          />
-        }
-      >
+      {/* 상단 섹션 — 고정(스크롤 X). 타임라인만 이 아래 영역에서 내부 스크롤(요청). */}
+      <View style={styles.topSection}>
         {shipment ? (
           <>
             {/* 택배사·운송장번호(좌) + 받는 분(우) — 가장 상단 한 줄. 받는분은 화면 전용·미저장(ADR-005). */}
@@ -214,38 +206,37 @@ export default function DetailScreen() {
             <ActivityIndicator color={tokens.text.secondary} />
           </View>
         )}
+      </View>
 
-        {/* 메모(로컬 전용·미전송) — 읽기 전용 표시. 탭 또는 헤더 연필 → 모달 편집. */}
-        <Pressable
-          onPress={openMemo}
-          style={[styles.memoSection, { backgroundColor: tokens.bg.secondary, borderColor: tokens.border }]}
-          accessibilityRole="button"
-          accessibilityLabel="메모 편집"
-        >
-          <Text style={[styles.memoLabel, { color: tokens.text.secondary }]}>메모</Text>
-          <Text style={[styles.memoText, { color: memo ? tokens.text.body : tokens.text.disabled }]}>
-            {memo || "이 택배가 무엇인지 적어두세요"}
-          </Text>
-        </Pressable>
-
-        <View style={styles.timelineWrap}>
-          {timeline.kind === "loading" ? (
-            <ActivityIndicator color={tokens.text.secondary} />
-          ) : timeline.kind === "ok" ? (
-            <Timeline events={timeline.events} now={now} />
-          ) : timeline.kind === "notfound" ? (
-            <Text style={{ color: tokens.text.secondary }}>송장을 찾을 수 없어요</Text>
-          ) : (
-            <Retry
-              message={
-                timeline.kind === "offline"
-                  ? "오프라인이에요 — 마지막 상태만 보여드려요"
-                  : "타임라인을 못 불러왔어요"
-              }
-              onRetry={load}
-            />
-          )}
-        </View>
+      {/* 타임라인 — 페이지 전체가 아니라 이 영역(flex:1) 안에서만 스크롤. 당겨서 새로고침은 여기. */}
+      {/* 메모는 상세 본문에 인라인 박스로 두지 않는다 — **헤더 연필 → 모달**에서만 편집(사용자 요구). */}
+      <ScrollView
+        style={styles.timelineRegion}
+        contentContainerStyle={styles.timelineContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={tokens.text.secondary}
+          />
+        }
+      >
+        {timeline.kind === "loading" ? (
+          <ActivityIndicator color={tokens.text.secondary} />
+        ) : timeline.kind === "ok" ? (
+          <Timeline events={timeline.events} now={now} />
+        ) : timeline.kind === "notfound" ? (
+          <Text style={{ color: tokens.text.secondary }}>송장을 찾을 수 없어요</Text>
+        ) : (
+          <Retry
+            message={
+              timeline.kind === "offline"
+                ? "오프라인이에요 — 마지막 상태만 보여드려요"
+                : "타임라인을 못 불러왔어요"
+            }
+            onRetry={load}
+          />
+        )}
       </ScrollView>
 
       {shipment && (
@@ -307,20 +298,21 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { padding: 16, paddingTop: 8 },
+  // 상단 고정 섹션 — 헤더와 송장번호 사이 공백(요청). 타임라인만 내부 스크롤이라 페이지 패딩은 여기서.
+  topSection: { paddingHorizontal: 16, paddingTop: 24 },
+  // 타임라인 영역 — flex:1 로 남은 공간 차지 → 페이지 전체가 아니라 이 안에서만 스크롤.
+  timelineRegion: { flex: 1 },
+  timelineContent: { paddingHorizontal: 24, paddingTop: 36, paddingBottom: 36 },
   // 상단 한 줄: 택배사·번호(좌, 늘어남) + 받는분(우, 고정).
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 },
   meta: { flexShrink: 1, fontSize: 14, fontWeight: "500" },
   recipientInline: { flexShrink: 0, fontSize: 13 },
   // 현재 상태 — 가장 크고 중앙.
-  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 16, marginBottom: 24 },
+  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 32, marginBottom: 24 },
   skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
-  progressWrap: { marginBottom: 20 },
-  // 메모 — 로컬 전용. 상세는 읽기 전용 박스(탭→모달), 편집은 모달 입력.
+  progressWrap: { marginBottom: 28 },
+  // 메모 — 로컬 전용. 편집은 **헤더 연필 → 모달 입력**만(상세 본문에 인라인 박스 없음).
   headerEdit: { paddingVertical: 8, paddingHorizontal: 16 },
-  memoSection: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 24, gap: 4 },
-  memoLabel: { fontSize: 12, fontWeight: "600" },
-  memoText: { fontSize: 15, lineHeight: 21 },
   memoInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minHeight: 80 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: 24 },
   modalCard: { borderRadius: 12, padding: 16, gap: 12 },
@@ -328,8 +320,6 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 24 },
   modalCancel: { fontSize: 15 },
   modalSave: { fontSize: 15, fontWeight: "700" },
-  // 타임라인 — 좌우 패딩 약간 추가(요청).
-  timelineWrap: { minHeight: 80, paddingHorizontal: 8 },
   retry: { gap: 8, alignItems: "flex-start" },
   retryLabel: { fontSize: 14, fontWeight: "600" },
   deleteBtn: { paddingHorizontal: 16, paddingVertical: 16, alignItems: "center" },

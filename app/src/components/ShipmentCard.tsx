@@ -1,14 +1,16 @@
 /**
- * 송장 카드 — 좌측정렬: 단계배지 · 택배사·운송장 전체번호 · 한 줄 요약 · 상대시간(상태 변경 기준).
- * 인터랙션(gesture-handler Swipeable, 양방향 reveal):
- *  - 좌측 스와이프 → 오른쪽에 **삭제** 버튼 노출(첫 스와이프는 노출만). 버튼 탭 또는 같은 방향 추가 스와이프 시 실행.
- *  - 우측 스와이프 → 왼쪽에 **음소거** 버튼 노출(켜기/끄기). 동일하게 탭 또는 추가 스와이프로 실행.
+ * 송장 카드 — 좌측정렬(위→아래): 단계배지+상대시간 · **메모(중단)** · 택배사·운송장번호(하단·작게).
+ *  - 현재 상태는 **StageBadge(색+글리프+라벨)로만** 표시 — 별도 "현재 상태 메세지" 텍스트 줄은 StageBadge 와 역할이 겹쳐 두지 않는다(사용자 요구).
+ *  - 메모는 중단·좌측정렬·primary 색(default 문구라도 회색 금지). 택배사·번호는 보조라 하단·작게.
+ * 인터랙션(gesture-handler Swipeable, 양방향 reveal — 2단계):
+ *  - 1단계: 좌측 스와이프 → **삭제** 버튼 노출 / 우측 스와이프 → **음소거** 버튼 노출(첫 스와이프는 노출만, 실행 X).
+ *  - 2단계: 이미 노출된 상태에서 **같은 방향으로 한 번 더 스와이프**하면 버튼 탭과 동일하게 실행(또는 버튼 직접 탭).
  *  실행은 부모에 위임(onDelete=낙관+Undo / onToggleMute=낙관+롤백). reveal 이 의도 확인 게이트라 별도 다이얼로그 없음.
  *  - 선택 모드(부모 롱프레스 진입): 스와이프 비활성·체크박스 표시·탭=선택 토글(상세 이동 아님).
  * 색은 토큰만(하드코딩 금지). 상태는 색 단독 금지 — StageBadge(색+글리프+라벨), 음소거는 아이콘+a11y 라벨.
  * 택배사명은 carrierName(carrier.ts) 로 한글 표기(미상 id 는 그대로 폴백).
  */
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import type { Shipment } from "../lib/api";
@@ -18,8 +20,12 @@ import { useTheme } from "../theme/ThemeProvider";
 import { Bell, BellOff, Check, Trash } from "./icons";
 import { StageBadge } from "./StageBadge";
 
-/** 풀스와이프(2단계) 실행 임계(px) — dragX 가 이 이상이면 dom 이 넘어가며 실행. rest 노출 폭보다 충분히 크다. */
-const FULL_SWIPE = 200;
+/**
+ * 2단계(한 번 더 스와이프) 실행 **민감도** 임계 — 버튼이 노출된 뒤 같은 방향으로 **추가로 밀어야 하는 손가락 거리(px)**.
+ * dragX(제스처 raw translationX)는 제스처마다 0에서 시작하므로 이 값이 곧 "두 번째 스와이프 거리"다.
+ * **클수록 둔감**(덜 민감) — 너무 민감하면 올리고, 트리거가 어려우면 내린다. (사용자 피드백으로 조절하는 지점)
+ */
+const SWIPE_AGAIN_PX = 80;
 
 function ShipmentCardBase({
   shipment,
@@ -48,38 +54,40 @@ function ShipmentCardBase({
 }) {
   const { tokens } = useTheme();
   const swipeRef = useRef<Swipeable>(null);
-  // 2단계 풀스와이프 감지: dragX(=transX)가 임계 FULL_SWIPE 를 넘으면 즉시 실행(이 제스처에서 1회).
-  // 1단계(가벼운 스와이프)는 버튼 노출만(rest), 2단계(끝까지 더 스와이프)는 dom 이 넘어가며 실행.
-  const firedRef = useRef(false);
-  const dragXRef = useRef<Animated.AnimatedInterpolation<number> | null>(null);
+  // 2단계 실행(한 번 더 스와이프). **1단계(첫 스와이프)는 노출만** — openedRef 는 정착(onSwipeableOpen) 후에야
+  // 세팅돼 첫 스와이프 중엔 트리거가 막힌다. 노출되어 열린 뒤 같은 방향으로 **추가로 SWIPE_AGAIN_PX 만큼 더 밀면**
+  // 버튼 탭과 동일 실행.
+  //
+  // ⚠️ 거리 측정은 **base AnimatedValue 인 dragX**(제스처 raw translationX)에 리스너를 건다 — render 콜백이 주는
+  // transX/progress 는 *interpolation* 이라 RN Animated 가 리스너를 **발화시키지 않는다**(base Value 만 __callListeners).
+  // 게다가 Swipeable 기본 useNativeAnimations:true(native driver)면 JS 리스너가 아예 안 와서, dragX 리스너가 울리도록
+  // **useNativeAnimations={false}** 로 JS 구동시킨다(아래 Swipeable). dragX 는 생성자에서 1회 생성돼 안정적.
+  const openedRef = useRef<"left" | "right" | null>(null);
+  const firedRef = useRef(false); // 한 제스처에서 1회만 예약. 열림/닫힘(onSwipeable*)에서 해제.
+  // 임계 도달 시 **즉시 실행/close 하면 진행 중 제스처와 충돌**해 카드가 떨리고, 손을 떼면 handleRelease 가 다시 열어
+  // 1단계에 머문다. 그래서 여기선 "실행 예약"만 하고, 제스처가 끝나 정착할 때(아래 onSwipeableWillOpen)에서 실행+close 한다.
+  const pendingFireRef = useRef<"left" | "right" | null>(null);
 
-  // 액션 render 콜백의 dragX 에 리스너 1회 등록 → 풀스와이프 감지.
-  // 좌측 스와이프(우측 패널=삭제)는 음수, 우측 스와이프(좌측 패널=음소거)는 양수.
-  const attachDrag = useCallback(
-    (dragX: Animated.AnimatedInterpolation<number>) => {
-      if (dragXRef.current) return;
-      dragXRef.current = dragX;
-      dragX.addListener(({ value }) => {
-        if (firedRef.current) {
-          // 닫혀 원위치(≈0)로 돌아오면 다음 제스처 허용 — 닫힘 애니메이션 중 재발동 방지.
-          if (Math.abs(value) < 8) firedRef.current = false;
-          return;
-        }
-        if (value <= -FULL_SWIPE) {
-          firedRef.current = true;
-          swipeRef.current?.close();
-          onDelete();
-        } else if (value >= FULL_SWIPE) {
-          firedRef.current = true;
-          swipeRef.current?.close();
-          onToggleMute();
-        }
-      });
-    },
-    [onDelete, onToggleMute],
-  );
-
-  useEffect(() => () => dragXRef.current?.removeAllListeners(), []);
+  // dragX 리스너: 그 방향으로 **이미 열린 상태**에서 두 번째 스와이프가 임계를 넘으면 **예약만** 한다(첫 스와이프·닫힘·반대 제외).
+  // dragX 는 animateRow 가 정착 때 0 으로 리셋하므로, 두 번째 제스처의 dragX 는 그 제스처의 손가락 이동량이다.
+  // selectionMode 면 Swipeable 이 언마운트되므로 토글 시 재부착.
+  useEffect(() => {
+    const dragX = (
+      swipeRef.current as unknown as { state?: { dragX?: Animated.Value } } | null
+    )?.state?.dragX;
+    if (!dragX) return;
+    const id = dragX.addListener(({ value }) => {
+      if (!openedRef.current || firedRef.current) return;
+      if (openedRef.current === "right" && value <= -SWIPE_AGAIN_PX) {
+        firedRef.current = true;
+        pendingFireRef.current = "right";
+      } else if (openedRef.current === "left" && value >= SWIPE_AGAIN_PX) {
+        firedRef.current = true;
+        pendingFireRef.current = "left";
+      }
+    });
+    return () => dragX.removeListener(id);
+  }, [selectionMode]);
 
   const a11yLabel =
     `${carrierName(shipment.carrier)} ${shipment.trackingNo}, ${shipment.status}` +
@@ -134,16 +142,14 @@ function ShipmentCardBase({
               </Text>
             </View>
           </View>
-          {/* 운송장 전체번호 — 본인 데이터라 끝4자리로 줄이지 않는다. 길면 잘림 없이 줄바꿈 허용. */}
+          {/* 현재 상태는 위 StageBadge 가 표시 — 별도 상태 메세지 텍스트 줄은 역할이 겹쳐 두지 않는다(사용자 요구). */}
+          {/* 메모(중단·로컬) — 무엇인지 식별. **좌측정렬**(가운데 정렬 금지). default 문구라도 회색 아닌 primary 색. */}
+          <Text style={[styles.memo, { color: tokens.text.primary }]} numberOfLines={1}>
+            {memo || `${dateKST(shipment.createdAt)}에 등록한 상품`}
+          </Text>
+          {/* 택배사·운송장 전체번호(하단·작게) — 본인 데이터라 끝4자리로 줄이지 않고, 길면 잘림 없이 줄바꿈 허용. */}
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
             {carrierName(shipment.carrier)} · {shipment.trackingNo}
-          </Text>
-          {/* 메모(로컬) — 있으면 메모, 없으면 등록일 기반 기본 문구(통일감 위해 항상 한 줄). */}
-          <Text
-            style={[styles.summary, { color: memo ? tokens.text.body : tokens.text.disabled }]}
-            numberOfLines={1}
-          >
-            {memo || `${dateKST(shipment.createdAt)}에 등록한 상품`}
           </Text>
         </View>
       </View>
@@ -172,10 +178,8 @@ function ShipmentCardBase({
   // 액션은 **fragment** 로 반환한다 — 배경(absoluteFill)을 Swipeable 의 액션 컨테이너(카드 폭 전체)에
   // 직접 깔아야 과스와이프 시 빈 틈이 없다(컨테이너 overflow:hidden 으로 카드에 클립). 콘텐츠(아이콘+라벨)는
   // **고정 폭**(actionBtn)이라 스냅 폭이 그 폭으로 측정된다(폭 회귀 금지 — DO NOT shrink/clip, docs UI_GUIDE).
-  const renderDelete = (_progress: unknown, dragX: Animated.AnimatedInterpolation<number>) => {
-    attachDrag(dragX);
-    return (
-      <>
+  const renderDelete = () => (
+    <>
         <View
           style={[
             StyleSheet.absoluteFill,
@@ -196,12 +200,9 @@ function ShipmentCardBase({
           <Text style={[styles.actionText, { color: tokens.stage.exception }]}>삭제</Text>
         </Pressable>
       </>
-    );
-  };
+  );
 
-  const renderMute = (_progress: unknown, dragX: Animated.AnimatedInterpolation<number>) => {
-    attachDrag(dragX);
-    return (
+  const renderMute = () => (
       <>
         <View
           style={[
@@ -229,8 +230,7 @@ function ShipmentCardBase({
           </Text>
         </Pressable>
       </>
-    );
-  };
+  );
 
   return (
     <View style={styles.wrap}>
@@ -239,13 +239,35 @@ function ShipmentCardBase({
         // 컨테이너 overflow:hidden(기본)이 카드를 리스트 padding 경계에서 자른다 → visible 로 풀어
         // **카드만** 경계 넘어 끝까지 밀리게 한다(버튼 패널·인셋·패딩은 그대로). 사용자 요구.
         containerStyle={styles.swipeContainer}
+        // dragX 리스너(2단계 거리 측정)가 JS 에서 울리도록 native driver 비활성 — 기본 true 면 JS addListener 안 옴.
+        useNativeAnimations={false}
         friction={2}
         leftThreshold={28}
         rightThreshold={28}
-        // overshoot 활성 — rest 노출(1단계) 후 **끝까지 더 스와이프(2단계)** 가능. 배경 absoluteFill 이 깔려
+        // overshoot 활성 — rest 노출(1단계) 후 **한 번 더 스와이프(2단계)** 가능. 배경 absoluteFill 이 깔려
         // 과스와이프해도 카드-버튼 사이 틈이 없다(고정폭+overshoot 비활성으로 회귀시키지 말 것 — 사용자 요구).
         overshootLeft
         overshootRight
+        // 1단계(첫 스와이프) 정착 시 열린 방향 기록 → 2단계(같은 방향으로 더 밀기) 판정 게이트. 열림/닫힘에서 상태 해제.
+        onSwipeableOpen={(direction) => {
+          openedRef.current = direction; // "left"=음소거 노출 / "right"=삭제 노출
+          firedRef.current = false;
+          pendingFireRef.current = null;
+        }}
+        onSwipeableClose={() => {
+          openedRef.current = null;
+          firedRef.current = false;
+          pendingFireRef.current = null;
+        }}
+        // 2단계 실행 — dragX 리스너가 예약(pendingFireRef)해 두면 **제스처가 끝나 정착하는 이 시점**에 실행+close.
+        // 진행 중이 아니라 release 후라 떨림/되돌아감 없이 깔끔히 닫힌다(닫기 스와이프는 willClose 라 여기 안 옴).
+        onSwipeableWillOpen={(direction) => {
+          if (pendingFireRef.current !== direction) return;
+          pendingFireRef.current = null;
+          swipeRef.current?.close();
+          if (direction === "right") onDelete();
+          else onToggleMute();
+        }}
         renderLeftActions={renderMute} // 우측 스와이프 → 왼쪽 패널 = 음소거
         renderRightActions={renderDelete} // 좌측 스와이프 → 오른쪽 패널 = 삭제
       >
@@ -301,16 +323,16 @@ const styles = StyleSheet.create({
   time: {
     fontSize: 12,
   },
-  carrier: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginTop: 8,
-  },
-  // 메모(또는 등록일 기반 default) — 택배사·번호보다 중요한 식별 정보라 **중앙·강조** typography.
-  summary: {
+  // 메모(중단) — 식별 정보. **좌측정렬**(가운데 정렬 금지). default 라도 primary 색(회색 금지).
+  memo: {
     fontSize: 15,
     fontWeight: "600",
-    textAlign: "center",
+    marginTop: 8,
+  },
+  // 택배사·운송장 전체번호(하단·보조) — 더 작게(12). 줄바꿈 허용(끝4자리 축약 금지).
+  carrier: {
+    fontSize: 12,
+    fontWeight: "500",
     marginTop: 8,
   },
   // 스와이프 액션 콘텐츠 — **고정 폭 96**(스냅 폭·터치 타깃 ≥44). 배경은 별도 absoluteFill 로 카드 폭 전체를

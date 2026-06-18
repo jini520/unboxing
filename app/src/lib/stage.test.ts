@@ -59,7 +59,7 @@ describe("STAGE_STATUS_MESSAGE", () => {
     }
   });
 
-  it("STAGE_SUMMARY 도 모든 단계를 덮는다(목록 카드용)", () => {
+  it("STAGE_SUMMARY 도 모든 단계를 덮는다", () => {
     for (const s of ALL) expect(STAGE_SUMMARY[s].length).toBeGreaterThan(0);
   });
 });

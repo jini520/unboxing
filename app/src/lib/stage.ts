@@ -41,7 +41,7 @@ export const STAGE_STATUS_MESSAGE: Record<Stage, string> = {
   기타: "상태 확인 중",
 };
 
-/** 단계별 친근한 한 줄 요약(목록 카드 · 상세 상태문구 폴백). 기술 용어·에러 코드 노출 금지(PRD 톤). */
+/** 단계별 친근한 한 줄 요약(상세 상태문구 폴백 등). 기술 용어·에러 코드 노출 금지(PRD 톤). */
 export const STAGE_SUMMARY: Record<Stage, string> = {
   미등록: "아직 조회 전이에요",
   등록: "접수가 확인됐어요",

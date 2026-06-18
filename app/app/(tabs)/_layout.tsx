@@ -6,7 +6,7 @@
  * 라벨+아이콘을 함께 둔다(색 단독 의존 금지 — UI_GUIDE 접근성).
  */
 import { Tabs } from "expo-router";
-import { Gear, Package, PackageOpen } from "../../src/components/icons";
+import { Gear, Package } from "../../src/components/icons";
 import { useTheme } from "../../src/theme/ThemeProvider";
 
 export default function TabsLayout() {
@@ -27,13 +27,10 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "택배함",
-          // 활성=열린 상자(PackageOpen)·비활성=닫힌 상자(Package). 색은 토큰 직접 주입.
-          tabBarIcon: ({ focused, size }) => {
-            const BoxIcon = focused ? PackageOpen : Package;
-            return (
-              <BoxIcon color={focused ? tokens.text.primary : tokens.text.secondary} size={size} />
-            );
-          },
+          // 닫힌 상자로 통일 — 활성/비활성 동일 글리프, 색만 토큰으로 구분(사용자 요구). 열린 상자 금지.
+          tabBarIcon: ({ focused, size }) => (
+            <Package color={focused ? tokens.text.primary : tokens.text.secondary} size={size} />
+          ),
         }}
       />
       <Tabs.Screen

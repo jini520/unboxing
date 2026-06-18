@@ -300,10 +300,10 @@ export default function ListScreen() {
             {/* 전체 선택 / 전체 해제 — 헤더 아래 별도 행(카운트 가운데 유지). */}
             <View style={styles.selectAllRow}>
               <Pressable onPress={selectAllVisible} hitSlop={8} accessibilityRole="button" accessibilityLabel="전체 선택">
-                <Text style={[styles.headerAction, { color: tokens.stage.outForDelivery, fontWeight: "600" }]}>전체 선택</Text>
+                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>전체 선택</Text>
               </Pressable>
               <Pressable onPress={deselectAll} hitSlop={8} accessibilityRole="button" accessibilityLabel="전체 해제">
-                <Text style={[styles.headerAction, { color: tokens.stage.outForDelivery, fontWeight: "600" }]}>전체 해제</Text>
+                <Text style={[styles.headerAction, { color: tokens.text.secondary }]}>전체 해제</Text>
               </Pressable>
             </View>
           </>

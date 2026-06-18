@@ -148,19 +148,6 @@ export function Package({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPr
   );
 }
 
-/** 택배함(열린 상자 — 몸통 + 위로 펼쳐진 좌·우 뚜껑) — 탭 활성. */
-export function PackageOpen({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
-  return (
-    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
-      <Path d="M4 11v6l8 4 8-4v-6" />
-      <Path d="M4 11l8 3 8-3" />
-      <Path d="M12 14v7" />
-      <Path d="M4 11l4-5 4 2" />
-      <Path d="M20 11l-4-5-4 2" />
-    </Svg>
-  );
-}
-
 /** 메모 편집(연필). */
 export function Pencil({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (

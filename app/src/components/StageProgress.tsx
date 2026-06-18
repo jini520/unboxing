@@ -91,7 +91,7 @@ export function StageProgress({ stage }: { stage: Stage }) {
               {/* 단계 아이콘 — 점 '위에'(점을 대체하지 않음). 현재=강조 색·크게. */}
               <View style={styles.iconWrap}>
                 <StepIcon
-                  size={isCurrent ? 30 : 26}
+                  size={isCurrent ? 32 : 30}
                   color={iconColor}
                   accessibilityElementsHidden
                   importantForAccessibility="no"
@@ -147,12 +147,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
   },
-  // 아이콘 — 점 위. 고정 높이로 크기(26/30)가 달라도 점 정렬이 흐트러지지 않게.
+  // 아이콘 — 점 위. 고정 높이로 크기(32/36)가 달라도 점 정렬이 흐트러지지 않게.
   iconWrap: {
-    height: 32,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 6,
+    marginBottom: 10,
   },
   nodeRow: {
     flexDirection: "row",

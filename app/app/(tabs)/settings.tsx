@@ -107,6 +107,12 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content}>
+        {/* 페이지 제목 + 설명 — 택배함과 동일한 스타일. */}
+        <Text style={[styles.title, { color: tokens.text.primary }]}>설정</Text>
+        <Text style={[styles.pageDesc, { color: tokens.text.secondary }]}>
+          알림과 테마를 관리해요
+        </Text>
+
         {/* 알림 */}
         <Text style={[styles.section, { color: tokens.text.secondary }]}>알림</Text>
         <Pressable
@@ -205,7 +211,11 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { padding: 16 },
+  // 택배함 헤더와 동일한 상단 위치(paddingTop 8) — 제목/설명 위치 일치.
+  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
+  // 페이지 제목 + 설명 — 택배함 헤더와 동일.
+  title: { fontSize: 30, fontWeight: "600" },
+  pageDesc: { fontSize: 13, lineHeight: 19, marginTop: 10 },
   section: { fontSize: 13, marginTop: 16, marginBottom: 8 },
   card: {
     flexDirection: "row",
