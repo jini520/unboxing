@@ -1,9 +1,12 @@
 /**
- * 루트 레이아웃 — expo-router 진입(파일 기반 라우팅·딥링크). SafeAreaProvider + ThemeProvider 로
- * <Stack> 을 감싼다. 개별 화면 옵션/스크린은 각 화면 step에서 추가.
+ * 루트 레이아웃 — expo-router 진입(파일 기반 라우팅·딥링크). SafeAreaProvider + ThemeProvider 로 <Stack> 을 감싼다.
+ * **네이티브 헤더는 끈다(headerShown:false)** — iOS 26 네이티브 헤더 버튼의 glass 배경 제거 + 화면별 커스텀 헤더 요구.
+ * 뒤로가기·화면 제목/설명은 각 stack 화면이 공용 `ScreenHeader`(배경 없는 아이콘)로 직접 그린다.
+ * (tabs) 는 자체 헤더(상단 ＋·탭바)를 쓴다. 색은 토큰만. 딥링크 경로 `/`·`/shipment/[id]` 유지.
  */
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 import { usePushNotifications } from "../src/lib/usePushNotifications";
@@ -11,13 +14,21 @@ import { usePushNotifications } from "../src/lib/usePushNotifications";
 export default function RootLayout() {
   usePushNotifications();
   // device 서버 등록은 첫 운송장 등록 직전 ensureDeviceRegistered 가 보장한다(register.tsx).
-  // 시작 시 무조건 호출은 등록 안 하는 사용자에게도 /devices·IP rate-limit 를 소모하므로 제거(CL5).
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <Stack />
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    // gesture-handler: 카드 스와이프(Swipeable) 제스처를 위해 최상위를 RootView 로 감싼다(v56 요구).
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="shipment/[id]" />
+            <Stack.Screen name="register" />
+            <Stack.Screen name="onboarding" />
+            <Stack.Screen name="privacy" />
+          </Stack>
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

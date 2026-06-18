@@ -19,6 +19,16 @@
       "dir": "04-qa-v0-mvp-fixes",
       "status": "completed",
       "completed_at": "2026-06-17T06:15:44+0900"
+    },
+    {
+      "dir": "05-backend-v0-redesign-data",
+      "status": "completed",
+      "completed_at": "2026-06-17T20:23:03+0900"
+    },
+    {
+      "dir": "06-ui-v0-redesign-pages",
+      "status": "completed",
+      "completed_at": "2026-06-17T21:11:54+0900"
     }
   ]
 }

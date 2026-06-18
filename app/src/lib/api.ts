@@ -25,12 +25,25 @@ export interface Shipment {
   status: Stage;
   active: boolean;
   createdAt: number;
+  /** 현재 단계가 시작된 시각(전환 시에만 갱신, phase 05). 구버전 서버면 createdAt 폴백. */
+  statusChangedAt: number;
+  /** 이 기기 구독의 알림 음소거 여부(per-구독, ADR-020). 구버전 서버면 false. */
+  muted: boolean;
 }
 
 export interface TimelineEvent {
   time: string;
   description?: string;
   location?: string;
+}
+
+/**
+ * 상세 화면 전용 수취인 패스스루(미저장, ADR-005) — 이름·지역명만(phoneNumber 없음).
+ * track 실패/자격증명 없음 시 서버가 recipient:null 반환 → 앱이 섹션 숨김.
+ */
+export interface Contact {
+  name?: string;
+  regionName?: string;
 }
 
 /**
@@ -62,6 +75,8 @@ interface RawShipment {
   status: Stage;
   active: boolean;
   created_at: number;
+  status_changed_at?: number | null;
+  muted?: boolean;
 }
 
 function toShipment(raw: RawShipment): Shipment {
@@ -72,6 +87,9 @@ function toShipment(raw: RawShipment): Shipment {
     status: raw.status,
     active: raw.active,
     createdAt: raw.created_at,
+    // 구버전 서버(필드 누락) graceful: 단계 시작 시각은 등록 시각으로, 음소거는 꺼짐으로 폴백.
+    statusChangedAt: raw.status_changed_at ?? raw.created_at,
+    muted: raw.muted ?? false,
   };
 }
 
@@ -158,13 +176,17 @@ export async function listShipments(deps: ApiDeps): Promise<Shipment[]> {
   return body.shipments.map(toShipment);
 }
 
-/** GET /shipments/:id — 상세 = 실시간 타임라인(ADR-011). */
+/** GET /shipments/:id — 상세 = 실시간 타임라인(ADR-011) + 수취인 패스스루(ADR-005). */
 export async function getShipment(
   id: string,
   deps: ApiDeps,
-): Promise<{ shipment: Shipment; timeline: TimelineEvent[] }> {
+): Promise<{ shipment: Shipment; timeline: TimelineEvent[]; recipient: Contact | null }> {
   const res = await request(`/shipments/${encodeURIComponent(id)}`, { method: "GET" }, deps);
-  const body = (await res.json()) as { shipment: RawShipment; timeline?: TimelineEvent[] };
+  const body = (await res.json()) as {
+    shipment: RawShipment;
+    timeline?: TimelineEvent[];
+    recipient?: Contact | null;
+  };
   return {
     shipment: toShipment(body.shipment),
     // timeline 누락(upstream 실패 시 서버가 생략할 수 있음) → 빈 타임라인으로 안전 처리.
@@ -173,7 +195,18 @@ export async function getShipment(
       description: e.description,
       location: e.location,
     })),
+    // 수취인은 미저장 패스스루 — track 실패/구버전 서버면 null(앱이 섹션 숨김).
+    recipient: body.recipient ?? null,
   };
+}
+
+/** PATCH /shipments/:id — 이 기기 구독의 알림 음소거 토글(per-구독, ADR-020). 204. */
+export async function muteShipment(
+  id: string,
+  muted: boolean,
+  deps: ApiDeps,
+): Promise<void> {
+  await request(`/shipments/${encodeURIComponent(id)}`, { method: "PATCH", body: { muted } }, deps);
 }
 
 /** DELETE /shipments/:id — 구독 해제(204). */

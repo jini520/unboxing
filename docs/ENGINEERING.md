@@ -47,6 +47,18 @@
 - **원인**: `CREATE TABLE IF NOT EXISTS` 는 **기존 테이블을 변경하지 않는다**(존재 → skip). 또 `schema.sql` 의 `ALTER TABLE ... ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` 으로 throw 하여 **그 뒤 문장이 통째로 미적용**된다(예: 뒤에 오는 `notification_queue` 생성이 안 됨).
 - **수정/재발 방지**: 스키마 변경 시 **로컬도** `docs/MIGRATION.md` 절차로 마이그레이션. 등록 같은 핫패스는 스키마 변경 후 **실제 요청 1회**로 검증. `npx wrangler d1 execute unboxing --local --command "PRAGMA table_info(<t>)"` 로 로컬 = `schema.sql` 일치 확인.
 
+## P-4. Expo: 네이티브 모듈 추가 후 Metro 빌드가 babel 플러그인 누락으로 깨짐
+
+- **증상**: `react-native-gesture-handler`(+svg) 직접 의존성 추가 후 시뮬레이터에서 빨간 화면 — `[Worklets] Babel plugin exception: Cannot find module '@babel/plugin-transform-shorthand-properties'`. jest(`npm run verify`)는 Metro babel 파이프라인을 안 타서 **green 인데도** 앱이 로드 불가.
+- **원인**: `babel-preset-expo`(SDK56)가 gesture-handler 존재를 감지해 worklets babel 플러그인을 활성화하는데, 그 하위 의존(`@babel/plugin-transform-shorthand-properties`)이 설치 트리에 hoist 안 돼 있음.
+- **수정/재발 방지**: 누락 플러그인을 `devDependencies` 로 추가(`npm i -D @babel/plugin-transform-shorthand-properties`). **네이티브 의존성을 추가하면 반드시 시뮬레이터 실구동 1회**로 Metro 번들이 뜨는지 확인(jest로는 못 잡음). gesture-handler 의 worklets 부담이 싫으면 RN 코어 `PanResponder` 로 대체 가능.
+
+## P-5. expo-router v56: `headerTitle: () => null` 이 title 을 못 지운다
+
+- **증상**: 루트 `Stack` `screenOptions` 에 `headerTitle: () => null` 을 줘도 stack 화면 헤더에 **route 이름**(`register`·`privacy` 등)이 그대로 표시됨. `headerLeft` 등 다른 screenOptions 는 적용되는데 title 만 남음.
+- **원인**: 이 버전의 native-stack 은 함수가 null 을 반환하면 기본 title(route name)로 폴백한다.
+- **수정/재발 방지**: title 을 비우려면 **`headerTitle: ""`**(빈 문자열) 또는 `title: ""` 을 쓴다. **헤더 변경은 시뮬 실구동으로 확인**(CI 모드 Metro 는 watch 비활성이라 편집이 반영 안 될 수 있음 → Expo Go 종료 후 재실행/`--clear` 로 강제 리빌드).
+
 ---
 
 ## 외부 경계 검증 체크리스트 (머지·배포 전 필수)
@@ -54,6 +66,7 @@
 `npm run verify` 가 green 이어도 아래는 **수동/실호출**로 확인한다. 외부 경계는 mock 으로 가려져 단위테스트가 못 잡는다.
 
 1. **tracker.delivery**: 실제 운송장 번호 1건을 로컬 worker(`wrangler dev`)에 등록 → 응답 status 가 실제 단계로 나오는지. (예: `522093451360`=CJ, `44593463530`=로젠 → `배송완료`.) `미등록` 만 나오면 `Illegal invocation`(P-1)·자격증명·NOT_FOUND 중 무엇인지 로그로 구분.
+   - **수취인 패스스루(step2)**: `GET /shipments/:id` 응답의 `recipient`(이름·지역명)가 실제로 채워지는지·마스킹 형태 확인(쿼리 필드명 `recipient { name location { name } }` 변경은 외부 경계라 mock verify 가 못 잡음). 수취인은 **GET /:id track 패스스루(미저장, ADR-005)** — D1 저장·로그 금지, `phoneNumber` 미수신.
 2. **cron 폴링**: `curl "http://localhost:8787/cdn-cgi/handler/scheduled"` 트리거 후 목록 status 가 저장·갱신되는지. (로컬 cron 은 자동 실행 안 됨.)
 3. **Expo Push**(가능 시): 실제 토큰 1건으로 발송/리시트 경로 확인.
 4. **로컬 D1**: `schema.sql` 과 로컬 스키마 일치(P-3).
@@ -125,6 +138,34 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 - **적용**: `IF NOT EXISTS` 라 `schema.sql` 재실행 시 **자동 생성**된다(별도 수동 작업 불필요).
 - `shipment_id` 는 `shipments(id) ON DELETE CASCADE` 참조 — 송장 삭제 시 보류분 자동 정리.
 
+## 05-redesign-data phase 스키마 변경
+
+### 3. `shipments.status_changed_at` 신규 컬럼 (step0, 상태 변경 시각)
+
+- **변경**: `ALTER TABLE shipments ADD COLUMN status_changed_at INTEGER` 추가(현재 단계가 시작된 시각, epoch ms). 단계 전환 시에만 갱신한다(폴링마다 ❌).
+- **주의**: `ALTER TABLE ... ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` 으로 throw → `schema.sql` 전체 재실행으로 자동 반영되지 **않는다**. 기존 원격 `shipments` 에는 아래 명령을 **최초 1회만** 실행한다. 단순 ADD COLUMN 이라 RENAME 전파(P-2) 이슈는 없다.
+
+  ```bash
+  # worker/ 에서. 최초 1회만(재실행 시 duplicate column 에러).
+  npx wrangler d1 execute unboxing --remote --command "ALTER TABLE shipments ADD COLUMN status_changed_at INTEGER"
+  ```
+
+- **backfill 안전**: 기존 행은 컬럼이 NULL 이 되지만 API 직렬화가 `status_changed_at ?? created_at` 으로 폴백하므로 backfill 없이도 안전하다(등록 시각을 단계 시작 시각으로 표시).
+- **신규 배포(아직 `shipments` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
+
+### 4. `subscriptions.muted` 신규 컬럼 (step1, ADR-020 송장별 음소거)
+
+- **변경**: `ALTER TABLE subscriptions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0` 추가(per-구독 알림 음소거, 1=음소거/0=켜짐). 기존 구독은 DEFAULT 0 으로 전부 알림 켜짐 유지(안전).
+- **주의**: status_changed_at(§3)과 동일 — `ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` throw → 기존 원격 `subscriptions` 에는 아래 명령을 **최초 1회만**. 단순 ADD COLUMN 이라 RENAME 전파(P-2) 이슈 없음.
+
+  ```bash
+  # worker/ 에서. 최초 1회만(재실행 시 duplicate column 에러).
+  npx wrangler d1 execute unboxing --remote --command "ALTER TABLE subscriptions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0"
+  ```
+
+- **NOT NULL+DEFAULT 0 안전**: SQLite 는 NOT NULL 컬럼도 DEFAULT 가 있으면 기존 행에 그 값을 채워 ADD COLUMN 이 성공한다.
+- **신규 배포(아직 `subscriptions` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
+
 ## 적용 후 확인
 
 ```bash
@@ -132,9 +173,13 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 npx wrangler d1 execute unboxing --command="SELECT name FROM sqlite_master WHERE type='table'" --remote
 # devices.push_token 이 nullable 인지(notnull=0)
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(devices)" --remote
+# shipments.status_changed_at 컬럼 존재 확인
+npx wrangler d1 execute unboxing --command="PRAGMA table_info(shipments)" --remote
+# subscriptions.muted 컬럼 존재 확인(notnull=1, dflt=0)
+npx wrangler d1 execute unboxing --command="PRAGMA table_info(subscriptions)" --remote
 ```
 
-`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이면 적용 완료.
+`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at`·`subscriptions` 에 `muted` 컬럼이 보이면 적용 완료.
 
 ## 관련 문서
 

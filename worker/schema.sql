@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS notification_queue (
 );
 
 -- shipments 예고 컬럼 (docs/ARCHITECTURE.md "예고 컬럼") — 신규 적용 시 1회만 실행
-ALTER TABLE shipments ADD COLUMN last_event_time INTEGER;            -- 마지막 이벤트 시각(신선도)
+ALTER TABLE shipments ADD COLUMN last_event_time INTEGER;            -- 마지막 이벤트 시각(신선도, 현재 미사용)
 ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0;  -- 외부 오류 백오프 카운트
 ALTER TABLE shipments ADD COLUMN next_retry_at INTEGER;             -- 백오프 재시도 기준 시각
+ALTER TABLE shipments ADD COLUMN status_changed_at INTEGER;         -- 현재 단계가 시작된 시각(단계 전환 시에만 갱신)
+
+-- subscriptions per-구독 음소거 (ADR-020) — 송장별 알림 끄기. DEFAULT 0 = 기존 구독 전부 알림 켜짐.
+-- 운송장은 device 간 공유(N:1)라 음소거는 (device_id, shipment_id) 단위 — 타 구독자 무영향.
+ALTER TABLE subscriptions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;

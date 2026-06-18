@@ -54,6 +54,7 @@ interface ShipmentRow {
   last_polled_at: number | null;
   active: number;
   created_at: number;
+  status_changed_at: number | null;
 }
 
 /** API 에러 → { error, code } + HTTP status (ARCHITECTURE 에러 매트릭스). */
@@ -99,6 +100,7 @@ const SHIPMENT_FIELDS = [
   "last_polled_at",
   "active",
   "created_at",
+  "status_changed_at",
 ] as const;
 function shipmentCols(alias = ""): string {
   const p = alias ? `${alias}.` : "";
@@ -151,6 +153,8 @@ function serializeShipment(row: ShipmentRow) {
     status: row.last_normalized_status ?? "미등록",
     active: row.active === 1,
     created_at: row.created_at,
+    // 현재 단계가 시작된 시각(전환 시에만 갱신). 컬럼이 비면(backfill 전) 등록 시각으로 폴백.
+    status_changed_at: row.status_changed_at ?? row.created_at,
   };
 }
 
@@ -282,16 +286,17 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   const id = crypto.randomUUID();
   const now = Date.now();
   const ins = await env.DB.prepare(
-    "INSERT INTO shipments (id, carrier, tracking_no, active, created_at) VALUES (?, ?, ?, 1, ?) " +
+    "INSERT INTO shipments (id, carrier, tracking_no, active, created_at, status_changed_at) VALUES (?, ?, ?, 1, ?, ?) " +
       "ON CONFLICT(carrier, tracking_no) DO NOTHING",
   )
-    .bind(id, carrier, trackingNo, now)
+    .bind(id, carrier, trackingNo, now, now)
     .run();
   const isNewShipment = (ins.meta.changes ?? 0) === 1;
 
   let shipment: ShipmentRow;
   if (isNewShipment) {
     // 새 행 — 값이 전부 메모리에 있으므로 재SELECT 불필요(등록 핫패스 round-trip 절약).
+    // status_changed_at 은 등록 시각으로 초기화(아직 단계 변동 없음 = 현재 단계 시작 시각).
     shipment = {
       id,
       carrier,
@@ -300,6 +305,7 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
       last_polled_at: null,
       active: 1,
       created_at: now,
+      status_changed_at: now,
     };
     // 즉시 1회 조회(best-effort). 비종료 단계는 **DB에도 저장**해 목록이 등록 직후 실제 상태를 보인다.
     const result = await tryTrack(env, carrier, trackingNo);
@@ -307,12 +313,22 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
       const ev = result.lastEvent ?? result.events[result.events.length - 1];
       const immediate = normalizeStatus(ev?.statusCode);
       shipment.last_normalized_status = immediate; // 응답 표시용
-      // 비종료 단계만 저장(목록 즉시 표시). last_polled_at 은 NULL 유지 → cron 다음 틱에 재폴링해
-      // 전환을 잡는다(등록 시점 단계는 prev==stored 라 무알림 — 이후 변화만 알림).
-      // 배송완료(종료)는 저장하지 않는다: cron 첫 폴링이 미등록→배송완료 전환을 잡아 알림 후 삭제(ADR-005).
-      if (immediate !== "미등록" && immediate !== "배송완료") {
-        await env.DB.prepare("UPDATE shipments SET last_normalized_status = ? WHERE id = ?")
-          .bind(immediate, id)
+      // 조회된 단계를 **DB에도 저장**해 목록이 등록 직후 실제 상태를 보인다(미등록만 제외).
+      // 등록 시점 단계는 prev==stored 라 무알림 — 이후 변화만 cron 이 알림으로 잡는다.
+      // **배송완료(종료)도 저장**한다: 이미 배송완료된 송장을 등록하면 미등록이 아니라 배송완료로 보여야 함.
+      //   이 경우 active=0 으로 두어 재폴링을 멈춘다(등록 자체는 전환 알림 대상 아님 — 방금 사용자가 추가).
+      //   (cron 미실행 환경[로컬 dev]에서 미등록으로 고착되던 버그 수정.)
+      if (immediate !== "미등록") {
+        // status_changed_at 도 그 이벤트 시각으로 갱신(없으면 now). 단계를 처음 저장하는 시점.
+        const parsed = ev?.time ? Date.parse(ev.time) : NaN;
+        const changedAt = Number.isNaN(parsed) ? now : parsed;
+        const active = immediate === "배송완료" ? 0 : 1;
+        shipment.status_changed_at = changedAt; // 응답·DB 일치
+        shipment.active = active;
+        await env.DB.prepare(
+          "UPDATE shipments SET last_normalized_status = ?, status_changed_at = ?, active = ? WHERE id = ?",
+        )
+          .bind(immediate, changedAt, active, id)
           .run();
       }
     }
@@ -334,25 +350,28 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   return Response.json({ shipment: serializeShipment(shipment) }, { status: 201 });
 }
 
-/** GET /shipments — 내 송장 목록 + 정규화 상태. */
+/** GET /shipments — 내 송장 목록 + 정규화 상태 + 이 기기의 음소거 여부(per-구독, ADR-020). */
 async function handleListShipments(env: Env, deviceId: string): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
+    `SELECT ${shipmentCols("s")}, sub.muted FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE sub.device_id = ? ORDER BY s.created_at DESC",
   )
     .bind(deviceId)
-    .all<ShipmentRow>();
-  return Response.json({ shipments: results.map(serializeShipment) });
+    .all<ShipmentRow & { muted: number }>();
+  // muted 는 subscriptions 조인 컬럼이라 serializeShipment(shipments 전용) 밖에서 합친다.
+  return Response.json({
+    shipments: results.map((row) => ({ ...serializeShipment(row), muted: row.muted === 1 })),
+  });
 }
 
 /** GET /shipments/:id — 인가 확인 후 실시간 track 타임라인(best-effort, 미저장 ADR-011). */
 async function handleGetShipment(env: Env, deviceId: string, id: string): Promise<Response> {
   const row = await env.DB.prepare(
-    `SELECT ${shipmentCols("s")} FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
+    `SELECT ${shipmentCols("s")}, sub.muted FROM shipments s JOIN subscriptions sub ON sub.shipment_id = s.id ` +
       "WHERE s.id = ? AND sub.device_id = ?",
   )
     .bind(id, deviceId)
-    .first<ShipmentRow>();
+    .first<ShipmentRow & { muted: number }>();
   // 미소유/없음 모두 404 로 통일(존재 누설 최소화).
   if (!row) throw new ApiError(404, "NOT_FOUND", "송장을 찾을 수 없어요");
 
@@ -365,7 +384,59 @@ async function handleGetShipment(env: Env, deviceId: string, id: string): Promis
         location: e.location,
       }))
     : [];
-  return Response.json({ shipment: serializeShipment(row), timeline });
+  // 수취인(이름·지역명)은 track 응답을 **화면 전용으로 패스스루만** 한다 — D1 미저장(ADR-005).
+  // tryTrack 이 null(자격증명 없음·외부 실패)이면 recipient 도 null(앱이 섹션 숨김).
+  const recipient = result?.recipient ?? null;
+  return Response.json({
+    shipment: { ...serializeShipment(row), muted: row.muted === 1 },
+    timeline,
+    recipient,
+  });
+}
+
+/**
+ * PATCH /shipments/:id — 이 기기 구독의 알림 음소거 토글 (ADR-020). 바디 `{ muted: boolean }`.
+ * per-구독(device_id+shipment_id) 단위라 같은 송장을 구독하는 다른 기기엔 영향 없다.
+ * 레이트리밋 미적용(등록 남용 방어와 무관·저위험). 음소거는 모든 푸시(전환·운영성)를 끄되 추적은 계속.
+ */
+async function handleMuteShipment(
+  env: Env,
+  request: Request,
+  deviceId: string,
+  id: string,
+): Promise<Response> {
+  const body = await parseBody(request);
+  if (typeof body.muted !== "boolean") {
+    throw new ApiError(400, "INVALID_BODY", "muted(boolean)가 필요해요");
+  }
+  const muted = body.muted;
+
+  // 인가/소유: 이 기기가 구독 중인 송장만(handleDeleteShipment 와 동일 패턴).
+  const owns = await env.DB.prepare(
+    "SELECT 1 FROM subscriptions WHERE shipment_id = ? AND device_id = ?",
+  )
+    .bind(id, deviceId)
+    .first();
+  if (!owns) throw new ApiError(404, "NOT_FOUND", "송장을 찾을 수 없어요");
+
+  // device_id + shipment_id 둘 다로 WHERE — 타 구독자 보호.
+  await env.DB.prepare("UPDATE subscriptions SET muted = ? WHERE device_id = ? AND shipment_id = ?")
+    .bind(muted ? 1 : 0, deviceId, id)
+    .run();
+
+  // 음소거 시: 이 기기의 야간 보류분 정리. 아침 flushQueue 는 subscriberTokens 를 거치지 않고 큐에서
+  // 직접 발송하므로, 음소거 이전에 적재된 분이 음소거 후에도 발송되는 누락을 막는다. 토큰 NULL 이면 보류분 없음.
+  if (muted) {
+    const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
+      .bind(deviceId)
+      .first<{ push_token: string | null }>();
+    if (dev?.push_token) {
+      await env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?")
+        .bind(id, dev.push_token)
+        .run();
+    }
+  }
+  return new Response(null, { status: 204 });
 }
 
 /** DELETE /shipments/:id — 구독 해제, 마지막 구독이면 orphan shipment 정리. */
@@ -452,6 +523,7 @@ export default {
         const id = segments[1];
         if (method === "GET") return await handleGetShipment(env, requireDeviceId(request), id);
         if (method === "DELETE") return await handleDeleteShipment(env, requireDeviceId(request), id);
+        if (method === "PATCH") return await handleMuteShipment(env, request, requireDeviceId(request), id);
       }
 
       if (pathname === "/me" && method === "DELETE") {

@@ -50,8 +50,8 @@ unboxing/
 원본 스키마: `worker/schema.sql`.
 
 - `devices`: `id`(=secret device_id, PK), `push_token`(UNIQUE, **nullable** — 푸시 거부/미허용도 기기 등록, QA-001), `platform`(ios|android), `created_at`.
-- `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`. `UNIQUE(carrier, tracking_no)` = dedupe 키.
-- `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거.
+- `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`, `status_changed_at`(현재 단계가 시작된 시각 — **단계 전환 시에만** 갱신, 폴링마다 ❌). `UNIQUE(carrier, tracking_no)` = dedupe 키.
+- `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거. `muted`(1/0, DEFAULT 0): per-구독 알림 음소거 — 이 구독만 모든 푸시 제외(타 구독자 무영향, → ADR-020).
 - 인덱스 `idx_shipments_due (active, last_polled_at)` — due 조회용.
 
 **예고 컬럼 (구현 단계에서 추가, → 스키마 진화 섹션):**
@@ -59,7 +59,8 @@ unboxing/
 | 테이블 | 컬럼 | 용도 |
 |---|---|---|
 | shipments | `registered_at` 또는 재사용 `created_at` | 30일 좀비 만료 기준 |
-| shipments | `last_event_time` | 동일 단계 내 새 이벤트 판별/타임라인 신선도 |
+| shipments | `last_event_time` | 동일 단계 내 새 이벤트 판별/타임라인 신선도 (**현재 미사용** — 기록 안 함) |
+| shipments | `status_changed_at` | **현재 단계가 시작된 시각**(단계 전환 시에만 갱신) — 앱 목록 "업데이트" 표시용. `last_event_time`(신선도용·미사용)과 의미가 다름 |
 | shipments | `fail_count` / `next_retry_at` | 외부 오류 백오프 |
 | shipments | `webhook_expires_at` | webhook 재등록 sweep 기준 (webhook 도입 시) |
 | (신규) `tracker_token` | `access_token`, `expires_at` | tracker.delivery 토큰 캐시 (→ ADR-013) |
@@ -77,7 +78,10 @@ unboxing/
 | `POST /devices` | 기기 등록/갱신(upsert) — `push_token` 은 **선택**(없으면 토큰 없이 부트스트랩, QA-001) | `{platform, push_token?}` | `200 {device_id}` | `400 INVALID_BODY`(platform 누락), `422 INVALID_TOKEN` |
 | `POST /shipments` | 운송장 등록(dedupe + 구독 + 즉시 1회 조회) | `{carrier, tracking_no}` | `201 {shipment}` / 이미 구독 시 `200 {shipment}`(멱등) | `400`, `422 INVALID_TRACKING`, `401`, `429 RATE_LIMITED`, `409 CARRIER_UNSUPPORTED`(딥링크 안내) |
 | `GET /shipments` | 내 송장 목록 + 정규화 상태 | — | `200 {shipments:[...]}` | `401` |
-| `GET /shipments/:id` | 상세 = 실시간 track 타임라인 (→ ADR-011) | — | `200 {shipment, timeline:[...]}` | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |
+| `GET /shipments/:id` | 상세 = 실시간 track 타임라인 + 수취인 패스스루 (→ ADR-011·005) | — | `200 {shipment, timeline:[...], recipient}` (`recipient`=`{name,regionName}` 또는 track 실패 시 `null`, **미저장**) | `401`, `403 NOT_OWNER`, `404`, `502 UPSTREAM_ERROR`(타임라인만 실패 시 캐시 상태 반환) |
+
+- `shipment` 객체(목록·상세 공통)는 `id`·`carrier`·`tracking_no`·`status`·`active`·`created_at`·`status_changed_at`(현재 단계 시작 시각; 컬럼이 비면 `created_at` 으로 폴백)·`muted`(이 기기 구독의 음소거 여부, per-구독 — ADR-020)를 포함한다.
+| `PATCH /shipments/:id` | 이 기기 구독의 알림 음소거 토글 (per-구독, → ADR-020) | `{muted: boolean}` | `204` | `400 INVALID_BODY`, `401`, `404`(미소유). 레이트리밋 미적용 |
 | `DELETE /shipments/:id` | 구독 해제(마지막 구독이면 shipment도 정리) | — | `204` | `401`, `403 NOT_OWNER`, `404` |
 | `DELETE /me` | **모든 데이터 삭제** — device + 구독 + orphan 송장 + 푸시 토큰 폐기 (→ ADR-017, 스토어 정책) | — | `204` | `401` |
 | `POST /webhooks/track` | tracker.delivery 콜백 수신(웹훅 도입 시) | `{carrierId, trackingNumber}` (+서명) | `202` (1초 내) | 서명 불일치 `401`(조용히), 본문 오류 무시 |
@@ -94,8 +98,9 @@ unboxing/
 
 ## 앱 아키텍처 (Expo)
 
-- 화면: **목록**(주화면) · **상세**(타임라인) · **등록**(번호 입력/클립보드 제안/택배사 확인) · **온보딩**(푸시 권한) · **설정**(알림 토글·테마·개인정보처리방침·**모든 데이터 삭제**·버전).
+- 화면(하단 탭 2개=택배함·설정 + 그 위로 push 되는 상세/등록/온보딩/개인정보처리방침). 네이티브 헤더 미사용(공용 `ScreenHeader`). UI 상세 → `docs/UI_GUIDE.md`.
 - 서버가 SOT, 앱은 **로컬 캐시로 오프라인 읽기만**(→ ADR-014). 변경(등록/삭제)은 온라인에서만.
+- **메모(로컬 전용)**: tracker.delivery 에 상품명이 없어, 운송장별 사용자 메모를 **로컬 AsyncStorage 에만** 둔다(서버 미전송 — 마찰 최소·서버 비영속과 일관). 카드 표시·상세 편집. 송장 삭제분은 목록 동기화 시 정리(prune), "모든 데이터 삭제"에 포함.
 - **서버 베이스 URL**은 빌드 시 `EXPO_PUBLIC_API_URL`로 주입(→ 환경변수 & 시크릿 섹션). 하드코딩 금지.
 - **테마**: 시스템 외형(light/dark) 따름, 라이트 기준(→ ADR-016, 토큰은 UI_GUIDE). `app.json` `userInterfaceStyle`를 시스템 추종으로.
 - 알림 처리: foreground(인앱 토스트/배지) / background·종료(시스템 알림) / **탭 → 해당 상세로 딥링크**.
@@ -107,7 +112,7 @@ unboxing/
 - 엔드포인트: `https://apis.tracker.delivery/graphql` (GraphQL).
 - 인증: API Key(권장) 또는 OAuth2 **client_credentials → Bearer**. 현 스캐폴드는 `DELIVERY_TRACKER_CLIENT_ID/_SECRET` 시크릿(client_credentials). access token은 D1 캐시 + 만료 전 cron 재발급(→ ADR-013).
 - **에러는 GraphQL 응답 본문**(`errors[]`)에 담기며 **HTTP status는 무의미**. 예: 토큰 만료 시 `UNAUTHENTICATED`.
-- `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치). 권장 timeout **15s**.
+- `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치), `recipient`(수취인 이름·지역명=`location.name`). 권장 timeout **15s**. **수취인은 화면 전용 패스스루(미저장, ADR-005)** — `GET /shipments/:id` 응답에만 싣고 D1 에 저장 금지. `phoneNumber` 는 받지 않는다(PII 최소화). 상품명·사진 필드는 스키마에 없다.
 - `carriers` 쿼리 → 지원 택배사 목록(자동인식 검증·미지원 판별).
 - carrierId 형식 예: `kr.cjlogistics`, `kr.epost` 등.
 - **CRITICAL(구현)**: `TrackerDeps.fetch` 에 전역 `fetch` 를 주입할 땐 **반드시 `fetch.bind(globalThis)`**. 맨 `fetch` 를 객체로 넘기면 호출 시 `this` 유실로 `Illegal invocation` throw → 모든 조회가 null("미등록")이 된다. mock fetch 를 쓰는 테스트는 이를 못 잡으므로 실 API 스모크로 확인(→ `docs/ENGINEERING.md` P-1). 주입 뿌리: `index.ts` `tryTrack`·`scheduled`.
@@ -143,7 +148,7 @@ unboxing/
 ### 알림 규칙
 - **단계 전환에만** 알림. `이동중`/`기타`/`미등록`은 무알림(타임라인만).
 - **멱등성**: `last_normalized_status` 비교해 단계가 바뀔 때만 1회 발송. 재독해도 중복 없음.
-- **등록 직후 목록 표시(즉시 저장)**: 등록 시 즉시 1회 `track` 결과가 **비종료 단계면 `last_normalized_status` 에 저장**해 목록이 등록 직후 실제 상태를 보인다. `last_polled_at` 은 NULL 유지 → cron 다음 틱에 재폴링(전환 감지). **트레이드오프**: 등록 시점 단계는 `prev==stored` 라 **푸시하지 않는다**(등록 이후 변화만 알림). `배송완료`(종료)는 저장하지 않아 cron 첫 폴링이 `미등록→배송완료` 전환을 잡아 알림 후 보관(active=0, 사용자가 수동 삭제 — ADR-005 개정). 미허용/자격증명 없음/외부 실패 시엔 저장 안 함(`미등록` 유지) — 테스트 환경은 자격증명을 비워 즉시 track 을 no-op 으로 둔다(`docs/ENGINEERING.md` 외부경계 검증).
+- **등록 직후 목록 표시(즉시 저장)**: 등록 시 즉시 1회 `track` 결과의 단계를 **`미등록` 만 제외하고 모두 `last_normalized_status` 에 저장**해 목록이 등록 직후 실제 상태를 보인다. 비종료 단계는 `last_polled_at`=NULL 유지 → cron 다음 틱에 재폴링(전환 감지). **`배송완료`(종료)도 저장**하되 `active=0` 으로 둔다(재폴링 중단) — 이미 배송완료된 송장을 등록하면 `미등록` 이 아니라 `배송완료` 로 보여야 하기 때문(cron 미실행 환경에서 `미등록` 고착되던 버그 수정). **트레이드오프**: 등록 시점 단계는 `prev==stored` 라 **푸시하지 않는다**(등록 이후 변화만 알림). 미허용/자격증명 없음/외부 실패 시엔 저장 안 함(`미등록` 유지) — 테스트 환경은 자격증명을 비워 즉시 track 을 no-op 으로 둔다(`docs/ENGINEERING.md` 외부경계 검증).
 
 ## 적응형 폴링 + cron 실행 모델
 
@@ -263,6 +268,7 @@ unboxing/
 | 잘못된 JSON/필드 누락 | `400 INVALID_BODY` |
 | 형식 검증 실패(운송장 등) | `422 INVALID_TRACKING` |
 | 미인증/잘못된 device_id | `401 UNAUTHORIZED` |
+| 음소거 토글 바디 누락/`muted` 비-boolean (PATCH) | `400 INVALID_BODY` |
 | 타인 리소스 접근 | `403 NOT_OWNER`(또는 통일 404) |
 | 없는 리소스 | `404 NOT_FOUND` |
 | 중복 등록 | `200`(멱등, 기존 반환) |

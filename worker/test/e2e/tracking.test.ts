@@ -215,6 +215,24 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(f.sendCalls).toBe(0);
   });
 
+  // ── status_changed_at(step0): 전환 시 이벤트 시각으로 갱신(API 호출 시각 아님) ──
+  it("status_changed_at 은 단계 전환 시 이벤트 시각으로 갱신된다", async () => {
+    await registerDevice("dev-A", TOKEN_A);
+    const id = await registerShipment("dev-A", "123456789012");
+    const f = makeFetch();
+    const now = daytime(Date.now()); // 주간 고정(등록 즉시 발송)
+    const eventTime = now - 30 * MINUTE; // 이벤트 시각 ≠ now
+    f.status = "OUT_FOR_DELIVERY";
+    f.eventTimeMs = eventTime;
+
+    await runPollingBatch(env, { now, fetch: f.fetch });
+
+    const r = await env.DB.prepare("SELECT status_changed_at AS s FROM shipments WHERE id = ?")
+      .bind(id)
+      .first<{ s: number }>();
+    expect(r?.s).toBe(eventTime); // 호출 시각(now)이 아니라 이벤트 시각
+  });
+
   // ── 2. 배송출발 KST '오늘 도착' 분기 ──
   it("배송출발 — 출발 이벤트가 KST 당일이면 '오늘 도착' 단정", async () => {
     await registerDevice("dev-A", TOKEN_A);

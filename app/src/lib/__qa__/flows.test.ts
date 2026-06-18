@@ -87,8 +87,8 @@ const RAW = {
 };
 
 const SHIPMENTS: Shipment[] = [
-  { id: "s1", carrier: "kr.cjlogistics", trackingNo: "1234", status: "배송출발", active: true, createdAt: 100 },
-  { id: "s2", carrier: "kr.epost", trackingNo: "5678", status: "배송완료", active: false, createdAt: 200 },
+  { id: "s1", carrier: "kr.cjlogistics", trackingNo: "1234", status: "배송출발", active: true, createdAt: 100, statusChangedAt: 100, muted: false },
+  { id: "s2", carrier: "kr.epost", trackingNo: "5678", status: "배송완료", active: false, createdAt: 200, statusChangedAt: 200, muted: false },
 ];
 
 // ── 여정 1: device_id 영속·재사용 → "내 송장만" 자격 일관성(ADR-007) ───────────────────────
@@ -180,13 +180,16 @@ describe("여정: wipe 오케스트레이션(서버→캐시→device_id)", () =
         order.push("cache");
         await clearCache({ store });
       },
+      clearMemos: async () => {
+        order.push("memos");
+      },
       deleteDeviceId: async () => {
         order.push("device");
         await deleteDeviceId({ storage });
       },
     });
 
-    expect(order).toEqual(["server", "cache", "device"]);
+    expect(order).toEqual(["server", "cache", "memos", "device"]);
     expect(await readCachedShipments({ store })).toBeNull();
     const after = await getDeviceId({ storage, randomBytes: seqRandomBytes(11) });
     expect(after).not.toBe(before); // device_id 실제 폐기 → 새 id(앱이 새 익명 기기가 됨)
@@ -206,6 +209,7 @@ describe("여정: wipe 오케스트레이션(서버→캐시→device_id)", () =
       clearCache: async () => {
         await clearCache({ store });
       },
+      clearMemos: async () => {},
       deleteDeviceId: async () => {
         await deleteDeviceId({ storage });
       },

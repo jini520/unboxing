@@ -1,7 +1,19 @@
 import { describe, it, expect } from "@jest/globals";
-import { relativeTime, absoluteKST } from "./time";
+import { relativeTime, absoluteKST, absoluteKSTLong, dateKST } from "./time";
 
 const NOW = Date.parse("2026-06-16T12:00:00Z");
+
+describe("dateKST", () => {
+  it("KST 날짜만 'M월 D일'(연도 생략)", () => {
+    expect(dateKST("2026-06-16T00:30:00Z")).toBe("6월 16일"); // +9h = 06-16 09:30 KST
+    // 2026-06-14 20:00Z +9h = KST 06-15
+    expect(dateKST("2026-06-14T20:00:00Z")).toBe("6월 15일");
+  });
+  it("epoch ms 수용·파싱 불가는 빈 문자열", () => {
+    expect(dateKST(Date.parse("2026-01-02T00:00:00Z"))).toBe("1월 2일");
+    expect(dateKST("nope")).toBe("");
+  });
+});
 
 describe("relativeTime", () => {
   it("1분 미만은 '방금'", () => {
@@ -57,5 +69,40 @@ describe("absoluteKST", () => {
 
   it("파싱 불가면 빈 문자열", () => {
     expect(absoluteKST("nope")).toBe("");
+  });
+});
+
+describe("absoluteKSTLong", () => {
+  it("UTC → KST(+9h) 벽시계 + 한글 요일", () => {
+    // 2026-06-16 00:30Z +9h = KST 06-16 09:30 (화요일)
+    expect(absoluteKSTLong("2026-06-16T00:30:00Z")).toBe("6월 16일 (화) 09:30");
+  });
+
+  it("자정 경계 — UTC 전날 23시는 KST 다음날 08시(요일도 다음날)", () => {
+    // 2026-06-15 23:00Z +9h = KST 06-16 08:00 (화요일)
+    expect(absoluteKSTLong("2026-06-15T23:00:00Z")).toBe("6월 16일 (화) 08:00");
+  });
+
+  it("정오 경계 — UTC 03시는 KST 12:00", () => {
+    expect(absoluteKSTLong("2026-06-16T03:00:00Z")).toBe("6월 16일 (화) 12:00");
+  });
+
+  it("요일 변화 — KST 일요일/월요일", () => {
+    expect(absoluteKSTLong("2026-06-14T00:00:00Z")).toBe("6월 14일 (일) 09:00");
+    // 2026-06-14 20:00Z +9h = KST 06-15 05:00 (월요일)
+    expect(absoluteKSTLong("2026-06-14T20:00:00Z")).toBe("6월 15일 (월) 05:00");
+  });
+
+  it("분·시 0 패딩", () => {
+    expect(absoluteKSTLong("2026-01-02T00:05:00Z")).toBe("1월 2일 (금) 09:05");
+  });
+
+  it("epoch ms(number) 도 직접 받는다", () => {
+    expect(absoluteKSTLong(Date.parse("2026-06-16T00:30:00Z"))).toBe("6월 16일 (화) 09:30");
+  });
+
+  it("파싱 불가면 빈 문자열", () => {
+    expect(absoluteKSTLong("nope")).toBe("");
+    expect(absoluteKSTLong(NaN)).toBe("");
   });
 });

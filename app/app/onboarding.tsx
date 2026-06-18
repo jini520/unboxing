@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { Stack, router } from "expo-router";
+import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { registerDevice } from "../src/lib/api";
 import { apiDeps, PLATFORM } from "../src/lib/deps";
@@ -40,7 +40,6 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]}>
-      <Stack.Screen options={{ title: "알림" }} />
       <View style={styles.content}>
         <Text style={[styles.title, { color: tokens.text.primary }]}>
           상태가 바뀌면 알려드릴게요

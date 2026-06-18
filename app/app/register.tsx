@@ -14,7 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Stack, router } from "expo-router";
+import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
@@ -30,6 +30,8 @@ import {
 } from "../src/lib/carrier";
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../src/lib/tracking";
 import { useTheme } from "../src/theme/ThemeProvider";
+import { ChevronDown, Close, Check } from "../src/components/icons";
+import { ScreenHeader } from "../src/components/ScreenHeader";
 
 /** 푸시 priming 안내를 이미 했는지 — 첫 등록 직후 1회만 온보딩으로 유도(반복 유도 금지). */
 const PRIMED_KEY = "unboxing.push_primed";
@@ -137,7 +139,10 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
-      <Stack.Screen options={{ title: "운송장 등록" }} />
+      <ScreenHeader
+        title="운송장 번호 등록"
+        description="운송장 번호를 입력하면 택배사가 자동으로 채워져요. 자동으로 채워지지 않으면 아래에서 직접 택배사를 선택해 주세요."
+      />
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -153,7 +158,7 @@ export default function RegisterScreen() {
               클립보드의 번호 넣기 · {clip}
             </Text>
             <Pressable onPress={() => setClip(null)} hitSlop={8} accessibilityLabel="제안 닫기">
-              <Text style={{ color: tokens.text.secondary }}>✕</Text>
+              <Close size={16} color={tokens.text.secondary} />
             </Pressable>
           </Pressable>
         )}
@@ -183,7 +188,9 @@ export default function RegisterScreen() {
           <Text style={{ color: selected ? tokens.text.primary : tokens.text.disabled }}>
             {selected ? selected.name : "택배사를 선택하세요"}
           </Text>
-          <Text style={{ color: tokens.text.secondary }}>{showList ? "▴" : "▾"}</Text>
+          <View style={{ transform: [{ rotate: showList ? "180deg" : "0deg" }] }}>
+            <ChevronDown size={18} color={tokens.text.secondary} />
+          </View>
         </Pressable>
 
         {showList && (
@@ -237,7 +244,7 @@ export default function RegisterScreen() {
   );
 }
 
-/** 추정 후보(추천) 먼저, 나머지 택배사 순. 선택 행은 색+✓(색 단독 금지). */
+/** 추정 후보(추천) 먼저, 나머지 택배사 순. 선택 행은 색+체크 아이콘(색 단독 금지). */
 function CarrierList({
   candidates,
   selectedId,
@@ -272,7 +279,7 @@ function CarrierList({
               {c.name}
               {recommended ? "  · 추천" : ""}
             </Text>
-            {isSel && <Text style={{ color: tokens.stage.outForDelivery }}>✓</Text>}
+            {isSel && <Check size={16} color={tokens.stage.outForDelivery} />}
           </Pressable>
         );
       })}

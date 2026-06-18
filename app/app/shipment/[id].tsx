@@ -7,26 +7,34 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ApiError,
   deleteShipment,
   getShipment,
+  type Contact,
   type Shipment,
   type TimelineEvent,
 } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
 import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
-import { StageBadge } from "../../src/components/StageBadge";
+import { loadMemos, memoStore, setMemo } from "../../src/lib/memo";
+import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
+import { absoluteKSTLong } from "../../src/lib/time";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
+import { Pencil } from "../../src/components/icons";
+import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
 
@@ -43,16 +51,46 @@ export default function DetailScreen() {
   const { tokens } = useTheme();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [timeline, setTimeline] = useState<TimelineState>({ kind: "loading" });
+  // 수취인은 실시간 조회분만 화면 state 로(미저장 — ADR-005). 캐시·로그 금지, 화면 이탈 시 폐기.
+  const [recipient, setRecipient] = useState<Contact | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // 메모(로컬 전용) — 이 택배가 무엇인지. 진입 시 로드, 헤더 연필 → 모달에서 편집·저장.
+  const [memo, setMemoState] = useState("");
+  const [memoModal, setMemoModal] = useState(false);
+  const [memoDraft, setMemoDraft] = useState("");
   const deleting = useRef(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    void loadMemos({ store: memoStore }).then((m) => {
+      if (active) setMemoState(m[id] ?? "");
+    });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const openMemo = useCallback(() => {
+    setMemoDraft(memo);
+    setMemoModal(true);
+  }, [memo]);
+
+  const saveMemo = useCallback(() => {
+    setMemoState(memoDraft);
+    if (id) void setMemo(id, memoDraft, { store: memoStore });
+    setMemoModal(false);
+  }, [id, memoDraft]);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const { shipment: s, timeline: events } = await getShipment(id, apiDeps);
+      const { shipment: s, timeline: events, recipient: r } = await getShipment(id, apiDeps);
       setShipment(s);
+      setRecipient(r);
       setTimeline({ kind: "ok", events });
     } catch (e) {
+      setRecipient(null); // 실시간분 없음 → 수취인 숨김(저장된 수취인 없음)
       if (e instanceof ApiError && e.code === "NETWORK") setTimeline({ kind: "offline" });
       else if (e instanceof ApiError && (e.status === 404 || e.status === 403))
         setTimeline({ kind: "notfound" });
@@ -104,11 +142,77 @@ export default function DetailScreen() {
 
   const now = Date.now();
 
+  // 현재 상태 문구: 최신 이벤트(시각 내림차순 첫 항목) 기준. 실시간(ok)일 때만 — 오프라인/실패면 생략.
+  const latestEvent =
+    timeline.kind === "ok" && timeline.events.length > 0
+      ? [...timeline.events].sort((a, b) => Date.parse(b.time) - Date.parse(a.time))[0]
+      : null;
+  let statusText: string | null = null;
+  if (shipment) {
+    // 시각: 최신 이벤트 없으면 status_changed_at 으로 폴백(오프라인에서도 표시).
+    // 문구: 택배사 원문(description)을 쓰지 않고 단계별로 친절히 교정. 이동중은 위치(허브명)를 덧붙인다.
+    const timePart = absoluteKSTLong(latestEvent?.time ?? shipment.statusChangedAt);
+    const msg =
+      shipment.status === "이동중" && latestEvent?.location
+        ? `이동 중 (${latestEvent.location})`
+        : STAGE_STATUS_MESSAGE[shipment.status];
+    statusText = timePart ? `${timePart} · ${msg}` : msg;
+  }
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
-      <Stack.Screen options={{ title: "배송 상세" }} />
+      <ScreenHeader
+        right={
+          <Pressable
+            onPress={openMemo}
+            hitSlop={8}
+            style={styles.headerEdit}
+            accessibilityRole="button"
+            accessibilityLabel="메모 편집"
+          >
+            <Pencil size={22} color={tokens.text.primary} />
+          </Pressable>
+        }
+      />
+      {/* 상단 섹션 — 고정(스크롤 X). 타임라인만 이 아래 영역에서 내부 스크롤(요청). */}
+      <View style={styles.topSection}>
+        {shipment ? (
+          <>
+            {/* 택배사·운송장번호(좌) + 받는 분(우) — 가장 상단 한 줄. 받는분은 화면 전용·미저장(ADR-005). */}
+            <View style={styles.topRow}>
+              <Text style={[styles.meta, { color: tokens.text.secondary }]} numberOfLines={1}>
+                {carrierName(shipment.carrier)} · {shipment.trackingNo}
+              </Text>
+              {recipient?.name ? (
+                <Text
+                  style={[styles.recipientInline, { color: tokens.text.secondary }]}
+                  numberOfLines={1}
+                >
+                  받는 분 {recipient.name}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* 현재 상태 — 중앙에 크게(택배사 원문 대신 친절 교정 문구). */}
+            <Text style={[styles.statusLine, { color: tokens.text.primary }]}>{statusText}</Text>
+
+            {/* 단계 진행 인디케이터 — 캐시 단계로도 그린다(오프라인 포함). */}
+            <View style={styles.progressWrap}>
+              <StageProgress stage={shipment.status} />
+            </View>
+          </>
+        ) : (
+          <View style={styles.skeleton}>
+            <ActivityIndicator color={tokens.text.secondary} />
+          </View>
+        )}
+      </View>
+
+      {/* 타임라인 — 페이지 전체가 아니라 이 영역(flex:1) 안에서만 스크롤. 당겨서 새로고침은 여기. */}
+      {/* 메모는 상세 본문에 인라인 박스로 두지 않는다 — **헤더 연필 → 모달**에서만 편집(사용자 요구). */}
       <ScrollView
-        contentContainerStyle={styles.content}
+        style={styles.timelineRegion}
+        contentContainerStyle={styles.timelineContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -117,37 +221,22 @@ export default function DetailScreen() {
           />
         }
       >
-        {shipment ? (
-          <View style={styles.head}>
-            <StageBadge stage={shipment.status} />
-            <Text style={[styles.meta, { color: tokens.text.secondary }]}>
-              {carrierName(shipment.carrier)} · {shipment.trackingNo.slice(-4)}
-            </Text>
-          </View>
+        {timeline.kind === "loading" ? (
+          <ActivityIndicator color={tokens.text.secondary} />
+        ) : timeline.kind === "ok" ? (
+          <Timeline events={timeline.events} now={now} />
+        ) : timeline.kind === "notfound" ? (
+          <Text style={{ color: tokens.text.secondary }}>송장을 찾을 수 없어요</Text>
         ) : (
-          <View style={styles.skeleton}>
-            <ActivityIndicator color={tokens.text.secondary} />
-          </View>
+          <Retry
+            message={
+              timeline.kind === "offline"
+                ? "오프라인이에요 — 마지막 상태만 보여드려요"
+                : "타임라인을 못 불러왔어요"
+            }
+            onRetry={load}
+          />
         )}
-
-        <View style={styles.timelineWrap}>
-          {timeline.kind === "loading" ? (
-            <ActivityIndicator color={tokens.text.secondary} />
-          ) : timeline.kind === "ok" ? (
-            <Timeline events={timeline.events} now={now} />
-          ) : timeline.kind === "notfound" ? (
-            <Text style={{ color: tokens.text.secondary }}>송장을 찾을 수 없어요</Text>
-          ) : (
-            <Retry
-              message={
-                timeline.kind === "offline"
-                  ? "오프라인이에요 — 마지막 상태만 보여드려요"
-                  : "타임라인을 못 불러왔어요"
-              }
-              onRetry={load}
-            />
-          )}
-        </View>
       </ScrollView>
 
       {shipment && (
@@ -160,6 +249,37 @@ export default function DetailScreen() {
           <Text style={[styles.deleteLabel, { color: tokens.stage.exception }]}>삭제</Text>
         </Pressable>
       )}
+
+      {/* 메모 편집 모달 — 헤더 연필/메모 카드 탭으로 진입. */}
+      <Modal visible={memoModal} transparent animationType="fade" onRequestClose={() => setMemoModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setMemoModal(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
+            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>메모</Text>
+            <TextInput
+              value={memoDraft}
+              onChangeText={setMemoDraft}
+              placeholder="이 택배가 무엇인지 적어두세요"
+              placeholderTextColor={tokens.text.disabled}
+              style={[
+                styles.memoInput,
+                { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
+              ]}
+              multiline
+              maxLength={100}
+              autoFocus
+              accessibilityLabel="메모 입력"
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setMemoModal(false)} hitSlop={8} accessibilityRole="button">
+                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
+              </Pressable>
+              <Pressable onPress={saveMemo} hitSlop={8} accessibilityRole="button">
+                <Text style={[styles.modalSave, { color: tokens.text.primary }]}>저장</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -178,11 +298,28 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { padding: 16 },
-  head: { gap: 8, marginBottom: 24 },
-  meta: { fontSize: 14, fontWeight: "500" },
+  // 상단 고정 섹션 — 헤더와 송장번호 사이 공백(요청). 타임라인만 내부 스크롤이라 페이지 패딩은 여기서.
+  topSection: { paddingHorizontal: 16, paddingTop: 24 },
+  // 타임라인 영역 — flex:1 로 남은 공간 차지 → 페이지 전체가 아니라 이 안에서만 스크롤.
+  timelineRegion: { flex: 1 },
+  timelineContent: { paddingHorizontal: 24, paddingTop: 36, paddingBottom: 36 },
+  // 상단 한 줄: 택배사·번호(좌, 늘어남) + 받는분(우, 고정).
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 },
+  meta: { flexShrink: 1, fontSize: 14, fontWeight: "500" },
+  recipientInline: { flexShrink: 0, fontSize: 13 },
+  // 현재 상태 — 가장 크고 중앙.
+  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 32, marginBottom: 24 },
   skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
-  timelineWrap: { minHeight: 80 },
+  progressWrap: { marginBottom: 28 },
+  // 메모 — 로컬 전용. 편집은 **헤더 연필 → 모달 입력**만(상세 본문에 인라인 박스 없음).
+  headerEdit: { paddingVertical: 8, paddingHorizontal: 16 },
+  memoInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minHeight: 80 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: 24 },
+  modalCard: { borderRadius: 12, padding: 16, gap: 12 },
+  modalTitle: { fontSize: 16, fontWeight: "700" },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 24 },
+  modalCancel: { fontSize: 15 },
+  modalSave: { fontSize: 15, fontWeight: "700" },
   retry: { gap: 8, alignItems: "flex-start" },
   retryLabel: { fontSize: 14, fontWeight: "600" },
   deleteBtn: { paddingHorizontal: 16, paddingVertical: 16, alignItems: "center" },

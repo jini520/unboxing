@@ -37,3 +37,30 @@ export function absoluteKST(iso: string): string {
   const mi = String(d.getUTCMinutes()).padStart(2, "0");
   return `${month}.${day} ${hh}:${mi}`;
 }
+
+const WEEKDAYS_KST = ["일", "월", "화", "수", "목", "금", "토"] as const;
+
+/**
+ * KST(UTC+9) 절대 시각 "M월 D일 (요일) HH:mm" (한글 요일 일~토). 상세 현재 상태 문구용.
+ * 타임라인용 absoluteKST("M.D HH:mm")와 별개. epoch ms 또는 ISO 문자열 수용, 파싱 불가면 "".
+ * absoluteKST 와 동일하게 +9h 시프트 후 UTC 게터로 KST 벽시계를 읽는다(디바이스 시간대 무관).
+ */
+export function absoluteKSTLong(input: number | string): string {
+  const t = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(t)) return "";
+  const d = new Date(t + 9 * HOUR);
+  const month = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+  const weekday = WEEKDAYS_KST[d.getUTCDay()];
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mi = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${month}월 ${day}일 (${weekday}) ${hh}:${mi}`;
+}
+
+/** KST 날짜만 "M월 D일"(연도 생략). 메모 없는 카드의 기본 문구용. 파싱 불가면 "". */
+export function dateKST(input: number | string): string {
+  const t = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(t)) return "";
+  const d = new Date(t + 9 * HOUR);
+  return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일`;
+}
