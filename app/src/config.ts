@@ -9,7 +9,6 @@ export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8787
  * 개인정보처리방침(한글) 공개 URL — Apple·Google 스토어 메타데이터 필수.
  * settings(웹에서 보기)·privacy(인앱 화면 하단 링크) 양쪽이 이 단일 출처를 참조한다.
  * 방침 본문은 docs/PRIVACY_POLICY.md(SoT) → app/src/content/privacyPolicy.ts 로 번들된다.
- * TODO(배포): docs/PRIVACY_POLICY.md 를 이 URL 에 호스팅한 뒤 실제 라이브 URL 로 확정한다.
- *   (#12 — repo 산출물 완료, 호스팅은 배포 시 외부 작업. 조용한 placeholder 가 아니라 명시적 미배포 표시.)
+ * 호스팅: 같은 데이터를 Worker 가 GET /privacy 로 HTML 렌더(worker/src/index.ts). 아래는 그 라이브 URL.
  */
-export const PRIVACY_POLICY_URL = "https://unboxing.app/privacy";
+export const PRIVACY_POLICY_URL = "https://unboxing-worker.dev-jinni520.workers.dev/privacy";

@@ -1,7 +1,8 @@
 # 개인정보처리방침 (unboxing)
 
-> 스토어 제출·앱 설정 화면 링크의 **단일 출처**. 게시 시 이 문서를 공개 URL(예: `https://unboxing.app/privacy`)에
-> HTML/페이지로 호스팅하고, 앱 `settings.tsx`의 `PRIVACY_POLICY_URL`을 그 URL로 확정한다.
+> 스토어 제출·앱 설정 화면 링크의 **단일 출처**. 이 문서 본문은 `app/src/content/privacyPolicy.ts`로 옮겨지고,
+> Worker가 그 데이터를 `GET /privacy`로 HTML 렌더해 공개 URL `https://unboxing-worker.dev-jinni520.workers.dev/privacy`에
+> 호스팅한다(앱 `config.ts`의 `PRIVACY_POLICY_URL`이 이 URL을 가리킴).
 > 내용은 **실제 구현과 일치**한다(ADR-002 익명·ADR-005 비영속·ADR-017 삭제·ADR-018 거래성). 구현이 바뀌면 이 문서를 먼저 갱신한다.
 
 **시행일**: 2026-06-17 · **최종 수정일**: 2026-06-17
