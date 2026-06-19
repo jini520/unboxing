@@ -9,6 +9,7 @@ import type { TimelineEvent } from "../lib/api";
 import { absoluteKST, relativeTime } from "../lib/time";
 import { ChevronDown } from "./icons";
 import { useTheme } from "../theme/ThemeProvider";
+import { fontSize, fontWeight, spacing } from "../theme/layout";
 
 const COLLAPSED_COUNT = 5; // 첫 렌더 시 이만큼만 보이고 나머지는 '더보기'로 펼친다.
 
@@ -31,7 +32,8 @@ export function Timeline({ events, now }: { events: TimelineEvent[]; now: number
       <View>
         {visible.map((e, i) => {
           const current = i === 0;
-          const dotColor = current ? tokens.text.primary : tokens.text.disabled;
+          // 현재(최신) 점만 대표(브랜드) 색 + 크기(dotCurrent)로 강조, 과거 점은 중립.
+          const dotColor = current ? tokens.accent : tokens.text.disabled;
           const labelColor = current ? tokens.text.primary : tokens.text.body;
           return (
             <View key={`${e.time}-${i}`} style={styles.row}>
@@ -100,7 +102,7 @@ function FadeOverlay({ color }: { color: string }) {
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
-    gap: 12,
+    gap: spacing.md,
   },
   rail: {
     alignItems: "center",
@@ -129,17 +131,17 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   time: {
-    fontSize: 12,
+    fontSize: fontSize.caption,
   },
   desc: {
-    fontSize: 14,
+    fontSize: fontSize.body,
     marginTop: 2,
   },
   descCurrent: {
-    fontWeight: "600",
+    fontWeight: fontWeight.semibold,
   },
   location: {
-    fontSize: 13,
+    fontSize: fontSize.footnote,
     marginTop: 1,
   },
   // 더보기 — 버튼 형태 없이 화살표 + 텍스트(중립 회색).
@@ -148,11 +150,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: 12,
+    paddingVertical: spacing.md,
   },
   moreLabel: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: fontSize.body,
+    fontWeight: fontWeight.semibold,
   },
   // 페이드 — 마지막 보이는 항목 위에 깔려 배경색으로 사라지게.
   fade: {

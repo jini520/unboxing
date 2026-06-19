@@ -94,6 +94,15 @@ export function Trash({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProp
   );
 }
 
+/** 삭제(채운 쓰레기통) — 스와이프 액션 버튼(컬러 배경 위 흰색 글리프)용. */
+export function TrashFill({ size = 20, color, ...a11y }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...a11y}>
+      <Path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+    </Svg>
+  );
+}
+
 /** 알림 켜짐(종). */
 export function Bell({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (
@@ -113,6 +122,24 @@ export function BellOff({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPr
       <Path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
       <Path d="M18 8a6 6 0 0 0-9.33-5" />
       <Path d="M1 1l22 22" />
+    </Svg>
+  );
+}
+
+/** 알림 켜짐(채운 종) — 스와이프 액션 버튼(컬러 배경 위 흰색 글리프)용. */
+export function BellFill({ size = 20, color, ...a11y }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...a11y}>
+      <Path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
+    </Svg>
+  );
+}
+
+/** 알림 음소거(채운 종+빗금) — 스와이프 액션 버튼(컬러 배경 위 흰색 글리프)용. */
+export function BellOffFill({ size = 20, color, ...a11y }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...a11y}>
+      <Path d="M20 18.69L7.84 6.14 5.27 3.49 4 4.76l2.8 2.8v.01c-.52.99-.8 2.16-.8 3.42v5l-2 2v1h13.73l2 2L21 19.72l-1-1.03zM12 22c1.11 0 2-.89 2-2h-4c0 1.11.88 2 2 2zm6-7.32V11c0-3.08-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68c-.15.04-.29.1-.43.15-.18.07-.36.15-.53.23l8.46 8.62z" />
     </Svg>
   );
 }

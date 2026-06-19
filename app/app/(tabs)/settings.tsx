@@ -24,6 +24,7 @@ import { pushDeps, registerForPush, registerPushIfGranted } from "../../src/lib/
 import { wipeAllData } from "../../src/lib/wipe";
 import { Check, ChevronRight } from "../../src/components/icons";
 import { useTheme } from "../../src/theme/ThemeProvider";
+import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
 import type { ThemePreference } from "../../src/theme/tokens";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
@@ -155,13 +156,13 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
               >
-                <Text style={{ color: selected ? tokens.stage.outForDelivery : tokens.text.body }}>
+                <Text style={{ color: selected ? tokens.accent : tokens.text.body }}>
                   {opt.label}
                 </Text>
                 {selected && (
                   <Check
                     size={18}
-                    color={tokens.stage.outForDelivery}
+                    color={tokens.accent}
                     accessibilityElementsHidden
                     importantForAccessibility="no"
                   />
@@ -194,7 +195,7 @@ export default function SettingsScreen() {
           accessibilityRole="button"
           accessibilityLabel="모든 데이터 삭제"
         >
-          <Text style={[styles.rowTitle, { color: tokens.stage.exception, fontWeight: "600" }]}>
+          <Text style={[styles.rowTitle, { color: tokens.stage.exception, fontWeight: fontWeight.semibold }]}>
             모든 데이터 삭제
           </Text>
         </Pressable>
@@ -212,33 +213,33 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   // 택배함 헤더와 동일한 상단 위치(paddingTop 8) — 제목/설명 위치 일치.
-  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
+  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.lg },
   // 페이지 제목 + 설명 — 택배함 헤더와 동일.
-  title: { fontSize: 30, fontWeight: "600" },
-  pageDesc: { fontSize: 13, lineHeight: 19, marginTop: 10 },
-  section: { fontSize: 13, marginTop: 16, marginBottom: 8 },
+  title: { fontSize: fontSize.display1, fontWeight: fontWeight.semibold },
+  pageDesc: { fontSize: fontSize.footnote, lineHeight: 19, marginTop: 10 },
+  section: { fontSize: fontSize.footnote, marginTop: spacing.lg, marginBottom: spacing.sm },
   card: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 14,
   },
-  cardSpaced: { marginTop: 24 },
-  rowText: { flex: 1, gap: 4, paddingRight: 12 },
-  rowEnd: { flexDirection: "row", alignItems: "center", gap: 4 },
-  rowTitle: { fontSize: 16 },
-  rowSub: { fontSize: 13 },
-  group: { borderWidth: 1, borderRadius: 8, overflow: "hidden" },
+  cardSpaced: { marginTop: spacing.xl },
+  rowText: { flex: 1, gap: spacing.xs, paddingRight: spacing.md },
+  rowEnd: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  rowTitle: { fontSize: fontSize.base },
+  rowSub: { fontSize: fontSize.footnote },
+  group: { borderWidth: 1, borderRadius: radius.md, overflow: "hidden" },
   groupRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 14,
   },
-  caption: { fontSize: 13, marginTop: 8, lineHeight: 18 },
-  version: { fontSize: 13, marginTop: 32, textAlign: "center" },
+  caption: { fontSize: fontSize.footnote, marginTop: spacing.sm, lineHeight: 18 },
+  version: { fontSize: fontSize.footnote, marginTop: spacing.xxl, textAlign: "center" },
 });

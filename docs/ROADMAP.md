@@ -19,6 +19,11 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - PR #19 — 등록 직후 목록에 **실제 상태 즉시 표시**(비종료 단계 저장).
 - PR #20 — **배송완료 시 보관**(자동 삭제 폐기, 사용자 수동 삭제 — ADR-005 개정).
 
+**프로덕션 배포 (2026-06-19):**
+- **Worker 배포** → `https://unboxing-worker.dev-jinni520.workers.dev` (cron `*/15` 등록). 원격 D1 스키마 최신화(누락 테이블·컬럼 + `devices` 재생성으로 `push_token` nullable, ENGINEERING B.1) · tracker.delivery 시크릿 등록 · **실호출 스모크 green**(실 CJ 운송장 → `배송완료`, 시뮬레이터 앱 → 워커 `GET /shipments` Ok).
+- **앱**: 번들ID `com.jinni.unboxing`(iOS·Android) · 표시명 `언박싱` · EAS 프로젝트 `@jinni520/app`(projectId 연결) · `eas.json` 내부배포(internal) 프로파일 · `EXPO_PUBLIC_API_URL`=prod.
+- **iOS 실기기 빌드**: Apple Developer 멤버십 결제 완료, **활성화(team 생성) 대기 중** — 활성화 후 `eas device:create` → `eas build -p ios --profile preview`. 상세 경로 → 아래 "실기기 설치·배포 경로".
+
 ## 예정 작업 (무엇을 해야 하는가)
 
 **열린 이슈(GitHub):**
@@ -31,6 +36,37 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
 
 **Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
+
+---
+
+## 실기기 설치·배포 경로 (iOS)
+
+> 앱을 **실제 폰**에 올리는 경로. 유료 Apple Developer 계정 발급 전/후 2단계. 공통 설정은 이미 완료:
+> - `app/app.json`: 번들 ID `com.jinni.unboxing` (iOS `bundleIdentifier` + Android `package`), 표시 이름 `언박싱`.
+> - `app/eas.json`: `preview`(distribution: internal)·`production` 프로파일 — 유료 단계의 ad hoc 내부배포용. `EXPO_PUBLIC_API_URL`은 **배포 후 실제 workers.dev URL로 교체 필요**(현재 `FILL-AFTER-DEPLOY` placeholder).
+
+### 현재 단계 — 무료 Apple ID + USB 직결 (개발 설치)
+**전제:** Mac + Xcode(설치됨), iPhone을 USB로 연결, Xcode > Settings > Accounts 에 **무료 Apple ID** 로그인.
+
+**절차:**
+1. iPhone USB 연결 → 기기에서 "이 컴퓨터를 신뢰" 허용.
+2. **백엔드 도달성**: 실기기에선 `localhost`가 폰 자신을 가리킴 → `app/.env.local`의 `EXPO_PUBLIC_API_URL`을 **배포된 workers.dev URL**(권장) 또는 **Mac의 LAN IP**(`http://<mac-ip>:8787`, 로컬 worker를 `wrangler dev --ip 0.0.0.0`로 실행)로 바꿔야 등록·조회가 동작.
+3. 빌드·설치: `cd app && npx expo run:ios --device` → 연결된 기기 선택. (첫 빌드 시 Xcode에서 free personal team 서명 선택)
+4. 기기에서 신뢰: 설정 > 일반 > VPN 및 기기 관리 > 개발자 앱 > 신뢰.
+
+**제약 (이 단계의 한계):**
+- ⏳ **7일 후 서명 만료** → 앱 실행 안 됨. `expo run:ios --device` 재실행으로 재설치.
+- 🔕 **iOS 원격 푸시(APNs) 불가** — 무료 personal team은 Push Notifications capability를 켤 수 없음. 이 앱의 핵심(백그라운드 폴링 → 푸시)은 이 경로로 **검증 불가**. UI·등록·목록·상세·로컬 동작까지만 확인 가능. (`registerForPush`의 `getExpoPushTokenAsync`가 엔타이틀먼트 부재로 throw할 수 있음 — 앱은 계속 동작해야 함, ADR-018.)
+- ✅ **푸시 포함 end-to-end 검증이 지금 필요하면** → 안드로이드 EAS 빌드(FCM, 무료, Apple 무관)로 우회: `eas build --platform android --profile preview`로 APK 받아 설치(FCM 설정 1회 필요).
+
+### 다음 단계 — 유료 Apple Developer($99/yr) 발급 시 (자동 전환)
+계정 생기면 위 공통 설정(번들 ID·`eas.json`) 그대로 이어받아 전환. 절차:
+1. `npm i -g eas-cli && eas login`(Expo 무료 계정) → `eas init` → `app.json`에 `extra.eas.projectId`·`owner` 자동 기입(푸시 토큰 발급 전제).
+2. `app/eas.json`의 `EXPO_PUBLIC_API_URL`을 **배포된 workers.dev URL**로 교체(placeholder 제거).
+3. `eas device:create` → iPhone UDID 등록(1회, 유료 계정 필요).
+4. `eas build --platform ios --profile preview` → QR/링크로 설치. **서명 1년 유지**(7일 만료 해소).
+5. 푸시: `eas credentials`가 APNs 키 자동 생성 → **원격 푸시 동작**. 실기기 스모크로 등록→cron→푸시 1회 확인(`docs/ENGINEERING.md` 실호출 체크리스트).
+6. (정식 출시 시) `#12` 개인정보처리방침 URL 호스팅 · `#14` App Privacy 신고 — `예정 작업` 참조.
 
 <a id="plan-auto-delete"></a>
 

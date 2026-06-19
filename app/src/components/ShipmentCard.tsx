@@ -15,9 +15,11 @@ import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import type { Shipment } from "../lib/api";
 import { carrierName } from "../lib/carrier";
-import { dateKST, relativeTime } from "../lib/time";
+import { defaultMemoText } from "../lib/memo";
+import { relativeTime } from "../lib/time";
 import { useTheme } from "../theme/ThemeProvider";
-import { Bell, BellOff, Check, Trash } from "./icons";
+import { fontSize, fontWeight, radius, spacing } from "../theme/layout";
+import { BellFill, BellOff, BellOffFill, Check, TrashFill } from "./icons";
 import { StageBadge } from "./StageBadge";
 
 /**
@@ -26,6 +28,15 @@ import { StageBadge } from "./StageBadge";
  * **클수록 둔감**(덜 민감) — 너무 민감하면 올리고, 트리거가 어려우면 내린다. (사용자 피드백으로 조절하는 지점)
  */
 const SWIPE_AGAIN_PX = 80;
+
+/**
+ * 스와이프 액션 **컬러 배경 폭**(px). 버튼 콘텐츠 폭(`actionBtn`=96) + 카드 둥근 모서리(노출 끝의 코너 노치)를
+ * 메우는 버퍼. **풀폭(absoluteFill) 금지** — RNGH 패널은 컨테이너 전폭(`absoluteFill`)이라, 풀폭 배경 + 컨테이너
+ * `overflow:visible`(카드가 거터 넘어 끝까지 밀리게 한 설정)이 만나면 **카드 복귀 전환 때 반대편 모서리로 컬러가 샌다**.
+ * `transX` 는 `leftWidth(≈버튼폭)+overshoot(~1px)` 로 클램프돼 노출 폭이 버튼 폭을 넘지 않으므로, 이 정도면
+ * 과스와이프 틈도 없고(노출 전부 덮음) **far edge 가 항상 카드 아래**라 절대 새지 않는다(카드 폭보다 작게 유지).
+ */
+const ACTION_BG_WIDTH = 120;
 
 function ShipmentCardBase({
   shipment,
@@ -99,7 +110,7 @@ function ShipmentCardBase({
         styles.card,
         {
           backgroundColor: tokens.bg.surface,
-          borderColor: selected ? tokens.text.primary : tokens.border,
+          borderColor: selected ? tokens.accent : tokens.border,
         },
       ]}
     >
@@ -110,15 +121,15 @@ function ShipmentCardBase({
             style={[
               styles.checkbox,
               {
-                borderColor: selected ? tokens.text.primary : tokens.border,
-                backgroundColor: selected ? tokens.text.primary : "transparent",
+                borderColor: selected ? tokens.accent : tokens.border,
+                backgroundColor: selected ? tokens.accent : "transparent",
               },
             ]}
           >
             {selected && (
               <Check
                 size={14}
-                color={tokens.bg.surface}
+                color={tokens.onAccent}
                 accessibilityElementsHidden
                 importantForAccessibility="no"
               />
@@ -145,7 +156,7 @@ function ShipmentCardBase({
           {/* 현재 상태는 위 StageBadge 가 표시 — 별도 상태 메세지 텍스트 줄은 역할이 겹쳐 두지 않는다(사용자 요구). */}
           {/* 메모(중단·로컬) — 무엇인지 식별. **좌측정렬**(가운데 정렬 금지). default 문구라도 회색 아닌 primary 색. */}
           <Text style={[styles.memo, { color: tokens.text.primary }]} numberOfLines={1}>
-            {memo || `${dateKST(shipment.createdAt)}에 등록한 상품`}
+            {memo || defaultMemoText(shipment.createdAt)}
           </Text>
           {/* 택배사·운송장 전체번호(하단·작게) — 본인 데이터라 끝4자리로 줄이지 않고, 길면 잘림 없이 줄바꿈 허용. */}
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
@@ -175,15 +186,15 @@ function ShipmentCardBase({
     return <View style={styles.wrap}>{inner}</View>;
   }
 
-  // 액션은 **fragment** 로 반환한다 — 배경(absoluteFill)을 Swipeable 의 액션 컨테이너(카드 폭 전체)에
-  // 직접 깔아야 과스와이프 시 빈 틈이 없다(컨테이너 overflow:hidden 으로 카드에 클립). 콘텐츠(아이콘+라벨)는
-  // **고정 폭**(actionBtn)이라 스냅 폭이 그 폭으로 측정된다(폭 회귀 금지 — DO NOT shrink/clip, docs UI_GUIDE).
+  // 액션은 **fragment** 로 반환한다 — 컬러 배경은 노출 가장자리에 앵커한 **한정 폭**(actionBgRight/Left, `ACTION_BG_WIDTH`)
+  // 으로 깐다. 풀폭(absoluteFill)으로 되돌리지 말 것 — overflow:visible 와 만나 카드 복귀 시 반대편 모서리로 샌다(상수 주석 참고).
+  // 콘텐츠(아이콘+라벨)는 **고정 폭**(actionBtn)이라 스냅 폭이 그 폭으로 측정된다(폭 회귀 금지 — docs UI_GUIDE).
   const renderDelete = () => (
     <>
         <View
           style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: tokens.bg.secondary, borderTopRightRadius: 8, borderBottomRightRadius: 8 },
+            styles.actionBgRight,
+            { backgroundColor: tokens.stage.exception, borderTopRightRadius: radius.md, borderBottomRightRadius: radius.md },
           ]}
           pointerEvents="none"
         />
@@ -196,8 +207,8 @@ function ShipmentCardBase({
           accessibilityRole="button"
           accessibilityLabel="삭제"
         >
-          <Trash size={22} color={tokens.stage.exception} accessibilityElementsHidden importantForAccessibility="no" />
-          <Text style={[styles.actionText, { color: tokens.stage.exception }]}>삭제</Text>
+          <TrashFill size={22} color={tokens.onAccent} accessibilityElementsHidden importantForAccessibility="no" />
+          <Text style={[styles.actionText, { color: tokens.onAccent }]}>삭제</Text>
         </Pressable>
       </>
   );
@@ -206,8 +217,8 @@ function ShipmentCardBase({
       <>
         <View
           style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: tokens.bg.secondary, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 },
+            styles.actionBgLeft,
+            { backgroundColor: tokens.accent, borderTopLeftRadius: radius.md, borderBottomLeftRadius: radius.md },
           ]}
           pointerEvents="none"
         />
@@ -221,11 +232,11 @@ function ShipmentCardBase({
           accessibilityLabel={shipment.muted ? "알림 켜기" : "알림 끄기"}
         >
           {shipment.muted ? (
-            <Bell size={22} color={tokens.text.secondary} accessibilityElementsHidden importantForAccessibility="no" />
+            <BellFill size={22} color={tokens.onAccent} accessibilityElementsHidden importantForAccessibility="no" />
           ) : (
-            <BellOff size={22} color={tokens.text.secondary} accessibilityElementsHidden importantForAccessibility="no" />
+            <BellOffFill size={22} color={tokens.onAccent} accessibilityElementsHidden importantForAccessibility="no" />
           )}
-          <Text style={[styles.actionText, { color: tokens.text.secondary }]}>
+          <Text style={[styles.actionText, { color: tokens.onAccent }]}>
             {shipment.muted ? "알림 켜기" : "알림 끄기"}
           </Text>
         </Pressable>
@@ -289,20 +300,20 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   card: {
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 1,
-    padding: 16,
+    padding: spacing.lg,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: spacing.md,
   },
   // 선택 체크박스 — 터치는 카드 전체(≥44)가 받는다.
   checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -321,30 +332,34 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   time: {
-    fontSize: 12,
+    fontSize: fontSize.caption,
   },
   // 메모(중단) — 식별 정보. **좌측정렬**(가운데 정렬 금지). default 라도 primary 색(회색 금지).
   memo: {
-    fontSize: 15,
-    fontWeight: "600",
-    marginTop: 8,
+    fontSize: fontSize.callout,
+    fontWeight: fontWeight.semibold,
+    marginTop: spacing.sm,
   },
   // 택배사·운송장 전체번호(하단·보조) — 더 작게(12). 줄바꿈 허용(끝4자리 축약 금지).
   carrier: {
-    fontSize: 12,
-    fontWeight: "500",
-    marginTop: 8,
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.medium,
+    marginTop: spacing.sm,
   },
-  // 스와이프 액션 콘텐츠 — **고정 폭 96**(스냅 폭·터치 타깃 ≥44). 배경은 별도 absoluteFill 로 카드 폭 전체를
-  // 채우므로(틈 없음) 여기엔 배경/라운드를 두지 않는다. 색은 토큰만(destructive=예외 색).
+  // 스와이프 액션 콘텐츠 — **고정 폭 96**(스냅 폭·터치 타깃 ≥44). 배경은 별도 한정폭 레이어(actionBg*)라
+  // 여기엔 배경/라운드를 두지 않는다. 색은 토큰만(아이콘·라벨=onAccent 흰색).
   actionBtn: {
     width: 96,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: spacing.xs,
   },
+  // 컬러 배경 — 노출 가장자리에 앵커한 **한정 폭**(`ACTION_BG_WIDTH`, 풀폭 금지). far edge 가 카드 폭보다 작아
+  // 항상 카드 아래라 반대편으로 새지 않는다. 음소거=왼쪽 패널(우스와이프), 삭제=오른쪽 패널(좌스와이프).
+  actionBgLeft: { position: "absolute", top: 0, bottom: 0, left: 0, width: ACTION_BG_WIDTH },
+  actionBgRight: { position: "absolute", top: 0, bottom: 0, right: 0, width: ACTION_BG_WIDTH },
   actionText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: fontSize.footnote,
+    fontWeight: fontWeight.semibold,
   },
 });

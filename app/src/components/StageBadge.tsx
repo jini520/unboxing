@@ -7,6 +7,7 @@ import type { ComponentType } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { Stage } from "../lib/api";
 import { useTheme } from "../theme/ThemeProvider";
+import { fontSize, fontWeight, spacing } from "../theme/layout";
 import type { ColorTokens } from "../theme/tokens";
 import {
   AlertTriangle,
@@ -58,10 +59,10 @@ const styles = StyleSheet.create({
   badge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: spacing.xs,
   },
   label: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: fontSize.footnote,
+    fontWeight: fontWeight.semibold,
   },
 });

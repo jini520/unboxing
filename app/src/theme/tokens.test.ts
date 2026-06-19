@@ -16,4 +16,9 @@ describe("resolveTokens", () => {
     expect(resolveTokens("system", null)).toBe(tokens.light);
     expect(resolveTokens("system", undefined)).toBe(tokens.light);
   });
+
+  it("대표(브랜드) accent 토큰이 라이트/다크 모두 정의돼 있다", () => {
+    expect(tokens.light.accent).toBe("#2563eb");
+    expect(tokens.dark.accent).toBe("#3b82f6");
+  });
 });

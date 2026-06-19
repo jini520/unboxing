@@ -62,5 +62,7 @@ export function dateKST(input: number | string): string {
   const t = typeof input === "number" ? input : Date.parse(input);
   if (Number.isNaN(t)) return "";
   const d = new Date(t + 9 * HOUR);
-  return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일`;
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${d.getUTCFullYear()}${m}${day}`;
 }

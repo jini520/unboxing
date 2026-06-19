@@ -131,6 +131,7 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
   - **CRITICAL — `legacy_alter_table=ON` 필수**: 최신 SQLite(D1 포함)는 기본적으로 `ALTER TABLE ... RENAME` 시 **다른 테이블·트리거·뷰의 참조까지 새 이름으로 자동 재작성**한다. 이 PRAGMA 없이 `devices`→`devices_old` 로 rename 하면 `subscriptions.device_id` 의 FK 가 `REFERENCES devices_old(id)` 로 바뀌고, 직후 `DROP TABLE devices_old` 로 깨진다(이후 구독 INSERT 가 `no such table: devices_old` 로 500). `legacy_alter_table=ON` 으로 전파를 끄면 `subscriptions` FK 는 `devices(id)` 를 그대로 가리켜 재생성된 새 `devices` 에 정상 연결된다.
   - `subscriptions.device_id` 는 `devices(id)` 를 FK 참조한다 → `foreign_keys=OFF` 로 잠시 끄고 데이터 보존 후 다시 켠다. `id` 값은 보존되므로 구독 관계는 유지된다.
   - **신규 배포(아직 `devices` 미생성)**: 위 절차 불필요 — `schema.sql` 이 처음부터 nullable 로 생성한다.
+  - **옛 스키마로 이미 존재 + 빈 테이블이면 더 간단(프로덕션 첫 실배포 2026-06-19 사례)**: `devices` 가 옛 `NOT NULL` 로 존재하지만 0행이면 데이터 보존이 불필요하므로 위 RENAME 절차 대신 `DROP TABLE devices; CREATE TABLE devices (id TEXT PRIMARY KEY, push_token TEXT UNIQUE, platform TEXT NOT NULL, created_at INTEGER NOT NULL);` 로 재생성한다(`legacy_alter_table` 불필요 — RENAME 이 아니라 FK 전파 이슈 없음). **CRITICAL**: 원격 D1 이 옛 `schema.sql` 로 생성됐다면 `schema.sql` **재실행은 누락 테이블·`ADD COLUMN` 만 채우고 이 테이블 재생성 마이그레이션(B.1)은 반영하지 않는다** → `devices.push_token` 이 `NOT NULL` 로 남아 `POST /devices`(토큰 없는 기기) 가 500. 배포 직후 `PRAGMA table_info(devices)` 로 `push_token notnull=0` 을 반드시 확인.
 
 ### 2. `notification_queue` 신규 테이블 (step3, 조용시간 보류 큐)
 

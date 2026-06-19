@@ -36,6 +36,7 @@ import { relativeTime } from "../../src/lib/time";
 import { Plus, Trash } from "../../src/components/icons";
 import { ShipmentCard } from "../../src/components/ShipmentCard";
 import { useTheme } from "../../src/theme/ThemeProvider";
+import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
 
 const UNDO_WINDOW_MS = 4000;
 const NOTICE_MS = 2000;
@@ -395,10 +396,10 @@ function EmptyState() {
       </Text>
       <Pressable
         onPress={() => router.push("/register")}
-        style={[styles.cta, { backgroundColor: tokens.text.primary }]}
+        style={[styles.cta, { backgroundColor: tokens.accent }]}
         accessibilityRole="button"
       >
-        <Text style={[styles.ctaLabel, { color: tokens.bg.page }]}>운송장 등록</Text>
+        <Text style={[styles.ctaLabel, { color: tokens.onAccent }]}>운송장 등록</Text>
       </Pressable>
     </View>
   );
@@ -406,36 +407,36 @@ function EmptyState() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xs },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  headerAction: { fontSize: 15 },
+  headerAction: { fontSize: fontSize.callout },
   // 양 끝 동일 폭 → 가운데 카운트가 화면 중앙에 온다.
   headerSide: { minWidth: 56 },
   headerSideEnd: { alignItems: "flex-end" },
   selectAllRow: { flexDirection: "row", justifyContent: "flex-end", gap: 20, marginTop: 10 },
   // 터치 타깃 ≥44(아이콘 24 + 패딩 10*2).
   iconBtn: { padding: 10, margin: -10 },
-  title: { fontSize: 30, fontWeight: "600" },
-  countTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "600" },
-  pageDesc: { fontSize: 13, lineHeight: 19, marginTop: 10 },
-  listFresh: { fontSize: 12, textAlign: "right", marginBottom: 8 },
-  banner: { marginHorizontal: 16, marginVertical: 8, padding: 12, borderRadius: 8 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 20 },
-  list: { padding: 16 },
-  emptyTitle: { fontSize: 16, textAlign: "center", lineHeight: 24 },
-  cta: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
-  ctaLabel: { fontSize: 15, fontWeight: "600" },
+  title: { fontSize: fontSize.display1, fontWeight: fontWeight.semibold },
+  countTitle: { flex: 1, textAlign: "center", fontSize: fontSize.title3, fontWeight: fontWeight.semibold },
+  pageDesc: { fontSize: fontSize.footnote, lineHeight: 19, marginTop: 10 },
+  listFresh: { fontSize: fontSize.caption, textAlign: "right", marginBottom: spacing.sm },
+  banner: { marginHorizontal: spacing.lg, marginVertical: spacing.sm, padding: spacing.md, borderRadius: radius.md },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xxl, gap: 20 },
+  list: { padding: spacing.lg },
+  emptyTitle: { fontSize: fontSize.base, textAlign: "center", lineHeight: 24 },
+  cta: { paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.md },
+  ctaLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
   toast: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 24,
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.xl,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
-  undo: { fontWeight: "600" },
+  undo: { fontWeight: fontWeight.semibold },
 });

@@ -98,7 +98,7 @@ export const PRIVACY_POLICY = {
       heading: "9. 문의처",
       body: [
         "개인정보 처리에 관한 문의는 아래로 연락해 주세요.",
-        "· 이메일: privacy@unboxing.app",
+        "· 이메일: dev.jinni520@gmail.com",
       ],
     },
     {
