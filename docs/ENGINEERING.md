@@ -59,6 +59,23 @@
 - **원인**: 이 버전의 native-stack 은 함수가 null 을 반환하면 기본 title(route name)로 폴백한다.
 - **수정/재발 방지**: title 을 비우려면 **`headerTitle: ""`**(빈 문자열) 또는 `title: ""` 을 쓴다. **헤더 변경은 시뮬 실구동으로 확인**(CI 모드 Metro 는 watch 비활성이라 편집이 반영 안 될 수 있음 → Expo Go 종료 후 재실행/`--clear` 로 강제 리빌드).
 
+## P-6. Expo splash/icon: 가로형 워드마크가 Android 12 시스템 스플래시에서 잘림 + 아이콘 무여백
+
+- **증상**: Play 빌드 첫 실행 스플래시에서 가로 로고("unboxing")의 오른쪽이 잘려 **"unboxir"** 로 표시. 앱 아이콘도 박스가 타일 가장자리까지 차서 **padding 없음**.
+- **원인**:
+  - expo-splash-screen v56 는 **Android 12 시스템 스플래시 API**(`windowSplashScreenAnimatedIcon` + `android:windowSplashScreenBehavior=icon_preferred`)를 쓴다. 플러그인은 로고를 **288dp 정사각 캔버스**(`288 * multiplier`)에 `imageWidth` 너비로 중앙 배치하고, 시스템은 그중 **지름 192dp(=2/3) 원** 안 콘텐츠만 보장한다(아이콘 배경색 미설정 시 규격). 즉 `imageWidth`/`resizeMode:contain` 은 이 시스템 스플래시에 그대로 적용되지 않는다(iOS 스토리보드·인앱에는 적용).
+  - 기존 `imageWidth:300` 은 288dp 캔버스보다 **커서 하드 클립** + 가로 4.4:1 워드마크는 192dp 원도 초과 → 잘림.
+  - 아이콘: `icon.png` 박스가 타일의 ~85% 를 채워 런처 마스크에서 가장자리에 붙음. adaptive `android-icon-foreground.png` 가 솔리드가 아닌 **외곽선**이라 다음 빌드에서 흐릿하게 나올 뻔함(중앙 안전영역 규칙·솔리드 불일치).
+- **수정**:
+  - 스플래시 로고를 **정사각 세로 락업**(박스 위 + 워드마크 아래)으로 재합성하고 콘텐츠를 **내접 원형 안전영역**(192dp 매핑) 안에 배치. `app/app.json` `imageWidth` 300 → **200**(콘텐츠 반경 ≤ 96dp).
+  - adaptive foreground·monochrome 는 **솔리드 실루엣을 중앙 ~44%**(마스크+블리드 후 여백 확보), `icon.png`(iOS)는 콘텐츠 ~60% 로 여백.
+- **왜 `verify` 가 못 잡나**: 아이콘·스플래시는 **빌드 타임 네이티브 에셋**이라 `npm run verify`(jest/typecheck)와 무관 — green 이어도 잘림. **실 빌드 + 실기기 첫 실행**으로만 최종 확인. 합성 단계는 PIL 로 192dp 원형 안전영역을 그려 **사전 시뮬레이션 검증** 가능.
+- **재발 방지**:
+  - 스플래시 로고는 **정사각 + 중앙 원형 안전영역(지름 2/3) 기준**으로 디자인. 가로 워드마크 단독 금지.
+  - `imageWidth` 는 **≤ 192** 유지(288dp 캔버스·192dp 원 규격).
+  - 아이콘 교체 시 adaptive foreground 콘텐츠는 중앙 ~2/3 안전영역의 **솔리드 실루엣**, iOS `icon.png` 는 불투명 풀블리드 + 여백.
+  - 관련 파일: `app/app.json`(splash 플러그인), `app/assets/{icon,splash-icon,android-icon-foreground,android-icon-monochrome}.png`.
+
 ---
 
 ## 외부 경계 검증 체크리스트 (머지·배포 전 필수)
