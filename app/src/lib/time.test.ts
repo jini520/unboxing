@@ -4,13 +4,13 @@ import { relativeTime, absoluteKST, absoluteKSTLong, dateKST } from "./time";
 const NOW = Date.parse("2026-06-16T12:00:00Z");
 
 describe("dateKST", () => {
-  it("KST 날짜만 'M월 D일'(연도 생략)", () => {
-    expect(dateKST("2026-06-16T00:30:00Z")).toBe("6월 16일"); // +9h = 06-16 09:30 KST
+  it("KST 날짜를 'YYYYMMDD'(zero-pad)", () => {
+    expect(dateKST("2026-06-16T00:30:00Z")).toBe("20260616"); // +9h = 06-16 09:30 KST
     // 2026-06-14 20:00Z +9h = KST 06-15
-    expect(dateKST("2026-06-14T20:00:00Z")).toBe("6월 15일");
+    expect(dateKST("2026-06-14T20:00:00Z")).toBe("20260615");
   });
-  it("epoch ms 수용·파싱 불가는 빈 문자열", () => {
-    expect(dateKST(Date.parse("2026-01-02T00:00:00Z"))).toBe("1월 2일");
+  it("epoch ms 수용·월/일 zero-pad·파싱 불가는 빈 문자열", () => {
+    expect(dateKST(Date.parse("2026-01-02T00:00:00Z"))).toBe("20260102");
     expect(dateKST("nope")).toBe("");
   });
 });

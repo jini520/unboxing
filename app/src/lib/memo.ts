@@ -5,10 +5,19 @@
  * 빈/공백 메모는 저장하지 않는다(삭제). 송장 삭제분은 pruneMemos 로 정리(서버 목록 동기화 후).
  */
 import { type KeyValueStore, cacheStore } from "./cache";
+import { dateKST } from "./time";
 
 const MEMO_KEY = "unboxing.memos";
 
 export type MemoMap = Record<string, string>;
+
+/**
+ * 메모 미입력 시 보여줄 대체 식별 문구 — 등록일(YYYYMMDD) 기반. placeholder 가 아니라 항상 한 줄로 채운다.
+ * 목록 카드와 상세 타이틀이 **동일 문구**를 쓰도록 단일 출처(회귀 금지 — docs/UI_GUIDE 송장 카드 해부).
+ */
+export function defaultMemoText(createdAt: string | number): string {
+  return `${dateKST(createdAt)}에 등록한 상품`;
+}
 
 /** 저장된 메모 맵(없으면 빈 객체). 손상 JSON 은 빈 객체로 안전 처리. */
 export async function loadMemos(deps: { store: KeyValueStore }): Promise<MemoMap> {

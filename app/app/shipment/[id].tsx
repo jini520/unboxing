@@ -29,7 +29,7 @@ import {
 import { apiDeps } from "../../src/lib/deps";
 import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
-import { loadMemos, memoStore, setMemo } from "../../src/lib/memo";
+import { defaultMemoText, loadMemos, memoStore, setMemo } from "../../src/lib/memo";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
@@ -37,6 +37,7 @@ import { Pencil } from "../../src/components/icons";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
+import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
 
 /** 타임라인 로드 결과 구분 → 화면이 친근한 카피로 매핑(코드 비노출). */
 type TimelineState =
@@ -159,9 +160,13 @@ export default function DetailScreen() {
     statusText = timePart ? `${timePart} · ${msg}` : msg;
   }
 
+  // 헤더 타이틀 = 메모(없으면 등록일 기반 default). 일반 페이지 제목처럼 택배사·번호 줄 위에 보여준다(사용자 요구).
+  const headerTitle = memo || (shipment ? defaultMemoText(shipment.createdAt) : undefined);
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
       <ScreenHeader
+        title={headerTitle}
         right={
           <Pressable
             onPress={openMemo}
@@ -298,30 +303,30 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  // 상단 고정 섹션 — 헤더와 송장번호 사이 공백(요청). 타임라인만 내부 스크롤이라 페이지 패딩은 여기서.
-  topSection: { paddingHorizontal: 16, paddingTop: 24 },
+  // 상단 고정 섹션 — 헤더 타이틀(메모)과 송장번호 줄 사이 간격은 다른 페이지의 제목→본문 간격에 맞춘다(좁게).
+  topSection: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   // 타임라인 영역 — flex:1 로 남은 공간 차지 → 페이지 전체가 아니라 이 안에서만 스크롤.
   timelineRegion: { flex: 1 },
-  timelineContent: { paddingHorizontal: 24, paddingTop: 36, paddingBottom: 36 },
+  timelineContent: { paddingHorizontal: spacing.xl, paddingTop: 36, paddingBottom: 36 },
   // 상단 한 줄: 택배사·번호(좌, 늘어남) + 받는분(우, 고정).
-  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 4 },
-  meta: { flexShrink: 1, fontSize: 14, fontWeight: "500" },
-  recipientInline: { flexShrink: 0, fontSize: 13 },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, marginTop: spacing.xs },
+  meta: { flexShrink: 1, fontSize: fontSize.body, fontWeight: fontWeight.medium },
+  recipientInline: { flexShrink: 0, fontSize: fontSize.footnote },
   // 현재 상태 — 가장 크고 중앙.
-  statusLine: { fontSize: 19, fontWeight: "700", lineHeight: 27, textAlign: "center", marginTop: 32, marginBottom: 24 },
-  skeleton: { height: 40, justifyContent: "center", marginBottom: 24 },
+  statusLine: { fontSize: fontSize.title2, fontWeight: fontWeight.bold, lineHeight: 27, textAlign: "center", marginTop: spacing.xxl, marginBottom: spacing.xl },
+  skeleton: { height: 40, justifyContent: "center", marginBottom: spacing.xl },
   progressWrap: { marginBottom: 28 },
   // 메모 — 로컬 전용. 편집은 **헤더 연필 → 모달 입력**만(상세 본문에 인라인 박스 없음).
-  headerEdit: { paddingVertical: 8, paddingHorizontal: 16 },
-  memoInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minHeight: 80 },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: 24 },
-  modalCard: { borderRadius: 12, padding: 16, gap: 12 },
-  modalTitle: { fontSize: 16, fontWeight: "700" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 24 },
-  modalCancel: { fontSize: 15 },
-  modalSave: { fontSize: 15, fontWeight: "700" },
-  retry: { gap: 8, alignItems: "flex-start" },
-  retryLabel: { fontSize: 14, fontWeight: "600" },
-  deleteBtn: { paddingHorizontal: 16, paddingVertical: 16, alignItems: "center" },
-  deleteLabel: { fontSize: 15, fontWeight: "600" },
+  headerEdit: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  memoInput: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: fontSize.callout, minHeight: 80 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: spacing.xl },
+  modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  modalTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.xl },
+  modalCancel: { fontSize: fontSize.callout },
+  modalSave: { fontSize: fontSize.callout, fontWeight: fontWeight.bold },
+  retry: { gap: spacing.sm, alignItems: "flex-start" },
+  retryLabel: { fontSize: fontSize.body, fontWeight: fontWeight.semibold },
+  deleteBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, alignItems: "center" },
+  deleteLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
 });

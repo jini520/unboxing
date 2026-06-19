@@ -30,6 +30,7 @@ import {
 } from "../src/lib/carrier";
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../src/lib/tracking";
 import { useTheme } from "../src/theme/ThemeProvider";
+import { fontSize, fontWeight, radius, spacing } from "../src/theme/layout";
 import { ChevronDown, Close, Check } from "../src/components/icons";
 import { ScreenHeader } from "../src/components/ScreenHeader";
 
@@ -147,6 +148,22 @@ export default function RegisterScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        <Text style={[styles.label, { color: tokens.text.secondary }]}>운송장 번호</Text>
+        <TextInput
+          value={input}
+          onChangeText={onChangeInput}
+          placeholder="번호를 입력하세요"
+          placeholderTextColor={tokens.text.disabled}
+          keyboardType="number-pad"
+          autoFocus
+          style={[
+            styles.field,
+            { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
+          ]}
+          accessibilityLabel="운송장 번호 입력"
+        />
+
+        {/* 클립보드 제안 — 입력창 **하단**에 둔다(사용자 요구). 제안만, 자동 등록 ❌. */}
         {clip && (
           <Pressable
             onPress={acceptClip}
@@ -162,21 +179,6 @@ export default function RegisterScreen() {
             </Pressable>
           </Pressable>
         )}
-
-        <Text style={[styles.label, { color: tokens.text.secondary }]}>운송장 번호</Text>
-        <TextInput
-          value={input}
-          onChangeText={onChangeInput}
-          placeholder="번호를 입력하세요"
-          placeholderTextColor={tokens.text.disabled}
-          keyboardType="number-pad"
-          autoFocus
-          style={[
-            styles.field,
-            { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
-          ]}
-          accessibilityLabel="운송장 번호 입력"
-        />
 
         <Text style={[styles.label, { color: tokens.text.secondary }]}>택배사</Text>
         <Pressable
@@ -209,7 +211,7 @@ export default function RegisterScreen() {
               자동 추적을 지원하지 않는 택배사예요. 택배사에서 직접 조회할 수 있어요.
             </Text>
             <Pressable onPress={openCarrierLookup} hitSlop={8} accessibilityRole="button">
-              <Text style={[styles.link, { color: tokens.stage.outForDelivery }]}>
+              <Text style={[styles.link, { color: tokens.accent }]}>
                 택배사에서 직접 조회
               </Text>
             </Pressable>
@@ -226,7 +228,7 @@ export default function RegisterScreen() {
           style={[
             styles.submit,
             {
-              backgroundColor: tokens.text.primary,
+              backgroundColor: tokens.accent,
               opacity: !valid || !selectedId || submitting ? 0.4 : 1,
             },
           ]}
@@ -234,9 +236,9 @@ export default function RegisterScreen() {
           accessibilityLabel="등록"
         >
           {submitting ? (
-            <ActivityIndicator color={tokens.bg.page} />
+            <ActivityIndicator color={tokens.onAccent} />
           ) : (
-            <Text style={[styles.submitLabel, { color: tokens.bg.page }]}>등록</Text>
+            <Text style={[styles.submitLabel, { color: tokens.onAccent }]}>등록</Text>
           )}
         </Pressable>
       </ScrollView>
@@ -275,11 +277,11 @@ function CarrierList({
             accessibilityRole="button"
             accessibilityState={{ selected: isSel }}
           >
-            <Text style={{ color: isSel ? tokens.stage.outForDelivery : tokens.text.body }}>
+            <Text style={{ color: isSel ? tokens.accent : tokens.text.body }}>
               {c.name}
               {recommended ? "  · 추천" : ""}
             </Text>
-            {isSel && <Check size={16} color={tokens.stage.outForDelivery} />}
+            {isSel && <Check size={16} color={tokens.accent} />}
           </Pressable>
         );
       })}
@@ -289,38 +291,38 @@ function CarrierList({
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { padding: 16, gap: 8 },
+  content: { padding: spacing.lg, gap: spacing.sm },
   clip: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 8,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
   },
-  label: { fontSize: 13, marginTop: 8 },
+  label: { fontSize: fontSize.footnote, marginTop: spacing.sm },
   field: {
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontSize: fontSize.base,
   },
   selector: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  listBox: { borderWidth: 1, borderRadius: 8, overflow: "hidden" },
+  listBox: { borderWidth: 1, borderRadius: radius.md, overflow: "hidden" },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  notice: { borderRadius: 8, padding: 12, gap: 8, marginTop: 4 },
-  link: { fontSize: 14, fontWeight: "600" },
-  inlineError: { fontSize: 14, marginTop: 4 },
-  submit: { borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16 },
-  submitLabel: { fontSize: 15, fontWeight: "600" },
+  notice: { borderRadius: radius.md, padding: spacing.md, gap: spacing.sm, marginTop: spacing.xs },
+  link: { fontSize: fontSize.body, fontWeight: fontWeight.semibold },
+  inlineError: { fontSize: fontSize.body, marginTop: spacing.xs },
+  submit: { borderRadius: radius.md, paddingVertical: 14, alignItems: "center", marginTop: spacing.lg },
+  submitLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
 });

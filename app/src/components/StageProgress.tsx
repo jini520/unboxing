@@ -9,6 +9,7 @@ import { StyleSheet, Text, View } from "react-native";
 import type { Stage } from "../lib/api";
 import { STAGE_PROGRESS_STEPS, stageProgress } from "../lib/stage";
 import { useTheme } from "../theme/ThemeProvider";
+import { fontSize, fontWeight, spacing } from "../theme/layout";
 import {
   AlertTriangle,
   CheckCircle,
@@ -134,11 +135,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   exceptionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: fontSize.footnote,
+    fontWeight: fontWeight.semibold,
   },
   steps: {
     flexDirection: "row",
@@ -187,11 +188,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   label: {
-    fontSize: 11,
+    fontSize: fontSize.micro,
     marginTop: 6,
     textAlign: "center",
   },
   labelCurrent: {
-    fontWeight: "700",
+    fontWeight: fontWeight.bold,
   },
 });

@@ -11,6 +11,7 @@ import { registerDevice } from "../src/lib/api";
 import { apiDeps, PLATFORM } from "../src/lib/deps";
 import { pushDeps, registerForPush } from "../src/lib/push";
 import { useTheme } from "../src/theme/ThemeProvider";
+import { fontSize, fontWeight, radius, spacing } from "../src/theme/layout";
 
 export default function OnboardingScreen() {
   const { tokens } = useTheme();
@@ -54,14 +55,14 @@ export default function OnboardingScreen() {
         <Pressable
           onPress={enable}
           disabled={busy}
-          style={[styles.primary, { backgroundColor: tokens.text.primary, opacity: busy ? 0.4 : 1 }]}
+          style={[styles.primary, { backgroundColor: tokens.accent, opacity: busy ? 0.4 : 1 }]}
           accessibilityRole="button"
           accessibilityLabel="알림 받기"
         >
           {busy ? (
-            <ActivityIndicator color={tokens.bg.page} />
+            <ActivityIndicator color={tokens.onAccent} />
           ) : (
-            <Text style={[styles.primaryLabel, { color: tokens.bg.page }]}>알림 받기</Text>
+            <Text style={[styles.primaryLabel, { color: tokens.onAccent }]}>알림 받기</Text>
           )}
         </Pressable>
         <Pressable
@@ -80,11 +81,11 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { flex: 1, justifyContent: "center", paddingHorizontal: 24, gap: 16 },
-  title: { fontSize: 28, fontWeight: "600", lineHeight: 36 },
-  body: { fontSize: 16, lineHeight: 24 },
-  actions: { paddingHorizontal: 24, paddingBottom: 24, gap: 8 },
-  primary: { borderRadius: 8, paddingVertical: 14, alignItems: "center" },
-  primaryLabel: { fontSize: 15, fontWeight: "600" },
-  skip: { paddingVertical: 12, alignItems: "center" },
+  content: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl, gap: spacing.lg },
+  title: { fontSize: fontSize.display2, fontWeight: fontWeight.semibold, lineHeight: 36 },
+  body: { fontSize: fontSize.base, lineHeight: 24 },
+  actions: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, gap: spacing.sm },
+  primary: { borderRadius: radius.md, paddingVertical: 14, alignItems: "center" },
+  primaryLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
+  skip: { paddingVertical: spacing.md, alignItems: "center" },
 });

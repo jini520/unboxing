@@ -17,6 +17,10 @@ export interface ColorTokens {
   };
   /** 보더 */
   border: string;
+  /** 대표(브랜드) 색 — 상호작용 요소(기본 버튼·CTA·활성 탭·선택 상태·링크). 단계 색과 분리한다(의미 디커플링). */
+  accent: string;
+  /** accent 위에 얹는 전경(채워진 버튼 라벨·선택 체크 글리프) — 두 스킴 모두 흰색(blue 위 대비 확보). */
+  onAccent: string;
   text: {
     primary: string;
     body: string;
@@ -45,6 +49,8 @@ const light: ColorTokens = {
     secondary: "#f5f5f5",
   },
   border: "#e5e5e5",
+  accent: "#2563eb",
+  onAccent: "#ffffff",
   text: {
     primary: "#18181b",
     body: "#3f3f46",
@@ -67,6 +73,8 @@ const dark: ColorTokens = {
     secondary: "#1c1c1c",
   },
   border: "#262626",
+  accent: "#3b82f6",
+  onAccent: "#ffffff",
   text: {
     primary: "#ffffff",
     body: "#d4d4d4",

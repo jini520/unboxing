@@ -11,6 +11,7 @@ import { PRIVACY_POLICY_URL } from "../src/config";
 import { PRIVACY_POLICY } from "../src/content/privacyPolicy";
 import { ScreenHeader } from "../src/components/ScreenHeader";
 import { useTheme } from "../src/theme/ThemeProvider";
+import { fontSize, fontWeight, spacing } from "../src/theme/layout";
 
 export default function PrivacyScreen() {
   const { tokens } = useTheme();
@@ -48,7 +49,7 @@ export default function PrivacyScreen() {
           accessibilityRole="link"
           accessibilityLabel="개인정보처리방침 웹에서 보기"
         >
-          <Text style={[styles.webLinkText, { color: tokens.stage.outForDelivery }]}>웹에서 보기</Text>
+          <Text style={[styles.webLinkText, { color: tokens.accent }]}>웹에서 보기</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -57,13 +58,13 @@ export default function PrivacyScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  content: { padding: 16, paddingBottom: 32 },
-  title: { fontSize: 24, fontWeight: "600", marginBottom: 4 },
-  meta: { fontSize: 13, marginBottom: 16 },
-  intro: { fontSize: 15, lineHeight: 23, marginBottom: 8 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  title: { fontSize: fontSize.display3, fontWeight: fontWeight.semibold, marginBottom: spacing.xs },
+  meta: { fontSize: fontSize.footnote, marginBottom: spacing.lg },
+  intro: { fontSize: fontSize.callout, lineHeight: 23, marginBottom: spacing.sm },
   section: { marginTop: 20 },
-  heading: { fontSize: 17, fontWeight: "600", marginBottom: 8 },
-  para: { fontSize: 15, lineHeight: 23, marginBottom: 6 },
-  webLink: { marginTop: 28, paddingVertical: 8 },
-  webLinkText: { fontSize: 15, fontWeight: "600" },
+  heading: { fontSize: fontSize.title3, fontWeight: fontWeight.semibold, marginBottom: spacing.sm },
+  para: { fontSize: fontSize.callout, lineHeight: 23, marginBottom: 6 },
+  webLink: { marginTop: 28, paddingVertical: spacing.sm },
+  webLinkText: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
 });

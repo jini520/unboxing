@@ -8,6 +8,8 @@
 import { normalizeStatus } from "./lib/normalize";
 import { track, d1TokenStore, type TrackResult } from "./tracker";
 import { runPollingBatch } from "./cron";
+// 개인정보처리방침 공개 페이지(GET /privacy)는 인앱 화면과 동일한 구조화 데이터를 재사용한다(사본 증가 방지).
+import { PRIVACY_POLICY } from "../../app/src/content/privacyPolicy";
 
 export interface Env {
   DB: D1Database;
@@ -496,6 +498,63 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
+// ── 개인정보처리방침 공개 페이지 (Play/App Store 심사용 공개 URL) ──────────────
+// 본문은 app/src/content/privacyPolicy.ts(인앱 화면과 동일 데이터)를 그대로 렌더한다.
+// SoT: docs/PRIVACY_POLICY.md → privacyPolicy.ts → 여기. 사본을 늘리지 않는다.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderPrivacyHtml(): string {
+  const p = PRIVACY_POLICY;
+  // "· " 로 시작하는 연속 문단 → <ul>, 그 외 → <p> (인앱 렌더 규칙과 동일).
+  const renderBody = (body: string[]): string => {
+    const out: string[] = [];
+    for (let i = 0; i < body.length; ) {
+      if (body[i].startsWith("· ")) {
+        const items: string[] = [];
+        while (i < body.length && body[i].startsWith("· ")) {
+          items.push(`<li>${escapeHtml(body[i].slice(2))}</li>`);
+          i++;
+        }
+        out.push(`<ul>${items.join("")}</ul>`);
+      } else {
+        out.push(`<p>${escapeHtml(body[i])}</p>`);
+        i++;
+      }
+    }
+    return out.join("");
+  };
+  const sections = p.sections
+    .map((s) => `<section><h2>${escapeHtml(s.heading)}</h2>${renderBody(s.body)}</section>`)
+    .join("");
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(p.title)} · 언박싱</title>
+<style>
+:root { color-scheme: light dark; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, sans-serif; line-height: 1.7; max-width: 720px; margin: 0 auto; padding: 28px 20px 72px; color: #1a1a1a; }
+@media (prefers-color-scheme: dark) { body { color: #e8e8e8; background: #111; } }
+h1 { font-size: 1.55rem; margin: 0 0 4px; }
+.meta { color: #888; font-size: 0.85rem; margin: 0 0 24px; }
+h2 { font-size: 1.08rem; margin: 32px 0 8px; }
+ul { margin: 8px 0; padding-left: 1.25em; }
+li { margin: 4px 0; }
+p { margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>${escapeHtml(p.title)}</h1>
+<p class="meta">시행일 ${escapeHtml(p.effectiveDate)} · 최종 수정일 ${escapeHtml(p.lastUpdated)}</p>
+<p>${escapeHtml(p.intro)}</p>
+${sections}
+</body>
+</html>`;
+}
+
 export default {
   // 앱 → Worker HTTP API
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -506,6 +565,16 @@ export default {
     try {
       if (pathname === "/health" && method === "GET") {
         return Response.json({ ok: true });
+      }
+
+      // 개인정보처리방침 공개 페이지 — 인증 없음, Play/App Store 심사 URL용.
+      if (pathname === "/privacy" && method === "GET") {
+        return new Response(renderPrivacyHtml(), {
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "public, max-age=3600",
+          },
+        });
       }
 
       if (pathname === "/devices" && method === "POST") {

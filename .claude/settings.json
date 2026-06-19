@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in */worker/*.ts) ws=worker;; */app/*.ts|*/app/*.tsx) ws=app;; *) exit 0;; esac; out=$(npm --prefix \"$ws\" run typecheck 2>&1) || { echo \"$out\" >&2; echo \"typecheck failed ($ws) — 위 타입 에러를 수정하세요.\" >&2; exit 2; }",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in */worker/*.ts) ws=worker;; */app/*.ts|*/app/*.tsx) ws=app;; *) exit 0;; esac; out=$(npm --prefix \"$CLAUDE_PROJECT_DIR/$ws\" run typecheck 2>&1) || { echo \"$out\" >&2; echo \"typecheck failed ($ws) — 위 타입 에러를 수정하세요.\" >&2; exit 2; }",
             "statusMessage": "typecheck"
           }
         ]
