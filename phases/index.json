@@ -37,7 +37,8 @@
     },
     {
       "dir": "08-ui-v0-v11-logic",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-06-23T04:21:42+0900"
     },
     {
       "dir": "09-ui-v0-v11-screens",

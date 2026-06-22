@@ -21,7 +21,7 @@ import { cacheStore, clearCache } from "../../src/lib/cache";
 import { clearMemos, memoStore } from "../../src/lib/memo";
 import { deleteDeviceId, deviceStorage } from "../../src/lib/device";
 import { pushDeps, registerForPush, registerPushIfGranted } from "../../src/lib/push";
-import { wipeAllData } from "../../src/lib/wipe";
+import { clearLocalStores, wipeAllData } from "../../src/lib/wipe";
 import { Check, ChevronRight } from "../../src/components/icons";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
@@ -75,6 +75,7 @@ export default function SettingsScreen() {
         deleteMe: () => deleteMe(apiDeps),
         clearCache: () => clearCache({ store: cacheStore }),
         clearMemos: () => clearMemos({ store: memoStore }),
+        clearLocal: () => clearLocalStores(cacheStore),
         deleteDeviceId: () => deleteDeviceId({ storage: deviceStorage }),
       });
       // device_id 가 폐기됐다 — 다음 api 호출이 새 device_id 를 생성한다(getDeviceId 멱등).

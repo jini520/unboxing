@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@jest/globals";
-import { relativeTime, absoluteKST, absoluteKSTLong, dateKST } from "./time";
+import { relativeTime, absoluteKST, absoluteKSTLong, dateKST, monthKST } from "./time";
 
 const NOW = Date.parse("2026-06-16T12:00:00Z");
 
@@ -12,6 +12,20 @@ describe("dateKST", () => {
   it("epoch ms 수용·월/일 zero-pad·파싱 불가는 빈 문자열", () => {
     expect(dateKST(Date.parse("2026-01-02T00:00:00Z"))).toBe("20260102");
     expect(dateKST("nope")).toBe("");
+  });
+});
+
+describe("monthKST", () => {
+  it("KST 연·월을 'YYYY-MM'(zero-pad)", () => {
+    expect(monthKST("2026-06-16T00:30:00Z")).toBe("2026-06"); // +9h = 06-16 09:30 KST
+    expect(monthKST(Date.parse("2026-01-02T00:00:00Z"))).toBe("2026-01");
+  });
+  it("KST 월 경계: UTC 전월 말일 23시는 KST 다음 달", () => {
+    // 2026-06-30 23:00Z +9h = KST 07-01 → 7월
+    expect(monthKST("2026-06-30T23:00:00Z")).toBe("2026-07");
+  });
+  it("파싱 불가는 빈 문자열", () => {
+    expect(monthKST("nope")).toBe("");
   });
 });
 

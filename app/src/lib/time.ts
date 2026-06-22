@@ -66,3 +66,16 @@ export function dateKST(input: number | string): string {
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${d.getUTCFullYear()}${m}${day}`;
 }
+
+/**
+ * KST(UTC+9) 연·월 키 "YYYY-MM" — "이번 달" 판정용(대시보드 금액 teaser, v1.1 보강①).
+ * dateKST(YYYYMMDD)와 달리 월 단위 비교 전용. +9h 시프트 후 UTC 게터로 KST 벽시계를 읽는다.
+ * 파싱 불가면 "" (유효한 now 키와는 절대 일치하지 않아 안전하게 제외됨).
+ */
+export function monthKST(input: number | string): string {
+  const t = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(t)) return "";
+  const d = new Date(t + 9 * HOUR);
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${m}`;
+}

@@ -183,13 +183,16 @@ describe("여정: wipe 오케스트레이션(서버→캐시→device_id)", () =
       clearMemos: async () => {
         order.push("memos");
       },
+      clearLocal: async () => {
+        order.push("local");
+      },
       deleteDeviceId: async () => {
         order.push("device");
         await deleteDeviceId({ storage });
       },
     });
 
-    expect(order).toEqual(["server", "cache", "memos", "device"]);
+    expect(order).toEqual(["server", "cache", "memos", "local", "device"]);
     expect(await readCachedShipments({ store })).toBeNull();
     const after = await getDeviceId({ storage, randomBytes: seqRandomBytes(11) });
     expect(after).not.toBe(before); // device_id 실제 폐기 → 새 id(앱이 새 익명 기기가 됨)
@@ -210,6 +213,7 @@ describe("여정: wipe 오케스트레이션(서버→캐시→device_id)", () =
         await clearCache({ store });
       },
       clearMemos: async () => {},
+      clearLocal: async () => {},
       deleteDeviceId: async () => {
         await deleteDeviceId({ storage });
       },
