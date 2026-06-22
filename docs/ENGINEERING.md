@@ -1,12 +1,13 @@
 # ENGINEERING (통합 문서)
 
-> **비메인 참고 문서 — 실수 재발 방지가 목적이라 정밀하게 유지.** 런타임 함정(PITFALLS)과 D1 마이그레이션 절차를 통합.
+> **비메인 참고 문서 — 실수 재발 방지가 목적이라 정밀하게 유지.** 런타임 함정(PITFALLS)·D1 마이그레이션 절차·운영 런북을 통합.
 > 메인 설계 문서는 `PRD`·`ADR`·`ARCHITECTURE`·`UI_GUIDE`. 각 절은 원문 그대로(verbatim) 보존.
 > 본문에 나오는 옛 파일명(`PITFALLS.md`·`MIGRATION.md`)은 모두 **이 문서의 해당 절(A·B)**을 가리킨다.
 
 ## 목차
 - [A. 런타임 함정 & 재발 방지](#a-런타임-함정--재발-방지-구-pitfallsmd)
 - [B. D1 마이그레이션 절차](#b-d1-마이그레이션-절차-구-migrationmd)
+- [C. 운영 런북 — tracker.delivery 자격증명 재발급](#c-운영-런북--trackerdelivery-자격증명-재발급-21일)
 
 <a id="a-런타임-함정--재발-방지-구-pitfallsmd"></a>
 
@@ -38,14 +39,14 @@
 
 - **증상**: `devices` 재생성 마이그레이션 후 운송장 등록의 `INSERT INTO subscriptions` 가 `D1_ERROR: no such table: main.devices_old` 로 500.
 - **원인**: 최신 SQLite(D1 포함) 기본값에서 `RENAME` 은 **다른 테이블·트리거·뷰의 참조까지 새 이름으로 자동 재작성**한다. `devices`→`devices_old` rename 시 `subscriptions.device_id` 의 FK 가 `REFERENCES devices_old(id)` 로 바뀌고, 직후 `DROP TABLE devices_old` 로 깨진다.
-- **수정**: rename 전에 `PRAGMA legacy_alter_table=ON;` 으로 전파를 끈다. (`docs/MIGRATION.md §1` 반영 완료.)
+- **수정**: rename 전에 `PRAGMA legacy_alter_table=ON;` 으로 전파를 끈다. (본 문서 **B.1** 반영 완료.)
 - **재발 방지**: 테이블 재생성 마이그레이션 후 `SELECT name FROM sqlite_master WHERE sql LIKE '%<old_name>%'` 로 **옛 이름 잔재 0** 을 검증. 로컬·원격 동일 절차.
 
 ## P-3. 로컬 D1 스키마 드리프트 (코드는 바뀌었는데 로컬 D1 는 옛날 생성분)
 
 - **증상**: 코드/`schema.sql` 은 바뀌었는데 로컬 D1 가 이전 생성분 → `push_token NOT NULL`·`notification_queue` 누락으로 **로컬에서만** 데드락·500 재현.
 - **원인**: `CREATE TABLE IF NOT EXISTS` 는 **기존 테이블을 변경하지 않는다**(존재 → skip). 또 `schema.sql` 의 `ALTER TABLE ... ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` 으로 throw 하여 **그 뒤 문장이 통째로 미적용**된다(예: 뒤에 오는 `notification_queue` 생성이 안 됨).
-- **수정/재발 방지**: 스키마 변경 시 **로컬도** `docs/MIGRATION.md` 절차로 마이그레이션. 등록 같은 핫패스는 스키마 변경 후 **실제 요청 1회**로 검증. `npx wrangler d1 execute unboxing --local --command "PRAGMA table_info(<t>)"` 로 로컬 = `schema.sql` 일치 확인.
+- **수정/재발 방지**: 스키마 변경 시 **로컬도** 본 문서 **B절** 절차로 마이그레이션. 등록 같은 핫패스는 스키마 변경 후 **실제 요청 1회**로 검증. `npx wrangler d1 execute unboxing --local --command "PRAGMA table_info(<t>)"` 로 로컬 = `schema.sql` 일치 확인.
 
 ## P-4. Expo: 네이티브 모듈 추가 후 Metro 빌드가 babel 플러그인 누락으로 깨짐
 
@@ -120,7 +121,7 @@
 
 ## 관련 문서
 
-- `docs/MIGRATION.md` — D1 스키마 마이그레이션 절차(P-2·P-3 적용)
+- 본 문서 **B절** — D1 스키마 마이그레이션 절차(P-2·P-3 적용)
 - `docs/ARCHITECTURE.md` "tracker.delivery 연동" — 통합 제약(fetch 바인딩 포함)
 - `CLAUDE.md` 개발 프로세스 — 외부 경계 검증 규칙(요약 + 본 문서 포인터)
 
@@ -228,3 +229,39 @@ npx wrangler d1 execute unboxing --command="PRAGMA table_info(subscriptions)" --
 
 - `docs/ARCHITECTURE.md` "스키마 진화 / 마이그레이션"·"데이터 모델"
 - step0(register-fix)·step3(quiet-hours) 산출물 · `worker/schema.sql`
+
+
+<a id="c-운영-런북--trackerdelivery-자격증명-재발급-21일"></a>
+
+---
+
+# C. 운영 런북 — tracker.delivery 자격증명 재발급 (21일)
+
+> ADR-013: Free 플랜 client 자격증명은 **21일 만료**라 주기적 **수동 재발급**이 필요하다 — "$0 무인 운영의 유일한 균열". 만료되면 access token 재발급이 `UNAUTHENTICATED` 로 전부 실패해 **모든 폴링·등록 즉시 조회가 중단**(운송장이 일제히 "미등록")된다. 프로덕션 라이브(2026-06-19) 이후 실제 운영 항목이라 절차를 박아 둔다.
+
+## 트리거
+- 만료 임박(**권장 7일 전** — ADR-013) 또는 `wrangler tail` 에 tracker.delivery `UNAUTHENTICATED`/토큰 발급 실패 로그가 반복될 때.
+- 증상: 신규 등록이 전부 `미등록`, cron 폴링이 상태를 못 갱신. (P-1 `Illegal invocation` 과 구분 — 그쪽은 ~6ms 동기 throw, 이쪽은 GraphQL `errors[].UNAUTHENTICATED`.)
+
+## 절차 (worker/ 에서)
+1. **tracker.delivery 콘솔**에서 client 자격증명을 재발급한다(신규 `CLIENT_ID`/`CLIENT_SECRET`).
+2. Worker 시크릿 갱신 (ARCHITECTURE "환경변수 & 시크릿" 표 기준):
+   ```bash
+   npx wrangler secret put DELIVERY_TRACKER_CLIENT_ID
+   npx wrangler secret put DELIVERY_TRACKER_CLIENT_SECRET
+   ```
+3. **캐시된 access token 무효화** — 다음 호출이 새 자격증명으로 재발급하도록 `tracker_token` 캐시를 비운다.
+   ```bash
+   npx wrangler d1 execute unboxing --remote --command "DELETE FROM tracker_token"
+   ```
+4. **검증(필수)**: 실 운송장 1건으로 외부 경계 스모크(A절 체크리스트 1) — 등록 후 status 가 실제 단계로 나오면 복구. `미등록` 만 나오면 자격증명/토큰을 재확인(콘솔에서 새 값이 맞는지·`tracker_token` 이 정말 비었는지).
+
+## 자동화 여부 / 에스컬레이션
+- Free 자격증명의 **API 자동 재발급 가능 여부는 미검증**(ADR Open Questions Q5). 가능하면 cron 으로 자동화해 이 런북을 폐기할 수 있다 — 콘솔 확인 후 ADR-013 갱신.
+- 재발급 누락 시 폴링 전면 중단 위험 → 만료 임박 알림(로그/운영자 통지)을 둔다(ADR-013, 미구현 시 구현 대상).
+- 재발급 운영 부담이 커지면 **Pro(무만료, 유료) 전환**이 최후 수단($0 제약 위반이라 마지막).
+
+## 관련 문서
+- `docs/ADR.md` ADR-013(토큰 캐싱·21일 수동 재발급)·Open Questions Q5
+- `docs/ARCHITECTURE.md` "tracker.delivery 연동"·"환경변수 & 시크릿"(시크릿 이름)
+- 본 문서 **A절** 외부 경계 검증 체크리스트(재발급 후 스모크)

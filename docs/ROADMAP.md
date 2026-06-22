@@ -23,6 +23,7 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - **Worker 배포** → `https://unboxing-worker.dev-jinni520.workers.dev` (cron `*/15` 등록). 원격 D1 스키마 최신화(누락 테이블·컬럼 + `devices` 재생성으로 `push_token` nullable, ENGINEERING B.1) · tracker.delivery 시크릿 등록 · **실호출 스모크 green**(실 CJ 운송장 → `배송완료`, 시뮬레이터 앱 → 워커 `GET /shipments` Ok).
 - **앱**: 번들ID `com.jinni.unboxing`(iOS·Android) · 표시명 `언박싱` · EAS 프로젝트 `@jinni520/app`(projectId 연결) · `eas.json` 내부배포(internal) 프로파일 · `EXPO_PUBLIC_API_URL`=prod.
 - **iOS 실기기 빌드**: Apple Developer 멤버십 결제 완료, **활성화(team 생성) 대기 중** — 활성화 후 `eas device:create` → `eas build -p ios --profile preview`. 상세 경로 → 아래 "실기기 설치·배포 경로".
+- **iOS App Store 출시 준비 (2026-06-22):** 멤버십 활성. 정책 검토 완료 — **리젝 항목 없음**. `app.json` 패치 적용(`ITSAppUsesNonExemptEncryption=false`·`supportsTablet=false` iPhone 전용·`expo-secure-store faceIDPermission`). 절차·콘솔 체크리스트 → **`docs/IOS_SUBMISSION.md`**. `eas submit -p ios`는 **사용자 지시 대기**.
 
 ## 예정 작업 (무엇을 해야 하는가)
 
@@ -34,6 +35,7 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 
 **계획된 기능(아래 §상세):**
 - 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
+- **v1.1 마이너 업데이트(설계 완료·미구현)** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·택배함 필터. 설계: `PRD.md`/`ARCHITECTURE.md` "v1.1 …", `ADR.md` ADR-021~025, `UI_GUIDE.md` "v1.1 화면 …". 마이그레이션(서버 `notifications` 테이블·로컬 메모→정보)·엣지·TDD 타깃 명세됨. 실행은 Harness phase 로 착수.
 
 **Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
 
