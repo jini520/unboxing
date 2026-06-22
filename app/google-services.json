@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "449129084285",
+    "project_id": "unboxing-3e503",
+    "storage_bucket": "unboxing-3e503.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449129084285:android:3634934df87a51eb8cc814",
+        "android_client_info": {
+          "package_name": "com.jinni.unboxing"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2VR9CJN7auj4QGlS3vSyo202goN2RKk0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

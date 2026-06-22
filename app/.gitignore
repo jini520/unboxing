@@ -18,6 +18,14 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# EAS Submit — Google Play 서비스 계정 키 (절대 커밋 금지)
+google-service-account.json
+
+# FCM V1 푸시 발송용 서비스 계정 키 (EAS에 업로드, 절대 커밋 금지)
+# 주의: google-services.json(클라이언트 설정)은 커밋 안전 — 아래 패턴은 그걸 매칭하지 않음
+*-firebase-adminsdk-*.json
+fcm-service-account.json
+
 # Metro
 .metro-health-check*
 

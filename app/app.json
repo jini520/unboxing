@@ -32,6 +32,7 @@
     },
     "android": {
       "package": "com.jinni.unboxing",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#1b68eb",
         "foregroundImage": "./assets/android-icon-foreground.png",
