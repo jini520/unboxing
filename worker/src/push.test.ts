@@ -39,6 +39,7 @@ function msg(i: number): PushMessage {
     title: "t",
     body: "b",
     data: { shipment_id: `s${i}` },
+    channelId: "delivery-status",
   };
 }
 
@@ -59,6 +60,8 @@ describe("buildMessage", () => {
     // title 에 택배사·끝4자리(어떤 택배인지)가 들어간다
     expect(m!.title).toContain("CJ대한통운");
     expect(m!.title).toContain("1234");
+    // Android heads-up 채널 — 안 실으면 기본 채널로 떨어진다(앱 DELIVERY_CHANNEL_ID 와 일치).
+    expect(m!.channelId).toBe("delivery-status");
   });
 
   it("모든 알림 단계가 shipment_id 를 포함하고 body 가 비지 않는다", () => {

@@ -21,7 +21,7 @@ import { shouldNotify } from "./lib/notify";
 import { lifecycleAction } from "./lib/lifecycle";
 import { isQuietHours, isUrgentStage } from "./lib/quiet";
 import { track, d1TokenStore } from "./tracker";
-import { buildMessage, sendPush, getReceipts, classifyPushError, type PushMessage } from "./push";
+import { buildMessage, sendPush, getReceipts, classifyPushError, DELIVERY_CHANNEL_ID, type PushMessage } from "./push";
 
 /** 1회 실행당 외부 track subrequest 상한(ADR-012 cron 한도). due 처리 건수를 이 값으로 제한. */
 const MAX_BATCH = 50;
@@ -318,6 +318,7 @@ async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: st
       title: `${row.carrier} · …${last4}`,
       body,
       data: { shipment_id: row.id },
+      channelId: DELIVERY_CHANNEL_ID,
     }),
     false, // 운영성 안내 — 비긴급(야간 보류 대상)
   );
@@ -416,6 +417,8 @@ async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
     title: r.title ?? "",
     body: r.body ?? "",
     data: { shipment_id: r.shipment_id ?? "" },
+    // 채널은 상수라 큐에 스냅샷하지 않고 발송 시 부여(title·body 만 보류 큐에 저장).
+    channelId: DELIVERY_CHANNEL_ID,
   }));
 
   // 발송 먼저(실패해도 행 보존 = at-least-once) → 스캔한 행 전체 삭제(collapse 로 버린 오래된 보류분 포함).

@@ -21,11 +21,19 @@ const RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const SEND_BATCH = 100;
 const RECEIPTS_BATCH = 1000;
 
+/**
+ * Android 알림 채널 id — 모든 발송 PushMessage 에 싣는다. 안 실으면 안드로이드가 **기본 채널**로 보내
+ * 앱이 만든 고중요도 채널(heads-up 배너)을 안 타고 알림함에만 쌓인다. iOS 는 이 필드를 무시한다.
+ * ⚠️ 앱의 `app/src/lib/push.ts` `DELIVERY_CHANNEL_ID`("delivery-status")와 **동일 문자열 유지**(드리프트 금지).
+ */
+export const DELIVERY_CHANNEL_ID = "delivery-status";
+
 export interface PushMessage {
   to: string; // ExponentPushToken[...]
   title: string;
   body: string;
   data: { shipment_id: string }; // 딥링크용
+  channelId: string; // Android 알림 채널(위 DELIVERY_CHANNEL_ID). iOS 무시.
 }
 
 export interface PushTicket {
@@ -100,6 +108,7 @@ export function buildMessage(
     title: `${ctx.carrier} · …${ctx.last4}`,
     body, // 문구는 모두 짧음 → payload ≤4096B 자명 충족
     data: { shipment_id: ctx.shipmentId },
+    channelId: DELIVERY_CHANNEL_ID,
   };
 }
 
