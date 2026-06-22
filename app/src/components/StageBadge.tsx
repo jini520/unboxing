@@ -1,6 +1,6 @@
 /**
  * 단계 배지 — 색(토큰) + SVG 아이콘 + 한글 라벨. **색 단독 금지**(UI_GUIDE 접근성).
- * 색은 tokens.stage(5색)만 참조 — hex 하드코딩 금지. ARCHITECTURE 표준 7단계(+기타)와 1:1.
+ * 색은 tokens.stage(6색)만 참조 — hex 하드코딩 금지. ARCHITECTURE 표준 7단계(+기타)와 1:1.
  * 아이콘은 SVG 라인 아이콘(components/icons) — OS 이모지/유니코드 글리프 전면 금지(사용자 요구).
  */
 import type { ComponentType } from "react";
@@ -14,6 +14,8 @@ import {
   CheckCircle,
   Clock,
   DotSmall,
+  MapPin,
+  Package,
   Truck,
   type IconProps,
 } from "./icons";
@@ -24,8 +26,8 @@ export type StageColorKey = keyof ColorTokens["stage"];
 export const STAGE_META: Record<Stage, { color: StageColorKey; icon: ComponentType<IconProps> }> = {
   미등록: { color: "unregistered", icon: Clock },
   등록: { color: "neutral", icon: DotSmall },
-  집화: { color: "neutral", icon: DotSmall },
-  이동중: { color: "neutral", icon: DotSmall },
+  집화: { color: "neutral", icon: Package }, // 아이콘만 차별화(상자), 색은 중립 유지
+  이동중: { color: "inTransit", icon: MapPin }, // 노란색 + 경로(MapPin) — 배송출발 Truck 과 구분
   배송출발: { color: "outForDelivery", icon: Truck },
   배송완료: { color: "delivered", icon: CheckCircle },
   예외: { color: "exception", icon: AlertTriangle },

@@ -47,17 +47,18 @@
 ### 배경 / 보더
 | 토큰 | 라이트 | 다크 |
 |------|------|------|
-| `bg/page` | `#ffffff` | `#0a0a0a` |
-| `bg/surface`(카드) | `#ffffff` | `#141414` |
-| `bg/secondary` | `#f5f5f5` | `#1c1c1c` |
-| `border` | `#e5e5e5` | `#262626` |
+| `bg/page` | `#ffffff` | `#000000` |
+| `bg/surface`(카드) | `#ffffff` | `#1c1c1e` |
+| `bg/secondary` | `#f2f2f7` | `#2c2c2e` |
+| `border` | `#e5e5ea` | `#38383a` |
 
 - 라이트에선 페이지·카드가 모두 흰색이므로 카드는 **옅은 보더(+아주 약한 그림자)**로 구분. 다크에선 배경색 차이로 구분(그림자 금지).
+- **값은 애플 iOS 시스템 컬러**: 배경=systemBackground/secondary·tertiarySystemGroupedBackground, `border`=systemGray5(L)·opaqueSeparator(D). 다크 페이지는 OLED true black(`#000000`). hex 단일 출처는 `app/src/theme/tokens.ts`(각 값 옆 Apple 컬러명 주석).
 
 ### 대표(브랜드) 색
 | 토큰 | 라이트 | 다크 |
 |------|------|------|
-| `accent`(브랜드) | `#2563eb` | `#3b82f6` |
+| `accent`(브랜드) | `#007aff` | `#0a84ff` |
 | `onAccent`(accent 위 전경) | `#ffffff` | `#ffffff` |
 
 - **대표 컬러 = 블루**. **상호작용 요소**에 쓴다(브랜드 강조): 기본 버튼·CTA·**활성 탭 틴트**·**선택 상태**(카드 보더·체크박스)·링크.
@@ -68,29 +69,39 @@
 ### 텍스트
 | 토큰 | 라이트 | 다크 |
 |------|------|------|
-| `text/primary` | `#18181b` | `#ffffff` |
-| `text/body` | `#3f3f46` | `#d4d4d4` |
-| `text/secondary` | `#6b7280` | `#a3a3a3` |
-| `text/disabled` | `#9ca3af` | `#737373` |
+| `text/primary` | `#000000` | `#ffffff` |
+| `text/body` | `#3c3c43` | `#ebebf5` |
+| `text/secondary` | `#8e8e93` | `#8e8e93` |
+| `text/disabled` | `#c7c7cc` | `#48484a` |
+
+- 애플 label 램프: primary=label, body=secondaryLabel(불투명), secondary=systemGray, disabled=systemGray3. ⚠️ `text/secondary`(`#8e8e93`)는 흰 배경 대비 ≈3.5:1 로 **WCAG AA(4.5) 미달** — iOS 정통값이나, 캡션(상대시간·택배사명 12px)에 쓰이므로 대비가 걱정되면 더 진한 회색으로 조정 가능.
 
 ### 단계(시맨틱) 색 — 라이트/다크 모두 대비 확보
 | 단계 | 라이트 | 다크 |
 |------|------|------|
-| `배송완료`(성공) | `#16a34a` | `#22c55e` |
-| `배송출발`(임박) | `#2563eb` | `#3b82f6` |
-| `예외`(에러) | `#dc2626` | `#ef4444` |
-| `등록`·`집화`·`이동중`·`기타`(중립) | `#6b7280` | `#a3a3a3` |
-| `미등록`(비활성) | `#9ca3af` | `#737373` |
+| `배송완료`(성공) | `#34c759` | `#30d158` |
+| `배송출발`(임박) | `#007aff` | `#0a84ff` |
+| `이동중`(진행 강조) | `#e0a500` | `#ffd60a` |
+| `예외`(에러) | `#ff3b30` | `#ff453a` |
+| `등록`·`집화`·`기타`(중립) | `#8e8e93` | `#8e8e93` |
+| `미등록`(비활성) | `#aeaeb2` | `#636366` |
+
+- 애플 시맨틱: 완료=systemGreen, 출발=systemBlue, 이동중=systemYellow, 예외=systemRed, 중립=systemGray, 미등록=systemGray2. `배송출발`이 `accent` 와 동색(둘 다 systemBlue)이나 토큰은 분리 유지(디커플링 규칙).
+- **이동중 = 노란색 계열**(`stage.inTransit`, 사용자 요구) — 중간단계 중 유일하게 색 부여. ⚠️ 애플 systemYellow(`#ffcc00`)는 **흰 카드 위 대비 ≈1.5:1 로 라벨이 거의 안 보여**, 라이트는 톤 내린 골드(`#e0a500`, ≈2.2:1)로 둔다(다크는 systemYellow 정값 `#ffd60a`). `집화` 는 색을 바꾸지 않고(중립 유지) **아이콘만** 차별화.
 
 ## 단계 배지 (색 + 아이콘 + 라벨 — 색 단독 금지)
 
 | 단계 | 아이콘(예) | 라벨 |
 |---|---|---|
-| `배송완료` | ✓ check | 배송완료 |
-| `배송출발` | truck | 배송출발 |
-| `예외` | alert | 예외 |
-| `등록`·`집화`·`이동중`·`기타` | dot/box | 각 단계명 |
+| `배송완료` | ✓ check(초록) | 배송완료 |
+| `배송출발` | truck(파랑) | 배송출발 |
+| `이동중` | mappin(노랑) | 이동중 |
+| `예외` | alert(빨강) | 예외 |
+| `집화` | box/Package(중립) | 집화 |
+| `등록`·`기타` | dot(중립) | 각 단계명 |
 | `미등록` | clock | 미등록 |
+
+- `집화`·`이동중` 은 중간단계지만 식별성을 위해 고유 아이콘 부여(나머지 중간단계 `등록`·`기타` 는 중립 dot). 카드 배지 소스는 `STAGE_META`(StageBadge.tsx), 상세 스텝퍼는 별도 `STEP_ICONS`(StageProgress.tsx).
 
 색은 위 "단계(시맨틱) 색"을 단일 출처로(ARCHITECTURE 상태 정규화 7단계와 1:1).
 

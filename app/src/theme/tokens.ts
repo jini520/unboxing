@@ -1,6 +1,8 @@
 /**
  * 시맨틱 컬러 토큰 — docs/UI_GUIDE.md "테마 & 색상" 단일 출처.
  * hex 값은 **이 파일에만** 둔다(컴포넌트는 토큰명만 참조). 라이트 기준·다크 동등 지원(ADR-016).
+ * 값은 **애플 iOS 시스템 컬러 팔레트**에 매핑(systemBlue/Green/Red·systemGray*·systemBackground·label 등 — 사용자 요구).
+ * 각 값 옆 주석은 대응하는 Apple 시스템 컬러명. 다크는 Apple 다크 변형값.
  */
 
 export type Scheme = "light" | "dark";
@@ -33,9 +35,11 @@ export interface ColorTokens {
     delivered: string;
     /** 배송출발(임박) */
     outForDelivery: string;
+    /** 이동중(진행 강조) — 노란색 계열 */
+    inTransit: string;
     /** 예외(에러) */
     exception: string;
-    /** 등록·집화·이동중·기타(중립) */
+    /** 등록·집화·기타(중립) */
     neutral: string;
     /** 미등록(비활성) */
     unregistered: string;
@@ -44,49 +48,55 @@ export interface ColorTokens {
 
 const light: ColorTokens = {
   bg: {
-    page: "#ffffff",
-    surface: "#ffffff",
-    secondary: "#f5f5f5",
+    page: "#ffffff", // systemBackground
+    surface: "#ffffff", // secondarySystemGroupedBackground (페이지와 동색 — 카드는 border 로 구분)
+    secondary: "#f2f2f7", // systemGray6
   },
-  border: "#e5e5e5",
-  accent: "#2563eb",
+  border: "#e5e5ea", // systemGray5 (얇은 구분선/보더)
+  // 애플 systemBlue(light) — 정통 하늘색 색조라 보라끼 도는 진블루보다 덜 쨍하고 iOS 네이티브 느낌(사용자 요구).
+  accent: "#007aff", // systemBlue
   onAccent: "#ffffff",
   text: {
-    primary: "#18181b",
-    body: "#3f3f46",
-    secondary: "#6b7280",
-    disabled: "#9ca3af",
+    primary: "#000000", // label
+    body: "#3c3c43", // secondaryLabel(base RGB, 본문은 불투명 사용)
+    secondary: "#8e8e93", // systemGray
+    disabled: "#c7c7cc", // systemGray3
   },
   stage: {
-    delivered: "#16a34a",
-    outForDelivery: "#2563eb",
-    exception: "#dc2626",
-    neutral: "#6b7280",
-    unregistered: "#9ca3af",
+    delivered: "#34c759", // systemGreen
+    outForDelivery: "#007aff", // systemBlue
+    // 이동중 — 노란색 계열. 애플 systemYellow(#ffcc00)는 흰 카드 위에서 대비 ≈1.5:1 로 라벨이 거의 안 보여,
+    // 라이트는 톤을 내린 골드(≈2.2:1, 다른 배지 색과 비슷한 가독성)로 둔다. 다크는 systemYellow 정값이 잘 보임.
+    inTransit: "#e0a500", // systemYellow(deepened for light contrast)
+    exception: "#ff3b30", // systemRed
+    neutral: "#8e8e93", // systemGray
+    unregistered: "#aeaeb2", // systemGray2
   },
 };
 
 const dark: ColorTokens = {
   bg: {
-    page: "#0a0a0a",
-    surface: "#141414",
-    secondary: "#1c1c1c",
+    page: "#000000", // systemBackground (OLED true black)
+    surface: "#1c1c1e", // secondarySystemGroupedBackground (페이지 위 카드)
+    secondary: "#2c2c2e", // tertiarySystemGroupedBackground (카드보다 한 톤 위)
   },
-  border: "#262626",
-  accent: "#3b82f6",
+  border: "#38383a", // opaqueSeparator
+  // 애플 systemBlue(dark) — 어두운 배경에서 한 톤 밝은 변형(iOS 다크 시스템 컬러).
+  accent: "#0a84ff", // systemBlue (dark)
   onAccent: "#ffffff",
   text: {
-    primary: "#ffffff",
-    body: "#d4d4d4",
-    secondary: "#a3a3a3",
-    disabled: "#737373",
+    primary: "#ffffff", // label
+    body: "#ebebf5", // secondaryLabel(base RGB)
+    secondary: "#8e8e93", // systemGray
+    disabled: "#48484a", // systemGray3 (dark)
   },
   stage: {
-    delivered: "#22c55e",
-    outForDelivery: "#3b82f6",
-    exception: "#ef4444",
-    neutral: "#a3a3a3",
-    unregistered: "#737373",
+    delivered: "#30d158", // systemGreen (dark)
+    outForDelivery: "#0a84ff", // systemBlue (dark)
+    inTransit: "#ffd60a", // systemYellow (dark) — 어두운 배경에선 정값이 잘 보임
+    exception: "#ff453a", // systemRed (dark)
+    neutral: "#8e8e93", // systemGray
+    unregistered: "#636366", // systemGray2 (dark)
   },
 };
 
