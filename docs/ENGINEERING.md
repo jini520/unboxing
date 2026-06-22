@@ -225,6 +225,7 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
   ```
 
 - `shipment_id` 는 `shipments(id) ON DELETE SET NULL` 참조 — 송장 정리돼도 기록 보존(딥링크만 무효). `src/schema.ts SCHEMA_STATEMENTS` 도 1:1 동기화(두 문장).
+- **앱 로컬(AsyncStorage) 마이그레이션**: 구 `unboxing.memos`(메모 문자열) → `unboxing.shipment_info`(`{memo,category,amount}`) 변환은 D1 이 아니라 **앱 bootstrap 에서 1회·멱등** 수행된다(`migrateMemosToInfo`). 별도 적용 명령 없음 — 구 키 보유 상태로 v1.1 첫 실행 시 메모가 보존되는지 **E-5 스모크**(A절 외부 경계 체크리스트 연계)로 확인한다.
 
 ## 적용 후 확인
 
