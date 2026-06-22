@@ -74,7 +74,32 @@
   - 스플래시 로고는 **정사각 + 중앙 원형 안전영역(지름 2/3) 기준**으로 디자인. 가로 워드마크 단독 금지.
   - `imageWidth` 는 **≤ 192** 유지(288dp 캔버스·192dp 원 규격).
   - 아이콘 교체 시 adaptive foreground 콘텐츠는 중앙 ~2/3 안전영역의 **솔리드 실루엣**, iOS `icon.png` 는 불투명 풀블리드 + 여백.
+  - **에셋·`app.json` 변경 후 로컬 `ios/`·`android/` 재prebuild 필수**: 이 둘은 CNG(gitignore된 prebuild 산출물)라 `app.json`/에셋만 바꾸고 `expo run:ios`(또는 android)를 그냥 돌리면 **stale 네이티브 폴더를 그대로 빌드** — 옛날 스플래시·아이콘·번들ID가 빌드에 박힌다. 반드시 `npx expo prebuild -p ios --clean`(또는 `-p android`) 후 재빌드. (실 사례: 세로 락업 교체 커밋 뒤 iOS 시뮬에 **가로 락업이 그대로** 떴고 번들ID도 옛 `com.anonymous.app` 잔존 → `prebuild --clean` 으로 해소.) 구워진 결과는 `ios/app/Images.xcassets/SplashScreenLogo.imageset/image@3x.png` 를 PIL 로 배경색 합성해 **눈으로 확인** 가능.
   - 관련 파일: `app/app.json`(splash 플러그인), `app/assets/{icon,splash-icon,android-icon-foreground,android-icon-monochrome}.png`.
+
+## P-7. iOS 네이티브 설정: `app/ios/`는 prebuild 생성물(gitignore) — 직접 편집 금지
+
+- **증상**: 스토어 검토 중 `app/ios/app/Info.plist`에서 `NSFaceIDUsageDescription`(영어·모호 문구)이 발견됨. "쓰지도 않는 권한 문자열 → 리젝, 그 줄을 지워라"고 판단하기 쉬움.
+- **원인/오해**:
+  - `app/ios/`는 `git check-ignore ios` = **gitignore된 `expo prebuild` 산출물(CNG)**. 거기서 `Info.plist`를 손으로 고쳐도 **다음 prebuild/빌드에서 재생성되어 사라진다**(P-6의 `prebuild --clean` 항목과 동일 원리). 네이티브 설정의 진짜 출처는 `app/app.json`(`ios.infoPlist`·`plugins`)이다.
+  - `NSFaceIDUsageDescription`은 **코드 실수가 아니라** `expo-secure-store` 플러그인이 항상 주입하는 **기본값**(`node_modules/expo-secure-store/plugin/build/withSecureStore.js`의 `FACEID_USAGE` 상수). SecureStore가 생체인증을 쓸 *수* 있어서 붙는다. 현재 앱은 `requireAuthentication`/`LocalAuthentication` 미사용이라 **리젝 위험은 낮음**.
+- **수정**:
+  - iOS 네이티브 키는 **`app.json`에서** 바꾼다. 수출규정 면제: `ios.infoPlist.ITSAppUsesNonExemptEncryption=false`(HTTPS·Keychain만 → 표준 암호화 면제). Face ID 문구 개선: `["expo-secure-store", { "faceIDPermission": "<구체적 한국어 사유>" }]`.
+  - iPad 심사 제외: `ios.supportsTablet=false`(iPhone 전용, iPad 레이아웃 미검증 리젝 회피).
+- **왜 `verify`가 못 잡나**: `app.json`은 typecheck/jest 대상이 아니다(`app/src/lib/__qa__/app-config.test.ts`가 **유효 JSON·키 존재**만 sanity 확인). 실효 검증은 **`expo prebuild` 산출 `ios/.../{Info.plist,PrivacyInfo.xcprivacy}` 병합 결과 + 실 빌드**로만.
+- **재발 방지**:
+  - `app/ios/`·`app/android/` 안의 파일을 **직접 편집하지 말 것**(gitignore = 생성물 신호). 네이티브 변경은 `app.json`(infoPlist·plugins·privacyManifests)로.
+  - `NS*UsageDescription`을 보면 먼저 **어느 플러그인이 주입했는지** 확인(`node_modules/<plugin>/plugin/build/*.js` grep) — 임의 삭제 금지.
+  - 스토어 제출 절차·체크리스트: `docs/IOS_SUBMISSION.md`.
+
+## P-8. EAS Android 빌드: 루트 `.gitignore`의 무앵커 디렉터리 패턴이 `app/assets/`를 삼켜 Prebuild 실패
+
+- **증상**: 안드로이드 EAS 빌드가 **Prebuild 단계에서 `UNKNOWN_ERROR`로 ~38초 만에 실패**. `eas build:view`는 "See logs of the Prebuild build phase"만 주고, 웹 로그는 **인증이라 CLI·WebFetch로 못 본다**. 로컬 `expo prebuild`는 **성공**해서 더 헷갈린다(전엔 되던 게 회귀).
+- **원인**: 루트 `.gitignore`에 **앵커 없는 `assets/`**(루트 `assets/play-store/` 스토어 스크린샷 무시 의도)가 들어가며 **`app/assets/`(앱 아이콘)까지 매칭**. EAS는 `cli.requireCommit:false`라도 프로젝트 복사 시 `.gitignore`를 존중하므로, **git-tracked 파일이어도** 무시 패턴에 걸리면 업로드 아카이브에서 빠진다 → prebuild `withAndroidIcons`가 `./assets/icon.png`를 못 열어 `ENOENT: ... open './assets/icon.png'`.
+- **수정**: 루트 `.gitignore` `assets/` → **`/assets/`**(루트 앵커). `app/assets/`는 안 잡히고 보존된다.
+- **진단법(핵심)**: 웹 로그가 막히면 **`eas build:inspect --platform android --profile <p> --stage pre-build --output <dir> --force --verbose`** 로 EAS prebuild를 **클린 체크아웃 기반으로 로컬 재현** → `[PREBUILD] Error: ... ENOENT ... icon.png` 실에러를 바로 확보. **일반 `expo prebuild`로는 재현 안 됨**(더티 워킹디렉터리·기존 에셋이 있어 통과). 회귀 추적은 `eas build:list -p android`로 마지막 FINISHED 시점과 비교.
+- **왜 `verify` 가 못 잡나**: `.gitignore`·빌드 아카이브 구성은 typecheck/jest와 무관(P-6·P-7과 같은 "빌드 타임 네이티브 에셋" 부류). EAS 빌드 또는 `build:inspect` 클린 복사에서만 드러난다.
+- **재발 방지**: 루트 디렉터리명 무시 패턴(`assets/`·`build/`·`dist/` 등)은 **반드시 앵커(`/`)** 를 붙여 하위 워크스페이스(`app/`)의 동명 폴더를 안 잡게 한다. 빌드가 원인 불명으로 prebuild에서 죽으면 **`eas build:inspect ... --stage pre-build --verbose` 로컬 재현이 1순위 도구**.
 
 ---
 
