@@ -1,7 +1,13 @@
 import { describe, it, expect } from "@jest/globals";
-import type { Shipment } from "./api";
+import type { NotificationRecord, Shipment } from "./api";
 import type { KeyValueStore } from "./cache";
-import { cacheShipments, readCachedShipments, clearCache } from "./cache";
+import {
+  cacheNotifications,
+  cacheShipments,
+  clearCache,
+  readCachedNotifications,
+  readCachedShipments,
+} from "./cache";
 
 /** 인메모리 KeyValueStore. */
 function memStore() {
@@ -48,5 +54,38 @@ describe("cache", () => {
     await cacheShipments(SHIPMENTS, { store, now: 42 });
     const cached = await readCachedShipments({ store });
     expect(cached?.cachedAt).toBe(42);
+  });
+});
+
+const NOTIFS: NotificationRecord[] = [
+  { id: "n1", shipmentId: "s1", carrier: "kr.cjlogistics", last4: "1234", body: "배송 완료 ✓", stage: "배송완료", sentAt: 1700 },
+  { id: "n2", shipmentId: null, carrier: "kr.epost", last4: "5678", body: "접수 확인", stage: "등록", sentAt: 1600 },
+];
+
+describe("notifications cache", () => {
+  it("cacheNotifications → readCachedNotifications 라운드트립(list 보존)", async () => {
+    const store = memStore();
+    await cacheNotifications(NOTIFS, { store, now: 9000 });
+    expect(await readCachedNotifications({ store })).toEqual(NOTIFS);
+  });
+
+  it("빈 캐시는 null 을 반환한다", async () => {
+    const store = memStore();
+    expect(await readCachedNotifications({ store })).toBeNull();
+  });
+
+  it("손상 JSON 은 null 로 graceful 처리한다", async () => {
+    const store = memStore();
+    await store.setItem("unboxing.notifications_cache", "{broken");
+    expect(await readCachedNotifications({ store })).toBeNull();
+  });
+
+  it("clearCache 는 알림 캐시도 함께 폐기한다(wipe 커버리지)", async () => {
+    const store = memStore();
+    await cacheShipments(SHIPMENTS, { store, now: 1 });
+    await cacheNotifications(NOTIFS, { store, now: 1 });
+    await clearCache({ store });
+    expect(await readCachedShipments({ store })).toBeNull();
+    expect(await readCachedNotifications({ store })).toBeNull();
   });
 });

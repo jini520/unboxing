@@ -29,7 +29,9 @@ import {
 import { apiDeps } from "../../src/lib/deps";
 import { carrierName } from "../../src/lib/carrier";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
-import { defaultMemoText, loadMemos, memoStore, setMemo } from "../../src/lib/memo";
+import { defaultMemoText } from "../../src/lib/memo";
+import { CATEGORIES, getInfo, infoStore, setInfo } from "../../src/lib/info";
+import { formatAmount, parseAmount } from "../../src/lib/amount";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
@@ -55,33 +57,57 @@ export default function DetailScreen() {
   // 수취인은 실시간 조회분만 화면 state 로(미저장 — ADR-005). 캐시·로그 금지, 화면 이탈 시 폐기.
   const [recipient, setRecipient] = useState<Contact | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  // 메모(로컬 전용) — 이 택배가 무엇인지. 진입 시 로드, 헤더 연필 → 모달에서 편집·저장.
+  // 택배 정보(메모·카테고리·금액, 로컬 전용 — ADR-024). 진입 시 로드, 헤더 연필 → "택배 정보" 모달에서 편집·저장.
+  // 메모는 헤더 타이틀·식별에 쓰여 별도 state 로 둔다(표시 규칙 불변). 카테고리·금액은 모달 안에서만.
   const [memo, setMemoState] = useState("");
-  const [memoModal, setMemoModal] = useState(false);
+  const [category, setCategory] = useState<string | undefined>(undefined);
+  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [infoModal, setInfoModal] = useState(false);
+  // 모달 드래프트 — 저장 전까지 라이브 값과 분리. 금액은 입력 문자열(빈/오류 판정용), 저장 시 parseAmount.
   const [memoDraft, setMemoDraft] = useState("");
+  const [categoryDraft, setCategoryDraft] = useState<string | undefined>(undefined);
+  const [amountDraft, setAmountDraft] = useState("");
   const deleting = useRef(false);
 
   useEffect(() => {
     if (!id) return;
     let active = true;
-    void loadMemos({ store: memoStore }).then((m) => {
-      if (active) setMemoState(m[id] ?? "");
+    void getInfo(id, { store: infoStore }).then((info) => {
+      if (!active) return;
+      setMemoState(info.memo ?? "");
+      setCategory(info.category);
+      setAmount(info.amount);
     });
     return () => {
       active = false;
     };
   }, [id]);
 
-  const openMemo = useCallback(() => {
+  const openInfo = useCallback(() => {
     setMemoDraft(memo);
-    setMemoModal(true);
-  }, [memo]);
+    setCategoryDraft(category);
+    // 금액 드래프트는 순수 숫자 문자열(미설정이면 빈 문자열). ₩·천단위는 표시 전용이라 입력엔 두지 않는다.
+    setAmountDraft(amount === undefined ? "" : String(amount));
+    setInfoModal(true);
+  }, [memo, category, amount]);
 
-  const saveMemo = useCallback(() => {
+  // 금액 입력 오류(비어있지 않은데 0 이상 정수가 아님) — 인라인 안내 + 저장 차단.
+  const amountInvalid = amountDraft.trim() !== "" && parseAmount(amountDraft) === undefined;
+
+  const saveInfo = useCallback(() => {
+    if (amountInvalid) return; // 잘못된 금액이면 저장하지 않는다(모달 유지·인라인 안내).
+    const parsedAmount = amountDraft.trim() === "" ? undefined : parseAmount(amountDraft);
     setMemoState(memoDraft);
-    if (id) void setMemo(id, memoDraft, { store: memoStore });
-    setMemoModal(false);
-  }, [id, memoDraft]);
+    setCategory(categoryDraft);
+    setAmount(parsedAmount);
+    if (id)
+      void setInfo(
+        id,
+        { memo: memoDraft, category: categoryDraft, amount: parsedAmount },
+        { store: infoStore },
+      );
+    setInfoModal(false);
+  }, [id, memoDraft, categoryDraft, amountDraft, amountInvalid]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -169,11 +195,11 @@ export default function DetailScreen() {
         title={headerTitle}
         right={
           <Pressable
-            onPress={openMemo}
+            onPress={openInfo}
             hitSlop={8}
             style={styles.headerEdit}
             accessibilityRole="button"
-            accessibilityLabel="메모 편집"
+            accessibilityLabel="택배 정보 편집"
           >
             <Pencil size={22} color={tokens.text.primary} />
           </Pressable>
@@ -255,31 +281,115 @@ export default function DetailScreen() {
         </Pressable>
       )}
 
-      {/* 메모 편집 모달 — 헤더 연필/메모 카드 탭으로 진입. */}
-      <Modal visible={memoModal} transparent animationType="fade" onRequestClose={() => setMemoModal(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setMemoModal(false)}>
+      {/* 택배 정보 편집 모달 — 헤더 연필로만 진입(본문 인라인 박스 없음·회귀 락). 메모+카테고리+금액(모두 로컬 전용·ADR-024). */}
+      <Modal visible={infoModal} transparent animationType="fade" onRequestClose={() => setInfoModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setInfoModal(false)}>
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
-            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>메모</Text>
-            <TextInput
-              value={memoDraft}
-              onChangeText={setMemoDraft}
-              placeholder="이 택배가 무엇인지 적어두세요"
-              placeholderTextColor={tokens.text.disabled}
-              style={[
-                styles.memoInput,
-                { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
-              ]}
-              multiline
-              maxLength={100}
-              autoFocus
-              accessibilityLabel="메모 입력"
-            />
+            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>택배 정보</Text>
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+              {/* 메모 — 기존 textarea 동작 보존. 빈 메모는 저장 시 memo 필드 삭제(setInfo 계약). */}
+              <Text style={[styles.fieldLabel, { color: tokens.text.secondary }]}>메모</Text>
+              <TextInput
+                value={memoDraft}
+                onChangeText={setMemoDraft}
+                placeholder="이 택배가 무엇인지 적어두세요"
+                placeholderTextColor={tokens.text.disabled}
+                style={[
+                  styles.memoInput,
+                  { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
+                ]}
+                multiline
+                maxLength={100}
+                autoFocus
+                accessibilityLabel="메모 입력"
+              />
+
+              {/* 카테고리 — 선택(미설정 기본). 선택된 칩을 다시 탭하면 해제(미설정=값 없음·칩 강조 없음, 보강⑥). */}
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap, { color: tokens.text.secondary }]}>
+                카테고리
+              </Text>
+              <View style={styles.chipsWrap}>
+                {CATEGORIES.map((c) => {
+                  const active = categoryDraft === c;
+                  return (
+                    <Pressable
+                      key={c}
+                      onPress={() => setCategoryDraft(active ? undefined : c)}
+                      style={[
+                        styles.catChip,
+                        {
+                          borderColor: active ? tokens.accent : tokens.border,
+                          backgroundColor: active ? tokens.accent : tokens.bg.surface,
+                        },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`카테고리 ${c}`}
+                    >
+                      <Text
+                        style={[
+                          styles.catChipText,
+                          {
+                            color: active ? tokens.onAccent : tokens.text.body,
+                            fontWeight: active ? fontWeight.semibold : fontWeight.medium,
+                          },
+                        ]}
+                      >
+                        {c}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* 금액 — 선택·0 이상 정수(원). ₩ 접두 표시·숫자 키패드. 잘못된 값은 인라인 안내 + 저장 차단(미저장). */}
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap, { color: tokens.text.secondary }]}>
+                금액
+              </Text>
+              <View
+                style={[
+                  styles.amountRow,
+                  {
+                    backgroundColor: tokens.bg.secondary,
+                    borderColor: amountInvalid ? tokens.stage.exception : tokens.border,
+                  },
+                ]}
+              >
+                <Text style={[styles.amountPrefix, { color: tokens.text.secondary }]}>₩</Text>
+                <TextInput
+                  value={amountDraft}
+                  onChangeText={setAmountDraft}
+                  placeholder="0"
+                  placeholderTextColor={tokens.text.disabled}
+                  keyboardType="number-pad"
+                  style={[styles.amountInput, { color: tokens.text.primary }]}
+                  accessibilityLabel="금액 입력"
+                />
+              </View>
+              {amountInvalid ? (
+                <Text style={[styles.errorText, { color: tokens.stage.exception }]}>
+                  0 이상 정수(원)만 입력할 수 있어요
+                </Text>
+              ) : null}
+            </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setMemoModal(false)} hitSlop={8} accessibilityRole="button">
+              <Pressable onPress={() => setInfoModal(false)} hitSlop={8} accessibilityRole="button">
                 <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
               </Pressable>
-              <Pressable onPress={saveMemo} hitSlop={8} accessibilityRole="button">
-                <Text style={[styles.modalSave, { color: tokens.text.primary }]}>저장</Text>
+              <Pressable
+                onPress={saveInfo}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: amountInvalid }}
+              >
+                <Text
+                  style={[
+                    styles.modalSave,
+                    { color: amountInvalid ? tokens.text.disabled : tokens.text.primary },
+                  ]}
+                >
+                  저장
+                </Text>
               </Pressable>
             </View>
           </Pressable>
@@ -322,6 +432,17 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: spacing.xl },
   modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   modalTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  // 필드가 길어질 수 있어(메모+카테고리 칩+금액) 내부 스크롤 — 작은 화면·키보드에서도 액션 버튼이 가려지지 않게.
+  modalScroll: { maxHeight: 360 },
+  fieldLabel: { fontSize: fontSize.footnote, fontWeight: fontWeight.medium, marginBottom: spacing.sm },
+  fieldLabelGap: { marginTop: spacing.lg },
+  chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  catChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.md, borderWidth: 1 },
+  catChipText: { fontSize: fontSize.footnote },
+  amountRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
+  amountPrefix: { fontSize: fontSize.base, marginRight: spacing.sm },
+  amountInput: { flex: 1, paddingVertical: 10, fontSize: fontSize.base },
+  errorText: { fontSize: fontSize.footnote, marginTop: spacing.xs },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.xl },
   modalCancel: { fontSize: fontSize.callout },
   modalSave: { fontSize: fontSize.callout, fontWeight: fontWeight.bold },

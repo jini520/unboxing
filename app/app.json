@@ -8,7 +8,10 @@
     "scheme": "unboxing",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
       "privacyManifests": {
         "NSPrivacyTracking": false,
         "NSPrivacyTrackingDomains": [],
@@ -46,7 +49,12 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "기기에 저장된 익명 식별자 보호를 위해 Face ID를 사용할 수 있습니다."
+        }
+      ],
       [
         "expo-splash-screen",
         {

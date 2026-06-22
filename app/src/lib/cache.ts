@@ -7,7 +7,7 @@
  * now 주입(Date.now 직접 호출 금지 — 결정적 테스트).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { Shipment } from "./api";
+import type { NotificationRecord, Shipment } from "./api";
 
 /** 키-값 저장소 추상화(테스트 주입용). 운영 구현은 AsyncStorage(cacheStore). */
 export interface KeyValueStore {
@@ -17,6 +17,8 @@ export interface KeyValueStore {
 }
 
 const CACHE_KEY = "unboxing.shipments_cache";
+// 알림 기록 오프라인 캐시(GET /notifications 의 마지막 성공 응답) — 서버 SOT·앱은 캐시 읽기만(ADR-014·023).
+const NOTIF_CACHE_KEY = "unboxing.notifications_cache";
 
 /** 저장 형태: 목록 + 캐시 시각. Shipment 는 비개인 필드만 가지므로 그대로 저장해도 안전(ADR-005). */
 interface CachedShipments {
@@ -42,9 +44,34 @@ export async function readCachedShipments(deps: {
   return JSON.parse(raw) as CachedShipments;
 }
 
-/** 캐시 폐기. */
+/** 캐시 폐기 — 오프라인 읽기 캐시(송장 + 알림 기록) 전부. wipeAllData 가 호출(ADR-017). */
 export async function clearCache(deps: { store: KeyValueStore }): Promise<void> {
   await deps.store.removeItem(CACHE_KEY);
+  await deps.store.removeItem(NOTIF_CACHE_KEY);
+}
+
+/**
+ * 알림 기록 목록 + 캐시 시각(now)을 저장(오프라인 표시용, ADR-023). 비-PII(택배사·끝4자리·상태)라 저장 안전.
+ * GET /notifications 성공 시 호출 — 다음 오프라인/구버전 서버(404) 진입 때 readCachedNotifications 가 폴백.
+ */
+export async function cacheNotifications(
+  list: NotificationRecord[],
+  deps: { store: KeyValueStore; now: number },
+): Promise<void> {
+  await deps.store.setItem(NOTIF_CACHE_KEY, JSON.stringify({ list, cachedAt: deps.now }));
+}
+
+/** 캐시된 알림 목록. 없거나 손상 JSON 이면 null(graceful — 화면이 빈 목록 폴백). */
+export async function readCachedNotifications(deps: {
+  store: KeyValueStore;
+}): Promise<NotificationRecord[] | null> {
+  const raw = await deps.store.getItem(NOTIF_CACHE_KEY);
+  if (raw === null) return null;
+  try {
+    return (JSON.parse(raw) as { list: NotificationRecord[] }).list;
+  } catch {
+    return null;
+  }
 }
 
 /** 운영용 기본 저장소 인스턴스(AsyncStorage — 비암호화 영속 KV). */

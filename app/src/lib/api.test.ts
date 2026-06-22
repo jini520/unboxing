@@ -4,6 +4,7 @@ import {
   registerDevice,
   createShipment,
   listShipments,
+  listNotifications,
   getShipment,
   deleteShipment,
   deleteMe,
@@ -146,6 +147,32 @@ describe("listShipments", () => {
     expect(d.calls[0].init.method).toBe("GET");
     expect(out).toHaveLength(1);
     expect(out[0].trackingNo).toBe("123456789012");
+  });
+});
+
+describe("listNotifications", () => {
+  const notif = {
+    id: "n1",
+    shipmentId: "ship-1",
+    carrier: "kr.cjlogistics",
+    last4: "9012",
+    body: "배송 완료 ✓",
+    stage: "배송완료",
+    sentAt: 1700000000000,
+  };
+
+  it("GET /notifications · 서버 camelCase 응답 그대로 반환", async () => {
+    const d = deps(res(200, { notifications: [notif] }));
+    const out = await listNotifications(d);
+    expect(d.calls[0].url).toBe(`${BASE}/notifications`);
+    expect(d.calls[0].init.method).toBe("GET");
+    expect(out).toEqual([notif]);
+  });
+
+  it("limit 지정 시 ?limit= 쿼리스트링 부착", async () => {
+    const d = deps(res(200, { notifications: [] }));
+    await listNotifications(d, 50);
+    expect(d.calls[0].url).toBe(`${BASE}/notifications?limit=50`);
   });
 });
 

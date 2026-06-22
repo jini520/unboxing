@@ -25,6 +25,23 @@ export interface ShipmentInfo {
 
 export type InfoMap = Record<string, ShipmentInfo>;
 
+/**
+ * 카테고리 고정 목록(택배 정보 모달의 선택지·단일 출처) — docs/PRD.md "v1.1 기능 명세 4".
+ * **선택 안 함이 기본(미설정=값 없음·칩 없음)** — 별도 "미지정" 의사값을 두지 않는다(보강⑥).
+ * 마지막 `기타` 는 실제 catch-all 카테고리이지 "미설정" 이 아니다. 목록 외 레거시 값도 표시는 허용.
+ */
+export const CATEGORIES = [
+  "식품",
+  "생활용품",
+  "의류·패션",
+  "뷰티",
+  "전자·디지털",
+  "도서·문구",
+  "가구·인테리어",
+  "유아·반려",
+  "기타",
+] as const;
+
 /** 저장된 정보 맵(없으면 빈 객체). 손상 JSON·비객체는 빈 객체로 안전 처리. */
 export async function loadInfo(deps: { store: KeyValueStore }): Promise<InfoMap> {
   const raw = await deps.store.getItem(INFO_KEY);

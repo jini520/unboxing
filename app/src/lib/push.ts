@@ -92,6 +92,16 @@ export function addNotificationResponseListener(
 }
 
 /**
+ * 콜드스타트(앱 종료 상태 → 알림 탭)로 앱을 연 알림의 payload data(없으면 null).
+ * resolveInitialRoute(보강③)의 딥링크 입력 — 런타임 탭은 addNotificationResponseListener 가 처리하지만,
+ * 종료 상태 launch 는 리스너 등록 전에 일어나므로 getLastNotificationResponseAsync 가 정본이다.
+ */
+export async function getLastNotificationData(): Promise<unknown> {
+  const response = await Notifications.getLastNotificationResponseAsync();
+  return response?.notification.request.content.data ?? null;
+}
+
+/**
  * 알림 payload → 상세 라우트 경로. 순수·테스트 대상.
  * { shipment_id: "abc" } → "/shipment/abc". shipment_id 없거나 형식 불일치면 null.
  */

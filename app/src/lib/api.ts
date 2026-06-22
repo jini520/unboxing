@@ -47,6 +47,21 @@ export interface Contact {
 }
 
 /**
+ * 받은 알림 기록 1건(GET /notifications, ADR-023). 서버가 이미 camelCase 로 응답 → 매핑 없이 그대로.
+ * shipmentId 가 null 이면 가리키던 송장이 정리됨(딥링크 비활성·"정리된 택배"). carrier·last4·body·stage 는
+ * denormalize 라 송장이 사라져도 표시는 유지된다. stage 는 표준 단계(표시용), sentAt 은 발송 시각(epoch ms).
+ */
+export interface NotificationRecord {
+  id: string;
+  shipmentId: string | null;
+  carrier: string;
+  last4: string;
+  body: string;
+  stage: Stage;
+  sentAt: number;
+}
+
+/**
  * API 에러. code 는 서버 머신 코드(또는 클라이언트 'NETWORK') — 화면 step이 친근한 카피로 매핑한다.
  * 원시 code·message 를 사용자에게 그대로 노출하지 말 것(PRD 톤 규칙).
  */
@@ -174,6 +189,20 @@ export async function listShipments(deps: ApiDeps): Promise<Shipment[]> {
   const res = await request("/shipments", { method: "GET" }, deps);
   const body = (await res.json()) as { shipments: RawShipment[] };
   return body.shipments.map(toShipment);
+}
+
+/**
+ * GET /notifications — 이 기기가 받은 알림 기록(시간 역순, ADR-023). 서버 SOT·로컬 캐시(ADR-014).
+ * 서버 응답이 이미 camelCase 라 그대로 반환. limit 미지정 시 서버 기본(100·상한 200).
+ */
+export async function listNotifications(
+  deps: ApiDeps,
+  limit?: number,
+): Promise<NotificationRecord[]> {
+  const q = limit !== undefined ? `?limit=${limit}` : "";
+  const res = await request(`/notifications${q}`, { method: "GET" }, deps);
+  const body = (await res.json()) as { notifications: NotificationRecord[] };
+  return body.notifications;
 }
 
 /** GET /shipments/:id — 상세 = 실시간 타임라인(ADR-011) + 수취인 패스스루(ADR-005). */

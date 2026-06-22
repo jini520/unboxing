@@ -5,7 +5,7 @@
  * 인터랙션(gesture-handler Swipeable, 양방향 reveal — 2단계):
  *  - 1단계: 좌측 스와이프 → **삭제** 버튼 노출 / 우측 스와이프 → **음소거** 버튼 노출(첫 스와이프는 노출만, 실행 X).
  *  - 2단계: 이미 노출된 상태에서 **같은 방향으로 한 번 더 스와이프**하면 버튼 탭과 동일하게 실행(또는 버튼 직접 탭).
- *  실행은 부모에 위임(onDelete=낙관+Undo / onToggleMute=낙관+롤백). reveal 이 의도 확인 게이트라 별도 다이얼로그 없음.
+ *  실행은 부모에 위임(onDelete=확인 다이얼로그 후 삭제 / onToggleMute=낙관+롤백). **2단계 임계 도달 시 햅틱**(양방향).
  *  - 선택 모드(부모 롱프레스 진입): 스와이프 비활성·체크박스 표시·탭=선택 토글(상세 이동 아님).
  * 색은 토큰만(하드코딩 금지). 상태는 색 단독 금지 — StageBadge(색+글리프+라벨), 음소거는 아이콘+a11y 라벨.
  * 택배사명은 carrierName(carrier.ts) 로 한글 표기(미상 id 는 그대로 폴백).
@@ -13,13 +13,14 @@
 import { memo, useEffect, useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
+import * as Haptics from "expo-haptics";
 import type { Shipment } from "../lib/api";
 import { carrierName } from "../lib/carrier";
 import { defaultMemoText } from "../lib/memo";
 import { relativeTime } from "../lib/time";
 import { useTheme } from "../theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../theme/layout";
-import { BellFill, BellOff, BellOffFill, Check, TrashFill } from "./icons";
+import { BellFill, BellOff, BellOffFill, Check, Tag, TrashFill } from "./icons";
 import { StageBadge } from "./StageBadge";
 
 /**
@@ -52,6 +53,7 @@ function ShipmentCardBase({
   shipment,
   now,
   memo,
+  category,
   selectionMode,
   selected,
   reduceMotion,
@@ -64,6 +66,8 @@ function ShipmentCardBase({
   shipment: Shipment;
   now: number;
   memo?: string;
+  /** 카테고리(로컬 전용·선택) — 설정 시에만 칩으로 보조 표시. 미설정이면 칩 없음(ADR-024·보강⑥). */
+  category?: string;
   selectionMode: boolean;
   selected: boolean;
   reduceMotion: boolean;
@@ -99,13 +103,19 @@ function ShipmentCardBase({
     if (!dragX) return;
     const id = dragX.addListener(({ value }) => {
       if (!openedRef.current || firedRef.current) return;
-      if (openedRef.current === "right" && value <= -SWIPE_AGAIN_PX) {
-        firedRef.current = true;
-        pendingFireRef.current = "right";
-      } else if (openedRef.current === "left" && value >= SWIPE_AGAIN_PX) {
-        firedRef.current = true;
-        pendingFireRef.current = "left";
-      }
+      // 2단계 임계 도달(이미 열린 방향으로 추가 SWIPE_AGAIN_PX 더 밀기) — 실행 예약 + **햅틱**(임계 넘는 순간 즉시 피드백).
+      // 양방향(삭제·음소거) 공통. iOS 시뮬레이터/햅틱 비활성 기기에선 no-op(throw 안 함, catch 로 무시).
+      // reduce-motion 과 무관 — 시스템 햅틱 설정이 별도 게이트라 expo-haptics 가 자동 존중한다.
+      const reached =
+        openedRef.current === "right" && value <= -SWIPE_AGAIN_PX
+          ? "right"
+          : openedRef.current === "left" && value >= SWIPE_AGAIN_PX
+            ? "left"
+            : null;
+      if (!reached) return;
+      firedRef.current = true;
+      pendingFireRef.current = reached;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     });
     return () => dragX.removeListener(id);
   }, [selectionMode]);
@@ -168,6 +178,20 @@ function ShipmentCardBase({
           <Text style={[styles.memo, { color: tokens.text.primary }]} numberOfLines={1}>
             {memo || defaultMemoText(shipment.createdAt)}
           </Text>
+          {/* 카테고리 칩(로컬·보조) — 설정 시에만 메모 줄 **아래** 작게(메모 표시 규칙 불변·칩은 보조). 색 단독 아님(Tag 글리프+라벨). */}
+          {category ? (
+            <View style={[styles.chip, { backgroundColor: tokens.bg.secondary }]}>
+              <Tag
+                size={12}
+                color={tokens.text.secondary}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+              <Text style={[styles.chipText, { color: tokens.text.secondary }]} numberOfLines={1}>
+                {category}
+              </Text>
+            </View>
+          ) : null}
           {/* 택배사·운송장 전체번호(하단·작게) — 본인 데이터라 끝4자리로 줄이지 않고, 길면 잘림 없이 줄바꿈 허용. */}
           <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
             {carrierName(shipment.carrier)} · {shipment.trackingNo}
@@ -351,6 +375,22 @@ const styles = StyleSheet.create({
     fontSize: fontSize.callout,
     fontWeight: fontWeight.semibold,
     marginTop: spacing.sm,
+  },
+  // 카테고리 칩(보조) — 메모 줄 아래 작게. 좌측정렬·내용폭(alignSelf:flex-start)이라 메모/번호 줄을 밀지 않는다.
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginTop: spacing.sm,
+    maxWidth: "100%",
+  },
+  chipText: {
+    fontSize: fontSize.micro,
+    fontWeight: fontWeight.medium,
   },
   // 택배사·운송장 전체번호(하단·보조) — 더 작게(12). 줄바꿈 허용(끝4자리 축약 금지).
   carrier: {

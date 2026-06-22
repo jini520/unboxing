@@ -163,6 +163,18 @@ export function Check({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProp
   );
 }
 
+/** 대시보드 탭(2×2 그리드). */
+export function Grid({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Rect x="3" y="3" width="7" height="7" rx="1" />
+      <Rect x="14" y="3" width="7" height="7" rx="1" />
+      <Rect x="14" y="14" width="7" height="7" rx="1" />
+      <Rect x="3" y="14" width="7" height="7" rx="1" />
+    </Svg>
+  );
+}
+
 /** 택배함(닫힌 상자) — 탭 비활성. */
 export function Package({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (
@@ -181,6 +193,26 @@ export function Pencil({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPro
     <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
       <Path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
       <Path d="M15 5l4 4" />
+    </Svg>
+  );
+}
+
+/** 복구(반시계 회전 화살표) — 휴지통 항목 되살리기. UI_GUIDE 신규 글리프 ArrowCounterClockwise/Restore. */
+export function Restore({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M1 4v6h6" />
+      <Path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+    </Svg>
+  );
+}
+
+/** 카테고리 태그(라벨) — 카드 카테고리 칩용. UI_GUIDE 신규 글리프 Tag. */
+export function Tag({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+      <Path d="M7 7h.01" />
     </Svg>
   );
 }
