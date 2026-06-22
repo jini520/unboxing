@@ -1,0 +1,12 @@
+{
+  "project": "unboxing",
+  "phase": "ui",
+  "steps": [
+    { "step": 0, "name": "list-integration-and-restore-delete-ux", "status": "pending" },
+    { "step": 1, "name": "dashboard-tab-and-nav", "status": "pending" },
+    { "step": 2, "name": "notifications-screen", "status": "pending" },
+    { "step": 3, "name": "trash-screen", "status": "pending" },
+    { "step": 4, "name": "info-modal-and-category-chip", "status": "pending" },
+    { "step": 5, "name": "settings-and-coldstart-routing", "status": "pending" }
+  ]
+}

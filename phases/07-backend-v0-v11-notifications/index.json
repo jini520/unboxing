@@ -1,0 +1,10 @@
+{
+  "project": "unboxing",
+  "phase": "backend",
+  "steps": [
+    { "step": 0, "name": "notifications-schema", "status": "pending" },
+    { "step": 1, "name": "fanout-logging-and-korean-title", "status": "pending" },
+    { "step": 2, "name": "quiet-flush-and-retention-sweep", "status": "pending" },
+    { "step": 3, "name": "notifications-endpoint-and-delete-cleanup", "status": "pending" }
+  ]
+}

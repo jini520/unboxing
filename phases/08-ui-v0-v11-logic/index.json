@@ -1,0 +1,10 @@
+{
+  "project": "unboxing",
+  "phase": "ui",
+  "steps": [
+    { "step": 0, "name": "stage-bucket-counts-filter", "status": "pending" },
+    { "step": 1, "name": "trash-store", "status": "pending" },
+    { "step": 2, "name": "info-store-migration-amount", "status": "pending" },
+    { "step": 3, "name": "unread-route-wipe", "status": "pending" }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "project": "unboxing",
+  "phase": "qa",
+  "steps": [
+    { "step": 0, "name": "live-privacy-policy-sync", "status": "pending" }
+  ]
+}
