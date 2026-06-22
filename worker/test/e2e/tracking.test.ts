@@ -342,8 +342,8 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE last_polled_at IS NULL")).toBe(1);
   });
 
-  // ── QA-006 재현: 푸시 title 이 택배사 id 그대로 노출(친근한 한글명 아님) ──
-  it("[QA-006 재현] 푸시 title 에 택배사 id(kr.cjlogistics) 노출", async () => {
+  // ── QA-006/#9 수정: 푸시 title 이 친근한 한글 택배사명(carrierId 비노출) ──
+  it("[#9] 푸시 title 에 한글 택배사명(CJ대한통운) — carrierId 비노출", async () => {
     await registerDevice("dev-A", TOKEN_A);
     await registerShipment("dev-A", "123456789012");
     const f = makeFetch();
@@ -352,8 +352,9 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     await runPollingBatch(env, { now: daytime(Date.now()), fetch: f.fetch }); // 주간 고정(등록 즉시 발송)
 
     expect(f.sentMessages).toHaveLength(1);
-    // 기대(사양)는 친근한 한글 택배사명. 현재는 carrierId 그대로. QA-006.
-    expect(f.sentMessages[0].title).toContain("kr.cjlogistics");
+    // QA-006 수정: carrierId(kr.cjlogistics) 대신 한글명(CJ대한통운)을 노출한다.
+    expect(f.sentMessages[0].title).toContain("CJ대한통운");
+    expect(f.sentMessages[0].title).not.toContain("kr.cjlogistics");
   });
 
   // ── QA-004(#7) 수정: 조용시간 야간 보류·아침 묶음 발송 ──

@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, it, expect, beforeEach } from "vitest";
 import { applySchema, bearer } from "./helpers";
-import { runPollingBatch } from "../src/cron";
+import { runPollingBatch, NOTIFICATION_DEVICE_CAP } from "../src/cron";
 
 const BASE = "https://example.com";
 
@@ -35,6 +35,18 @@ interface FakeFetch {
   sendCalls: number; // Expo push/send 호출 수
   receiptsCalls: number; // Expo push/getReceipts 호출 수
   sentMessages: { to: string; body: string; data: { shipment_id: string } }[];
+}
+
+/** notifications 행(알림 기록, step1) — 컬럼 값 검증용. */
+interface NotifRow {
+  id: string;
+  device_id: string;
+  shipment_id: string | null;
+  carrier: string;
+  last4: string;
+  body: string;
+  stage: string;
+  sent_at: number;
 }
 
 function makeFetch(opts: FakeOpts = {}): FakeFetch {
@@ -456,5 +468,253 @@ describe("cron — 배치 폴링", () => {
 
     await env.DB.prepare("DELETE FROM shipments WHERE id = 'S'").run();
     expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // CASCADE
+  });
+
+  // ── 알림 기록(step1, ADR-023): 전환 푸시 fan-out 시점 1행 INSERT — 음소거 제외·멱등·best-effort ──
+
+  async function notifs(deviceId?: string): Promise<NotifRow[]> {
+    const sql = deviceId
+      ? "SELECT * FROM notifications WHERE device_id = ? ORDER BY sent_at"
+      : "SELECT * FROM notifications ORDER BY sent_at";
+    const stmt = env.DB.prepare(sql);
+    const { results } = await (deviceId ? stmt.bind(deviceId) : stmt).all<NotifRow>();
+    return results;
+  }
+
+  it("전환 CAS 승리 → 구독 device 별 notifications 1행(컬럼 값)", async () => {
+    await seedShipment("S", { trackingNo: "5220934513601234", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    const rows = await notifs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      device_id: "dev-A",
+      shipment_id: "S",
+      carrier: "kr.cjlogistics", // carrierId 원문 저장(한글 변환은 앱, #9)
+      last4: "1234",
+      stage: "배송출발",
+      sent_at: NOW,
+    });
+    expect(rows[0].body.length).toBeGreaterThan(0); // body = 발송 메시지 소스
+    expect(rows[0].id.length).toBeGreaterThan(0); // UUID
+  });
+
+  it("음소거된 구독은 전환 푸시도·알림 기록도 없음(B 만 기록)", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    await seedSubscriber("dev-B", "ExponentPushToken[BBB]", "S");
+    await env.DB.prepare(
+      "UPDATE subscriptions SET muted = 1 WHERE device_id = 'dev-A' AND shipment_id = 'S'",
+    ).run();
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await notifs("dev-A")).toHaveLength(0); // 음소거 → 기록 없음(ADR-020 일관)
+    expect(await notifs("dev-B")).toHaveLength(1); // 발송된 구독만 기록
+  });
+
+  it("재독(전환 없음)은 기록 없음 — 등록→배송출발 1행, 동일 단계 재폴은 무중복(fan-out 1회)", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(1);
+
+    // 간격 지나 재폴 — 동일 단계(배송출발) → CAS 0행 → 발송도 기록도 없음(멱등).
+    await runPollingBatch(env, { now: NOW + 61 * MINUTE, fetch: f.fetch });
+    expect(f.sendCalls).toBe(1); // 발송 1회뿐
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(1); // 기록도 1행뿐(중복 없음)
+  });
+
+  it("다중 구독 → device 별 1행씩", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    await seedSubscriber("dev-B", "ExponentPushToken[BBB]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(2);
+    expect(await notifs("dev-A")).toHaveLength(1);
+    expect(await notifs("dev-B")).toHaveLength(1);
+  });
+
+  it("배송완료 전환도 기록(carrier=carrierId, stage=배송완료)", async () => {
+    await seedShipment("S", { trackingNo: "5220934513601360", status: "배송출발", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "DELIVERED" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    const rows = await notifs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ device_id: "dev-A", shipment_id: "S", stage: "배송완료", last4: "1360" });
+  });
+
+  it("야간 비긴급 전환은 보류 → 즉시 미기록(기록은 flush 시점=step2)", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+
+    expect(f.sendCalls).toBe(0); // 보류
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0); // 적재 시점엔 기록 안 함
+  });
+
+  it("best-effort(E12): notifications 기록 실패해도 발송·전환 CAS 는 진행", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    // 기록 INSERT 가 실패하도록 notifications 테이블 제거(주입 실패 시뮬).
+    await env.DB.prepare("DROP TABLE notifications").run();
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch }); // throw 없이 완료(best-effort)
+
+    expect(f.sendCalls).toBe(1); // 발송은 그대로
+    expect(await statusOf("S")).toBe("배송출발"); // 전환 CAS 도 그대로
+  });
+
+  // ── flush 시점 로깅(step2, ADR-023 보강②): 보류분은 받는 시점(flush)에 기록 ──
+
+  it("조용시간 보류 → 적재 시 미기록, 주간 flush 시 1행(device_id=토큰 현재 소유자)", async () => {
+    await seedShipment("S", { trackingNo: "5220934513601234", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    // 야간 — 등록→배송출발(비긴급) 보류. 적재 시점엔 기록 안 함(수신 시점 기준).
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+    expect(f.sendCalls).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0);
+
+    // 주간 — flush 발송 시점에 기록 1행. carrier=carrierId, last4, stage 스냅샷, sent_at=flush now.
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+    expect(f.sendCalls).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+    const rows = await notifs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      device_id: "dev-A",
+      shipment_id: "S",
+      carrier: "kr.cjlogistics",
+      last4: "1234",
+      stage: "배송출발",
+      sent_at: NOW, // 적재(NIGHT) 가 아니라 flush(NOW) 시점
+    });
+    expect(rows[0].body.length).toBeGreaterThan(0);
+  });
+
+  it("token 양도분(steal 정리)은 flush·로깅 안 됨 — 큐·기록 모두 0", async () => {
+    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
+
+    // 야간 보류 적재(dev-A 토큰).
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
+
+    // 다른 기기(dev-B)가 같은 토큰을 등록 → steal → F3 가 옛 토큰의 보류분을 정리(교차 누설 방지).
+    const reg = await SELF.fetch(`${BASE}/devices`, {
+      method: "POST",
+      headers: { ...bearer("dev-B"), "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "ios", push_token: "ExponentPushToken[AAA]" }),
+    });
+    expect(reg.status).toBe(200);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // F3 정리
+
+    // 주간 flush — 보류분이 없으니 발송·기록 모두 없음.
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0);
+  });
+
+  it("운영성 안내(분실 의심) 보류분은 flush 발송돼도 기록 안 함(전환 푸시만 기록·step1 일관)", async () => {
+    // 30일 경과 미완료(이동중) → 야간 cron 에서 비활성(active=0) + '분실 의심'(비긴급) 보류.
+    await seedShipment("S", {
+      trackingNo: "123456789012",
+      status: "이동중",
+      lastPolledAt: null,
+      createdAt: NIGHT - 31 * DAY,
+    });
+    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
+    const f = makeFetch({ trackStatus: "IN_TRANSIT" }); // 무전환 단계 → 전환 푸시 없음
+
+    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1); // 분실 의심 보류
+
+    // 주간 flush — 안내는 발송되지만 active=0(운영성)이라 기록은 안 함.
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+    expect(f.sendCalls).toBe(1); // 분실 의심 발송됨
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0); // 전환 푸시만 기록
+  });
+
+  // ── 보존 sweep(step2, ADR-023): 90일 경과 + 디바이스당 상한 ──
+
+  /** notifications 행 직접 적재(sweep 검증용). */
+  async function seedNotif(id: string, deviceId: string, sentAt: number): Promise<void> {
+    await env.DB.prepare(
+      "INSERT INTO notifications (id, device_id, shipment_id, carrier, last4, body, stage, sent_at) " +
+        "VALUES (?, ?, NULL, 'kr.cjlogistics', '1234', 'b', '배송출발', ?)",
+    )
+      .bind(id, deviceId, sentAt)
+      .run();
+  }
+
+  it("sweep: 90일 경과분 삭제, 90일 이내 보존(cron scheduled 경로에서 호출)", async () => {
+    await seedNotif("old", "dev-A", NOW - 91 * DAY); // 90일 초과 → 삭제
+    await seedNotif("recent", "dev-A", NOW - 89 * DAY); // 90일 이내 → 보존
+    const f = makeFetch(); // due 송장 없음 → track 미호출
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch }); // 폴링 배치(=scheduled) 안에서 sweep 호출
+
+    expect(await count("SELECT COUNT(*) AS c FROM notifications WHERE id='old'")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM notifications WHERE id='recent'")).toBe(1);
+  });
+
+  it("sweep: 디바이스당 상한 초과 시 오래된 것부터 정리(다른 device 무영향)", async () => {
+    const EXTRA = 3;
+    const stmts = [];
+    // dev-X: 상한+EXTRA 개(sent_at 으로 신·구 구분). 가장 오래된 EXTRA 개가 정리 대상.
+    for (let i = 0; i < NOTIFICATION_DEVICE_CAP + EXTRA; i++) {
+      stmts.push(
+        env.DB.prepare(
+          "INSERT INTO notifications (id, device_id, shipment_id, carrier, last4, body, stage, sent_at) " +
+            "VALUES (?, 'dev-X', NULL, 'kr.cjlogistics', '1234', 'b', '배송출발', ?)",
+        ).bind(`x${i}`, NOW - (NOTIFICATION_DEVICE_CAP + EXTRA - i) * MINUTE),
+      );
+    }
+    // dev-Y: 상한 미만(2개) → 무영향.
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO notifications (id, device_id, shipment_id, carrier, last4, body, stage, sent_at) " +
+          "VALUES ('y0', 'dev-Y', NULL, 'kr.cjlogistics', '1234', 'b', '배송출발', ?)",
+      ).bind(NOW - 2 * MINUTE),
+      env.DB.prepare(
+        "INSERT INTO notifications (id, device_id, shipment_id, carrier, last4, body, stage, sent_at) " +
+          "VALUES ('y1', 'dev-Y', NULL, 'kr.cjlogistics', '1234', 'b', '배송출발', ?)",
+      ).bind(NOW - 1 * MINUTE),
+    );
+    await env.DB.batch(stmts);
+    const f = makeFetch();
+
+    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
+
+    // dev-X 는 최신 상한 개만 보존(가장 오래된 EXTRA 개 정리). 가장 오래된 'x0' 은 삭제, 'x{EXTRA}'~ 는 보존.
+    expect(await count("SELECT COUNT(*) AS c FROM notifications WHERE device_id='dev-X'")).toBe(
+      NOTIFICATION_DEVICE_CAP,
+    );
+    expect(await count("SELECT COUNT(*) AS c FROM notifications WHERE id='x0'")).toBe(0); // 최고령 정리
+    expect(
+      await count(`SELECT COUNT(*) AS c FROM notifications WHERE id='x${EXTRA}'`),
+    ).toBe(1); // 경계(최신쪽) 보존
+    expect(await count("SELECT COUNT(*) AS c FROM notifications WHERE device_id='dev-Y'")).toBe(2); // 무영향
   });
 });

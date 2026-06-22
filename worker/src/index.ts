@@ -47,6 +47,9 @@ const SUPPORTED_CARRIERS = new Set([
 const TRACKING_RE = /^\d{9,14}$/;
 /** Expo 푸시 토큰 형식. */
 const EXPO_TOKEN_RE = /^Expo(nent)?PushToken\[[^\]]+\]$/;
+/** GET /notifications limit — 기본 100, 상한 200(과도한 응답·메모리 방지, ADR-023). */
+const NOTIFICATIONS_LIMIT_DEFAULT = 100;
+const NOTIFICATIONS_LIMIT_MAX = 200;
 
 interface ShipmentRow {
   id: string;
@@ -57,6 +60,18 @@ interface ShipmentRow {
   active: number;
   created_at: number;
   status_changed_at: number | null;
+}
+
+/** notifications 행 (v1.1, ADR-023) — 발송한 알림 기록. carrier 는 carrierId 원문(한글 변환은 앱). */
+interface NotificationRow {
+  id: string;
+  device_id: string;
+  shipment_id: string | null;
+  carrier: string;
+  last4: string;
+  body: string;
+  stage: string;
+  sent_at: number;
 }
 
 /** API 에러 → { error, code } + HTTP status (ARCHITECTURE 에러 매트릭스). */
@@ -157,6 +172,22 @@ function serializeShipment(row: ShipmentRow) {
     created_at: row.created_at,
     // 현재 단계가 시작된 시각(전환 시에만 갱신). 컬럼이 비면(backfill 전) 등록 시각으로 폴백.
     status_changed_at: row.status_changed_at ?? row.created_at,
+  };
+}
+
+/**
+ * notifications 행 → 응답(snake→camel, ADR-023). shipment_id 가 NULL(송장 정리됨)이면 shipmentId=null
+ * → 앱 딥링크 비활성("정리된 택배"). carrier·last4·body·stage 는 denormalize 라 표시는 그대로 유지된다.
+ */
+function serializeNotification(row: NotificationRow) {
+  return {
+    id: row.id,
+    shipmentId: row.shipment_id,
+    carrier: row.carrier,
+    last4: row.last4,
+    body: row.body,
+    stage: row.stage,
+    sentAt: row.sent_at,
   };
 }
 
@@ -366,6 +397,23 @@ async function handleListShipments(env: Env, deviceId: string): Promise<Response
   });
 }
 
+/**
+ * GET /notifications — 이 기기가 받은 알림 기록(시간 역순, ADR-023). 서버 SOT·로컬 캐시.
+ * device_id 로만 필터(인가 경계 — 타 기기 행 비노출, 교차 누설 없음 E10). 읽음 여부는 비저장(로컬 lastSeen).
+ */
+async function handleListNotifications(env: Env, deviceId: string, url: URL): Promise<Response> {
+  const raw = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+  const limit =
+    Number.isFinite(raw) && raw > 0 ? Math.min(raw, NOTIFICATIONS_LIMIT_MAX) : NOTIFICATIONS_LIMIT_DEFAULT;
+  const { results } = await env.DB.prepare(
+    "SELECT id, shipment_id, carrier, last4, body, stage, sent_at FROM notifications " +
+      "WHERE device_id = ? ORDER BY sent_at DESC LIMIT ?",
+  )
+    .bind(deviceId, limit)
+    .all<NotificationRow>();
+  return Response.json({ notifications: results.map(serializeNotification) });
+}
+
 /** GET /shipments/:id — 인가 확인 후 실시간 track 타임라인(best-effort, 미저장 ADR-011). */
 async function handleGetShipment(env: Env, deviceId: string, id: string): Promise<Response> {
   const row = await env.DB.prepare(
@@ -426,7 +474,7 @@ async function handleMuteShipment(
     .bind(muted ? 1 : 0, deviceId, id)
     .run();
 
-  // 음소거 시: 이 기기의 야간 보류분 정리. 아침 flushQueue 는 subscriberTokens 를 거치지 않고 큐에서
+  // 음소거 시: 이 기기의 야간 보류분 정리. 아침 flushQueue 는 subscribers 를 거치지 않고 큐에서
   // 직접 발송하므로, 음소거 이전에 적재된 분이 음소거 후에도 발송되는 누락을 막는다. 토큰 NULL 이면 보류분 없음.
   if (muted) {
     const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
@@ -453,6 +501,21 @@ async function handleDeleteShipment(env: Env, deviceId: string, id: string): Pro
   await env.DB.prepare("DELETE FROM subscriptions WHERE shipment_id = ? AND device_id = ?")
     .bind(id, deviceId)
     .run();
+
+  // 휴지통(로컬 소프트 삭제, ADR-022)으로 보낸 송장이 야간 보류분으로 **지연 푸시**되지 않도록 이 기기의
+  // 보류 알림을 정리한다 — 구독 해제로 새 폴링·푸시는 멈추지만, 이미 적재된 notification_queue 보류분은
+  // 아침 flushQueue 가 subscribers 를 거치지 않고 직접 발송하기 때문(음소거 정리와 동일 불변, ADR-020).
+  // per-device: 이 기기 토큰의 (shipment) 보류분만 — 타 구독자 보류분 무영향. 토큰 NULL 이면 보류분 없음.
+  // notifications(이력)는 건드리지 않는다 — 단건 삭제는 구독 해제일 뿐, 받은 알림 기록은 독립 보존(ADR-023).
+  const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
+    .bind(deviceId)
+    .first<{ push_token: string | null }>();
+  if (dev?.push_token) {
+    await env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?")
+      .bind(id, dev.push_token)
+      .run();
+  }
+
   await deleteIfOrphan(env, id);
   return new Response(null, { status: 204 });
 }
@@ -475,6 +538,8 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
   // ADR-017 "푸시 토큰 폐기"는 즉시·완전, 크래시 창 최소화(QA-008/#11, CL4).
   const wipeStmts: D1PreparedStatement[] = [
     env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(deviceId),
+    // 발송 알림 기록도 함께 즉시 폐기(ADR-017·023) — device_id 키라 이 기기 행만. 90일/상한 sweep 을 기다리지 않는다.
+    env.DB.prepare("DELETE FROM notifications WHERE device_id = ?").bind(deviceId),
   ];
   if (dev?.push_token) {
     wipeStmts.push(
@@ -585,6 +650,9 @@ export default {
       }
       if (pathname === "/shipments" && method === "GET") {
         return await handleListShipments(env, requireDeviceId(request));
+      }
+      if (pathname === "/notifications" && method === "GET") {
+        return await handleListNotifications(env, requireDeviceId(request), url);
       }
 
       const segments = pathname.split("/").filter(Boolean);

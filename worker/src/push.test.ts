@@ -94,6 +94,16 @@ describe("buildMessage", () => {
   it("배송출발: 출발 시각 불명이면 '오늘' 도착을 단정하지 않는다", () => {
     expect(buildMessage("배송출발", baseCtx)!.body).not.toContain("오늘");
   });
+
+  it("title: carrierId → 한글 택배사명(#9), 미상 id 는 원문 폴백", () => {
+    const known = buildMessage("배송완료", { ...baseCtx, carrier: "kr.cjlogistics" });
+    expect(known!.title).toContain("CJ대한통운");
+    expect(known!.title).not.toContain("kr.cjlogistics"); // carrierId 비노출
+    expect(known!.title).toContain("1234"); // 끝4자리는 유지
+
+    const unknown = buildMessage("배송완료", { ...baseCtx, carrier: "kr.unknown" });
+    expect(unknown!.title).toContain("kr.unknown"); // 미상 id 는 원문 그대로
+  });
 });
 
 describe("classifyPushError (전수)", () => {

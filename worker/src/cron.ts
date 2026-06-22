@@ -20,6 +20,7 @@ import { normalizeStatus } from "./lib/normalize";
 import { shouldNotify } from "./lib/notify";
 import { lifecycleAction } from "./lib/lifecycle";
 import { isQuietHours, isUrgentStage } from "./lib/quiet";
+import { carrierName } from "./lib/carrier";
 import { track, d1TokenStore } from "./tracker";
 import { buildMessage, sendPush, getReceipts, classifyPushError, DELIVERY_CHANNEL_ID, type PushMessage } from "./push";
 
@@ -39,6 +40,10 @@ const RECEIPT_SWEEP_LIMIT = 1000;
 const RATE_LIMIT_RETENTION_MS = 20 * 60_000;
 /** 아침 묶음 플러시 1회당 스캔/발송 상한 — send 배치(≤100)·cron subrequest 예산 보호. 초과분은 다음 fire 이월. */
 const FLUSH_SCAN_LIMIT = 100;
+/** 알림 기록 보존(ADR-023): 90일 경과분 sweep 기준(epoch ms 폭). */
+const NOTIFICATION_RETENTION_MS = 90 * 24 * 3_600_000;
+/** 알림 기록 디바이스당 보존 상한(ADR-023) — 초과 시 오래된 것부터 정리. 무한 증가 방지. (테스트가 참조 — 단일 출처) */
+export const NOTIFICATION_DEVICE_CAP = 500;
 
 export interface CronDeps {
   now: number;
@@ -56,14 +61,35 @@ interface DueRow {
   next_retry_at: number | null;
 }
 
-/** 조용시간 보류 큐 행 — 메시지 스냅샷(title·body) 저장(아침 묶음 발송용). */
-interface QueueRow {
-  id: string;
+/**
+ * flushQueue collapse 결과 행 — (shipment_id, push_token)당 최신 보류 스냅샷(title·body) +
+ * 발송/로깅에 필요한 JOIN 값. device_id=토큰 현재 소유자, carrier/tracking_no/active/stage=shipment 스냅샷.
+ * (큐 자체는 title·body 만 저장 — ARCHITECTURE: 큐는 메시지 스냅샷만. 나머지는 flush 시점 JOIN 으로 해석.)
+ */
+interface FlushRow {
   shipment_id: string | null;
   push_token: string;
   title: string | null;
   body: string | null;
   created_at: number;
+  device_id: string | null; // 토큰 현재 소유자(steal/삭제로 없으면 NULL → 로깅 제외)
+  carrier: string | null; // shipment JOIN — carrierId 원문(미해석이면 NULL → 로깅 제외)
+  tracking_no: string | null;
+  active: number | null; // shipment.active — 전환 보류분(=1)/운영성·완료(=0) 판별
+  stage: string | null; // shipment.last_normalized_status(전환 단계)
+}
+
+/**
+ * 발송 알림 기록 1행(notifications, ADR-023) — fan-out 시점에 (device, shipment)별 1건 구성.
+ * carrier 는 carrierId 원문(한글 변환은 앱). body 는 발송 메시지와 동일 소스. sent_at 은 발송 시점(deps.now).
+ */
+interface NotificationLog {
+  deviceId: string;
+  shipmentId: string;
+  carrier: string;
+  last4: string;
+  body: string;
+  stage: Stage;
 }
 
 /** 저장된 status(문자열|null)를 Stage로 — null(미폴링)은 '미등록'으로 본다. */
@@ -107,7 +133,10 @@ export async function runPollingBatch(env: Env, deps: CronDeps): Promise<void> {
     await flushQueue(env, deps);
   }
 
-  // 11. 만료된 rate_limits 윈도 정리(ADR-008 throttle 테이블 무한 증가 방지).
+  // 11. 알림 기록 보존 sweep(ADR-023) — 90일 경과분 + 디바이스당 상한 정리. 조용시간 무관(시각과 독립).
+  await sweepNotifications(env, deps);
+
+  // 12. 만료된 rate_limits 윈도 정리(ADR-008 throttle 테이블 무한 증가 방지).
   await env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(deps.now - RATE_LIMIT_RETENTION_MS)
     .run();
@@ -163,12 +192,8 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
       .bind("배송완료", changedAt, row.id, stored)
       .run();
     if ((casRes.meta.changes ?? 0) === 1) {
-      const tokens = await subscriberTokens(env, row.id);
-      const last4 = row.tracking_no.slice(-4);
-      const messages = tokens
-        .map((token) => buildMessage("배송완료", { token, shipmentId: row.id, carrier: row.carrier, last4 }))
-        .filter((m): m is PushMessage => m !== null);
-      await deliver(env, deps, messages, isUrgentStage("배송완료")); // 긴급 → 야간에도 즉시
+      // 전환 차지(영향행=1) → notifyTransition 으로 fan-out(발송 + 알림 기록 1행). 긴급 → 야간에도 즉시.
+      await notifyTransition(env, deps, row, "배송완료", ev?.time);
     }
     return;
   }
@@ -243,25 +268,32 @@ async function casStage(
 }
 
 /**
- * 송장 구독자들의 push_token (device_id·push_token은 로그 금지).
+ * 송장 구독자들의 (device_id, push_token) (둘 다 로그 금지).
  * push_token IS NOT NULL 만 — 토큰이 nullable(QA-001) 이 된 뒤 토큰 없는 구독자에게
  * sendPush({to: null}) 로 오발송/에러 내지 않도록 거른다(C1 회귀 방지).
  * sub.muted = 0 만 — 음소거한 구독은 모든 푸시(전환·운영성)에서 제외한다(ADR-020). 단계 추적(CAS)은
- * 그대로 진행되고 발송만 빠진다 — 이 함수가 모든 알림 fan-out 의 단일 토큰 소스라 여기서 거르면 충분.
+ * 그대로 진행되고 발송만 빠진다 — 이 함수가 모든 알림 fan-out 의 단일 소스라 여기서 거르면 발송·기록 모두 일관.
+ * device_id 는 알림 기록(notifications, ADR-023) 의 키 — fan-out 시점에 토큰과 함께 안다.
  */
-async function subscriberTokens(env: Env, shipmentId: string): Promise<string[]> {
+async function subscribers(
+  env: Env,
+  shipmentId: string,
+): Promise<{ deviceId: string; token: string }[]> {
   const { results } = await env.DB.prepare(
-    "SELECT d.push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id " +
+    "SELECT sub.device_id AS device_id, d.push_token AS push_token FROM subscriptions sub JOIN devices d ON d.id = sub.device_id " +
       "WHERE sub.shipment_id = ? AND sub.muted = 0 AND d.push_token IS NOT NULL",
   )
     .bind(shipmentId)
-    .all<{ push_token: string }>();
-  return results.map((r) => r.push_token);
+    .all<{ device_id: string; push_token: string }>();
+  return results.map((r) => ({ deviceId: r.device_id, token: r.push_token }));
 }
 
 /**
  * 구독자별 메시지 생성 → 발송 (notifyTransition/notifyCheckNumber/notifyLost 공용 fan-out).
  * urgent=false 인 알림은 조용시간(야간)에 deliver 가 보류 큐로 돌린다(아침 묶음 발송).
+ * logMeta 가 주어지면(전환 푸시) **이 시점에 (device, shipment)별 알림 기록 1행**을 구성해 deliver 로 넘긴다
+ * (ADR-023 보강②: 로깅은 fan-out 메시지 구성 시점 1회 — send 재시도와 분리, 음소거는 이미 subscribers 에서 제외).
+ * 운영성 안내(번호 확인·분실 의심)는 logMeta 없이 호출 → 기록하지 않는다(전환 푸시만 기록).
  */
 async function fanOut(
   env: Env,
@@ -269,13 +301,26 @@ async function fanOut(
   shipmentId: string,
   build: (token: string) => PushMessage | null,
   urgent: boolean,
+  logMeta?: { carrier: string; last4: string; stage: Stage },
 ): Promise<void> {
   const messages: PushMessage[] = [];
-  for (const token of await subscriberTokens(env, shipmentId)) {
+  const logs: NotificationLog[] = [];
+  for (const { deviceId, token } of await subscribers(env, shipmentId)) {
     const msg = build(token);
-    if (msg) messages.push(msg);
+    if (!msg) continue;
+    messages.push(msg);
+    if (logMeta) {
+      logs.push({
+        deviceId,
+        shipmentId,
+        carrier: logMeta.carrier,
+        last4: logMeta.last4,
+        body: msg.body,
+        stage: logMeta.stage,
+      });
+    }
   }
-  await deliver(env, deps, messages, urgent);
+  await deliver(env, deps, messages, logs, urgent);
 }
 
 /** 단계 전환 푸시 — 구독자별 buildMessage(step5). eventTime으로 '오늘 도착'(KST) 판정. */
@@ -303,6 +348,7 @@ async function notifyTransition(
         nowMs: deps.now,
       }),
     isUrgentStage(stage), // 예외·배송완료만 야간 즉시, 그 외 단계 전환은 야간 보류
+    { carrier: row.carrier, last4, stage }, // 전환 푸시 → 알림 기록(ADR-023). carrier 는 carrierId 원문(저장은 id, #9).
   );
 }
 
@@ -315,12 +361,12 @@ async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: st
     row.id,
     (token) => ({
       to: token,
-      title: `${row.carrier} · …${last4}`,
+      title: `${carrierName(row.carrier)} · …${last4}`, // 한글 택배사명(이슈 #9, 전환 푸시와 일관)
       body,
       data: { shipment_id: row.id },
       channelId: DELIVERY_CHANNEL_ID,
     }),
-    false, // 운영성 안내 — 비긴급(야간 보류 대상)
+    false, // 운영성 안내 — 비긴급(야간 보류 대상). logMeta 없음 → 알림 기록 안 함(전환 푸시만 기록).
   );
 }
 
@@ -373,14 +419,39 @@ async function deliver(
   env: Env,
   deps: CronDeps,
   messages: PushMessage[],
+  logs: NotificationLog[],
   urgent: boolean,
 ): Promise<void> {
   if (messages.length === 0) return;
   if (!urgent && isQuietHours(deps.now)) {
     await enqueue(env, deps, messages);
-    return;
+    return; // 야간 보류 → 기록은 보류분을 실제 발송하는 flush 시점(step2). 적재 시점 아님(ADR-023 보강②).
   }
   await sendAndRecord(env, deps, messages);
+  await logNotifications(env, deps, logs); // 즉시 발송분만 기록 — sendAndRecord 뒤(best-effort).
+}
+
+/**
+ * 발송 알림 기록(notifications, ADR-023) — fan-out 에서 구성된 (device, shipment)별 1행 INSERT.
+ * **best-effort**: INSERT 실패는 푸시 발송·전환 CAS 를 막지 않는다(이미 끝남) → try/catch 로 삼킨다.
+ * 로깅이 실패로 알림을 못 가게 하는 것이 더 나쁘기 때문(보강②). device_id·push_token 은 콘솔 로그 금지.
+ */
+async function logNotifications(env: Env, deps: CronDeps, logs: NotificationLog[]): Promise<void> {
+  if (logs.length === 0) return;
+  try {
+    await env.DB.batch(
+      logs.map((l) =>
+        env.DB.prepare(
+          "INSERT INTO notifications (id, device_id, shipment_id, carrier, last4, body, stage, sent_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(crypto.randomUUID(), l.deviceId, l.shipmentId, l.carrier, l.last4, l.body, l.stage, deps.now),
+      ),
+    );
+  } catch (err) {
+    console.error("[cron] notifications 로깅 실패(best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /** 조용시간 비긴급 알림을 보류 큐에 적재 — 메시지 스냅샷(title·body)을 저장(아침에 재구성 안 함, E2). */
@@ -403,15 +474,22 @@ async function enqueue(env: Env, deps: CronDeps, messages: PushMessage[]): Promi
  * 송장 소멸(완료·orphan·DELETE /me) 보류분은 FK CASCADE/토큰 폐기로 이미 정리돼 죽은 토큰 발송을 막는다.
  */
 async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
+  // collapse 와 동시에 device(토큰 소유자)·shipment(carrier·번호·active·단계)를 JOIN 해 발송·로깅 값을 한 번에 얻는다.
+  // JOIN 키(push_token·shipment_id)는 GROUP BY 키라 그룹 내 상수 → 조인 값은 결정적, title·body 는 MAX 행 스냅샷.
   const { results } = await env.DB.prepare(
-    "SELECT shipment_id, push_token, title, body, MAX(created_at) AS created_at FROM notification_queue " +
-      "GROUP BY shipment_id, push_token LIMIT ?",
+    "SELECT q.shipment_id AS shipment_id, q.push_token AS push_token, q.title AS title, q.body AS body, " +
+      "MAX(q.created_at) AS created_at, d.id AS device_id, " +
+      "s.carrier AS carrier, s.tracking_no AS tracking_no, s.active AS active, s.last_normalized_status AS stage " +
+      "FROM notification_queue q " +
+      "LEFT JOIN devices d ON d.push_token = q.push_token " +
+      "LEFT JOIN shipments s ON s.id = q.shipment_id " +
+      "GROUP BY q.shipment_id, q.push_token LIMIT ?",
   )
     .bind(FLUSH_SCAN_LIMIT)
-    .all<QueueRow>();
+    .all<FlushRow>();
   if (results.length === 0) return;
 
-  // SQL GROUP BY 가 이미 (shipment_id, push_token)당 MAX(created_at) 1건으로 collapse 했다(SQLite MAX bare-column 규칙).
+  // 모든 보류분을 발송(at-least-once — 토큰/송장 미해석이어도 sendPush 가 무효 토큰을 정리).
   const messages: PushMessage[] = results.map((r) => ({
     to: r.push_token,
     title: r.title ?? "",
@@ -421,8 +499,27 @@ async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
     channelId: DELIVERY_CHANNEL_ID,
   }));
 
-  // 발송 먼저(실패해도 행 보존 = at-least-once) → 스캔한 행 전체 삭제(collapse 로 버린 오래된 보류분 포함).
+  // flush 시점 알림 기록(ADR-023 보강②) — 사용자가 받는 시점에 (device, shipment)별 1행.
+  //  - device_id = 토큰 현재 소유자(d.id). 양도분은 steal(F3)에서 큐가 이미 정리돼 여기 없다(교차 누설 없음).
+  //  - **전환 푸시만 기록(step1 일관)**: 운영성 안내(번호확인·분실의심)는 항상 shipment 를 active=0 으로 두고
+  //    발생하므로 active=1(=단계 전환 보류분)만 로깅한다. 드문 경계(전환과 동시 비활성)는 미기록 감수(best-effort).
+  //  - carrier(=carrierId)·last4·stage 는 shipment JOIN 스냅샷, body 는 큐 스냅샷, sent_at = flush now. INSERT 는 step1 헬퍼 재사용.
+  const logs: NotificationLog[] = [];
+  for (const r of results) {
+    if (!r.device_id || !r.shipment_id || !r.carrier || !r.tracking_no || r.active !== 1) continue;
+    logs.push({
+      deviceId: r.device_id,
+      shipmentId: r.shipment_id,
+      carrier: r.carrier,
+      last4: r.tracking_no.slice(-4),
+      body: r.body ?? "",
+      stage: stageOf(r.stage),
+    });
+  }
+
+  // 발송 먼저(실패해도 행 보존 = at-least-once) → 기록(best-effort) → 스캔한 행 전체 삭제(collapse 로 버린 오래된 보류분 포함).
   await sendAndRecord(env, deps, messages);
+  await logNotifications(env, deps, logs);
   await env.DB.batch(
     results.map((r) =>
       env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?").bind(
@@ -431,6 +528,32 @@ async function flushQueue(env: Env, deps: CronDeps): Promise<void> {
       ),
     ),
   );
+}
+
+/**
+ * 알림 기록 보존 sweep(ADR-023) — notifications 무한 증가 방지. cron 매 실행 시 멱등·저비용 정리:
+ *  1) 90일 경과분 삭제(sent_at < now-90일).
+ *  2) 디바이스당 상한 초과분: device_id 별 최신 NOTIFICATION_DEVICE_CAP 개만 보존, 나머지(오래된 것) 삭제.
+ * now 주입(결정적). batch 내 순차 실행이라 ②는 ①후 잔여에 적용된다. 다른 device 행은 건드리지 않는다(기기별 독립 보존).
+ * **best-effort**: 비핵심 유지보수라 sweep 실패가 cron 의 다른 작업(폴링·발송)을 막지 않게 try/catch 로 격리한다(로깅과 동일 철학).
+ */
+async function sweepNotifications(env: Env, deps: CronDeps): Promise<void> {
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM notifications WHERE sent_at < ?").bind(deps.now - NOTIFICATION_RETENTION_MS),
+      // device_id 별 sent_at DESC(동률은 id DESC tie-break) 순위가 상한 초과면 삭제 → 최신 상한 개만 남는다(결정적).
+      env.DB.prepare(
+        "DELETE FROM notifications WHERE id IN (" +
+          "SELECT id FROM (" +
+          "SELECT id, ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY sent_at DESC, id DESC) AS rn FROM notifications" +
+          ") WHERE rn > ?)",
+      ).bind(NOTIFICATION_DEVICE_CAP),
+    ]);
+  } catch (err) {
+    console.error("[cron] notifications 보존 sweep 실패(best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**

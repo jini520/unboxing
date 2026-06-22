@@ -14,6 +14,7 @@
 
 import type { Stage } from "./lib/polling";
 import { NOTIFYING_STAGES } from "./lib/notify";
+import { carrierName } from "./lib/carrier";
 
 const SEND_URL = "https://exp.host/--/api/v2/push/send";
 const RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
@@ -105,7 +106,8 @@ export function buildMessage(
   if (body === undefined) return null;
   return {
     to: ctx.token,
-    title: `${ctx.carrier} · …${ctx.last4}`,
+    // title 은 carrierId 대신 한글 택배사명(이슈 #9). 미상 id 는 carrierName 이 원문 폴백.
+    title: `${carrierName(ctx.carrier)} · …${ctx.last4}`,
     body, // 문구는 모두 짧음 → payload ≤4096B 자명 충족
     data: { shipment_id: ctx.shipmentId },
     channelId: DELIVERY_CHANNEL_ID,

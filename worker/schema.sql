@@ -62,6 +62,21 @@ CREATE TABLE IF NOT EXISTS notification_queue (
   created_at  INTEGER                   -- epoch ms (collapse 시 최신 판별·이월 순서)
 );
 
+-- 발송한 알림 기록 (v1.1, ADR-023) — 서버측 비영속 상태 로그(SOT) + 로컬 캐시. 읽음 여부는 로컬.
+-- device_id 키(token 양도 누설 회피). carrier·last4·body·stage 는 표시용 denormalize(행 자족·비-PII, 수령인 없음).
+-- shipment_id 는 nullable + ON DELETE SET NULL(송장 정리돼도 기록 보존·딥링크만 무효). 보존: cron sweep(90일)+디바이스당 상한.
+CREATE TABLE IF NOT EXISTS notifications (
+  id          TEXT PRIMARY KEY,
+  device_id   TEXT NOT NULL,            -- 수신 기기(GET /notifications 조회·DELETE /me 정리 키)
+  shipment_id TEXT REFERENCES shipments(id) ON DELETE SET NULL,  -- 송장 정리돼도 기록 보존
+  carrier     TEXT NOT NULL,            -- carrierId 원문(한글 변환은 앱 — 이슈 #9)
+  last4       TEXT NOT NULL,            -- 운송장 끝 4자리(비식별)
+  body        TEXT NOT NULL,            -- 상태 문구(표시용)
+  stage       TEXT NOT NULL,            -- 표준 단계
+  sent_at     INTEGER NOT NULL          -- epoch ms
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_device_sent ON notifications (device_id, sent_at);
+
 -- shipments 예고 컬럼 (docs/ARCHITECTURE.md "예고 컬럼") — 신규 적용 시 1회만 실행
 ALTER TABLE shipments ADD COLUMN last_event_time INTEGER;            -- 마지막 이벤트 시각(신선도, 현재 미사용)
 ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0;  -- 외부 오류 백오프 카운트

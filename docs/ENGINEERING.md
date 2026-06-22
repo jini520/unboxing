@@ -210,6 +210,22 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 - **NOT NULL+DEFAULT 0 안전**: SQLite 는 NOT NULL 컬럼도 DEFAULT 가 있으면 기존 행에 그 값을 채워 ADD COLUMN 이 성공한다.
 - **신규 배포(아직 `subscriptions` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
 
+## 07-backend-v0-v11-notifications phase 스키마 변경
+
+### 5. `notifications` 신규 테이블 (step0, v1.1 ADR-023 알림 기록)
+
+- **변경**: `CREATE TABLE IF NOT EXISTS notifications (...)` + `CREATE INDEX IF NOT EXISTS idx_notifications_device_sent` 추가(발송한 알림 기록 — `device_id`·`shipment_id`[nullable, `ON DELETE SET NULL`]·`carrier`·`last4`·`body`·`stage`·`sent_at`). 수령인 없는 비-PII.
+- **적용**: `IF NOT EXISTS` 라 `schema.sql` 재실행 시 **자동 생성**된다(notification_queue·step3 과 동일 — RENAME·ADD COLUMN 함정 없음, P-2 무관). 로컬·원격 동일.
+
+  ```bash
+  # worker/ 에서. 멱등(IF NOT EXISTS)이라 재실행 안전.
+  npx wrangler d1 execute unboxing --remote --file=schema.sql
+  npx wrangler d1 execute unboxing --remote --command "PRAGMA table_info(notifications)"
+  # 로컬도 동일: --local 로 교체
+  ```
+
+- `shipment_id` 는 `shipments(id) ON DELETE SET NULL` 참조 — 송장 정리돼도 기록 보존(딥링크만 무효). `src/schema.ts SCHEMA_STATEMENTS` 도 1:1 동기화(두 문장).
+
 ## 적용 후 확인
 
 ```bash
@@ -221,9 +237,11 @@ npx wrangler d1 execute unboxing --command="PRAGMA table_info(devices)" --remote
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(shipments)" --remote
 # subscriptions.muted 컬럼 존재 확인(notnull=1, dflt=0)
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(subscriptions)" --remote
+# notifications 테이블 컬럼 확인(v1.1 — id·device_id·shipment_id·carrier·last4·body·stage·sent_at)
+npx wrangler d1 execute unboxing --command="PRAGMA table_info(notifications)" --remote
 ```
 
-`devices.push_token` 의 `notnull` 이 `0`, `notification_queue` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at`·`subscriptions` 에 `muted` 컬럼이 보이면 적용 완료.
+`devices.push_token` 의 `notnull` 이 `0`, `notification_queue`·`notifications` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at`·`subscriptions` 에 `muted` 컬럼이 보이면 적용 완료.
 
 ## 관련 문서
 

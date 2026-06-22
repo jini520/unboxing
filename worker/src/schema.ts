@@ -53,6 +53,17 @@ export const SCHEMA_STATEMENTS: string[] = [
   body        TEXT,
   created_at  INTEGER
 )`,
+  `CREATE TABLE IF NOT EXISTS notifications (
+  id          TEXT PRIMARY KEY,
+  device_id   TEXT NOT NULL,
+  shipment_id TEXT REFERENCES shipments(id) ON DELETE SET NULL,
+  carrier     TEXT NOT NULL,
+  last4       TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  stage       TEXT NOT NULL,
+  sent_at     INTEGER NOT NULL
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_device_sent ON notifications (device_id, sent_at)`,
   `ALTER TABLE shipments ADD COLUMN last_event_time INTEGER`,
   `ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE shipments ADD COLUMN next_retry_at INTEGER`,

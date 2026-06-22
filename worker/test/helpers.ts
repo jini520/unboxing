@@ -1,7 +1,7 @@
 import { SCHEMA_STATEMENTS } from "../src/schema";
 
 /** DROP 순서 = FK 역순(참조하는 쪽 먼저). */
-const TABLES = ["subscriptions", "push_tickets", "notification_queue", "tracker_token", "shipments", "devices"];
+const TABLES = ["subscriptions", "push_tickets", "notification_queue", "notifications", "tracker_token", "shipments", "devices"];
 
 /**
  * 테스트용 D1을 깨끗이 초기화한다 — 기존 테이블을 제거하고 SCHEMA_STATEMENTS 를 재적용.

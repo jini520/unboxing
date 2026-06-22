@@ -99,7 +99,7 @@ describe("E2E 등록 여정 — 지름길 없이 사용자 순서 그대로", ()
       deviceId: "dev-null",
       json: { carrier: "kr.cjlogistics", tracking_no: "123456789012" },
     });
-    // 배송출발(알림 단계)로 전환되는 폴링을 돌려도 NULL 토큰이라 subscriberTokens 가 걸러 send 0.
+    // 배송출발(알림 단계)로 전환되는 폴링을 돌려도 NULL 토큰이라 subscribers 가 걸러 send 0.
     const f = makeFetch("OUT_FOR_DELIVERY");
     await runPollingBatch(env, { now: Date.now(), fetch: f.fetch });
     expect(f.sendCalls()).toBe(0);
