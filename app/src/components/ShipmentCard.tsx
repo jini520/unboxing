@@ -33,10 +33,20 @@ const SWIPE_AGAIN_PX = 80;
  * 스와이프 액션 **컬러 배경 폭**(px). 버튼 콘텐츠 폭(`actionBtn`=96) + 카드 둥근 모서리(노출 끝의 코너 노치)를
  * 메우는 버퍼. **풀폭(absoluteFill) 금지** — RNGH 패널은 컨테이너 전폭(`absoluteFill`)이라, 풀폭 배경 + 컨테이너
  * `overflow:visible`(카드가 거터 넘어 끝까지 밀리게 한 설정)이 만나면 **카드 복귀 전환 때 반대편 모서리로 컬러가 샌다**.
- * `transX` 는 `leftWidth(≈버튼폭)+overshoot(~1px)` 로 클램프돼 노출 폭이 버튼 폭을 넘지 않으므로, 이 정도면
- * 과스와이프 틈도 없고(노출 전부 덮음) **far edge 가 항상 카드 아래**라 절대 새지 않는다(카드 폭보다 작게 유지).
+ * `transX` 는 rest 너머에서 clamp 가 아니라 `1/overshootFriction` 기울기로 연장되지만 `OVERSHOOT_FRICTION`(8) 로
+ * 둔화돼 노출 폭이 버튼 폭 근처에 거의 고정되므로, 이 정도면 과스와이프 틈도 없고(노출 전부 덮음)
+ * **far edge 가 항상 카드 아래**라 절대 새지 않는다(카드 폭보다 작게 유지).
  */
 const ACTION_BG_WIDTH = 120;
+
+/**
+ * overshoot(rest 너머) 구간에서 카드 시각 이동의 **둔화 배율**. RNGH `transX` 는 rest 를 넘으면 clamp 가 아니라
+ * 기울기 `1/overshootFriction` 로 **연장**되므로, 기본값 1 이면 카드가 버튼 폭 너머로 끝없이 따라온다(과스와이프).
+ * 8↑ 이면 rest 너머 추가 이동 = `dragX/(friction×8)` 라 카드가 버튼 폭에 **거의 고정**된다(라이브러리 권장 "8 or above").
+ * ⚠️ 이 값은 **시각 `transX` 에만** 작용하고 2단계 판정 기준인 raw `dragX` 엔 영향 없음 — 둔화해도 SWIPE_AGAIN 은 그대로 동작.
+ * **클수록 빡빡**(덜 밀림). 너무 뻑뻑하면 내리고, 여전히 많이 밀리면 올린다. (사용자 피드백으로 조절하는 지점)
+ */
+const OVERSHOOT_FRICTION = 8;
 
 function ShipmentCardBase({
   shipment,
@@ -255,10 +265,12 @@ function ShipmentCardBase({
         friction={2}
         leftThreshold={28}
         rightThreshold={28}
-        // overshoot 활성 — rest 노출(1단계) 후 **한 번 더 스와이프(2단계)** 가능. 배경 absoluteFill 이 깔려
-        // 과스와이프해도 카드-버튼 사이 틈이 없다(고정폭+overshoot 비활성으로 회귀시키지 말 것 — 사용자 요구).
+        // overshoot 활성 — rest 노출(1단계) 후 **한 번 더 스와이프(2단계)** 가능(끄지 말 것 — 사용자 요구).
+        // overshootFriction 으로 rest 너머 카드 시각 이동을 둔화해 **과스와이프(카드가 끝없이 밀림)를 제한**한다.
+        // raw dragX 엔 영향 없어 2단계(SWIPE_AGAIN_PX) 판정은 그대로 — 시각만 버튼 폭 근처로 묶인다.
         overshootLeft
         overshootRight
+        overshootFriction={OVERSHOOT_FRICTION}
         // 1단계(첫 스와이프) 정착 시 열린 방향 기록 → 2단계(같은 방향으로 더 밀기) 판정 게이트. 열림/닫힘에서 상태 해제.
         onSwipeableOpen={(direction) => {
           openedRef.current = direction; // "left"=음소거 노출 / "right"=삭제 노출
