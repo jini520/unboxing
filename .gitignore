@@ -2,6 +2,8 @@ node_modules/
 .DS_Store
 *.log
 .wrangler/
+# 루트 Play 스토어 스크린샷만 무시 — 앵커 없는 `assets/`는 app/assets/(앱 아이콘)까지 잡아 EAS 빌드를 깬다(/ 필수)
+/assets/
 
 # personal / local (not shared)
 .claude.local.md
