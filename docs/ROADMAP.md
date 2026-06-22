@@ -29,13 +29,15 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 
 **열린 이슈(GitHub):**
 - `#8` (P3) 알림 그룹화/요약 — 과알림 방지.
-- `#9` (P3) 푸시 **title** 의 택배사 id(`kr.cjlogistics`) → 한글명. (목록·상세는 PR #18에서 해결, **푸시 발송 문구는 worker `buildMessage` 쪽 별개**로 남아 있음.)
+- `#9` (P3) 푸시 **title** 의 택배사 id(`kr.cjlogistics`) → 한글명. (목록·상세는 PR #18에서 해결, **푸시 발송 문구는 worker `buildMessage` 쪽 별개** — **v1.1 phase 07 step1에 포함**.)
 - `#12` (P1·제출차단) 개인정보처리방침 URL — repo 방침 문서(`PRIVACY_POLICY.md`) 완료, **호스팅·URL 확정은 배포 시 외부 작업**.
 - `#14` (P1·제출차단) App Privacy/Data Safety 신고 — 초안(`QA` D절) 완료, **콘솔 제출은 외부 작업**.
 
 **계획된 기능(아래 §상세):**
 - 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
-- **v1.1 마이너 업데이트(설계 완료·미구현)** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·택배함 필터. 설계: `PRD.md`/`ARCHITECTURE.md` "v1.1 …", `ADR.md` ADR-021~025, `UI_GUIDE.md` "v1.1 화면 …". 마이그레이션(서버 `notifications` 테이블·로컬 메모→정보)·엣지·TDD 타깃 명세됨. 실행은 Harness phase 로 착수.
+- **v1.1 마이너 업데이트(설계 완료·phase 분할 완료·실행 대기)** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·택배함 필터. 설계: `PRD.md`/`ARCHITECTURE.md` "v1.1 …", `ADR.md` ADR-021~025, `UI_GUIDE.md` "v1.1 화면 …". 마이그레이션(서버 `notifications` 테이블·로컬 메모→정보)·엣지·TDD 타깃 명세됨.
+  - **Harness phase 07~10 분할 완료**(2026-06-23 · 권위 출처 `phases/index.json`). 실행 순서: `07-backend-v0-v11-notifications`(notifications·#9 한글명·휴지통 알림차단) → `08-ui-v0-v11-logic`(순수 로직 test-first) → `09-ui-v0-v11-screens`(⚠️ step0에서 `git stash pop`으로 삭제UX[확인 다이얼로그+햅틱] 복원) → `10-qa-v0-v11-release`(라이브 `privacyPolicy.ts` 정정). 의존: 08→09.
+  - 스코프 확정: 오늘 도착 예정·알림 모두읽음+날짜그룹·#9 푸시 한글명·휴지통 알림차단 **포함** / 알림→휴지통 복구 딥링크 **제외**. 금액 teaser·카드 카테고리 칩 기본 포함.
 
 **Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
 
