@@ -1,0 +1,34 @@
+{
+  "project": "unboxing",
+  "phase": "qa",
+  "steps": [
+    {
+      "step": 0,
+      "name": "logic-counts",
+      "status": "completed",
+      "started_at": "2026-06-23T15:44:19+0900",
+      "summary": "filter.ts hideCompleted 전용·dashboard.ts 예외→진행중 흡수(exception/arrivingToday 제거), 테스트 갱신. filterShipments 새 시그니처=(list,{hideCompleted}); DashboardCounts={inProgress,completed,trash,unread,amountTeaser}. + dashboard.tsx·index.tsx 는 제거된 심볼을 소비해 typecheck 훅(app .ts(x) 편집 후 tsc 강제)이 막으므로 최소 컴파일 호환 수정 필요(대시보드 예외/오늘도착 카드·택배함 필터 칩 제거) — 시각 재설계(색·토글 이동)는 step1·step2. npm run verify green."
+    },
+    {
+      "step": 1,
+      "name": "dashboard-screen",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "list-settings",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "header-safearea",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "docs-sync",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-23T15:44:19+0900"
+}

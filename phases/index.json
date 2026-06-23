@@ -49,6 +49,10 @@
       "dir": "10-qa-v0-v11-release",
       "status": "completed",
       "completed_at": "2026-06-23T06:27:15+0900"
+    },
+    {
+      "dir": "11-qa-v0-v11-fixes",
+      "status": "pending"
     }
   ]
 }

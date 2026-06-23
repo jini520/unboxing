@@ -27,15 +27,13 @@ describe("dashboardCounts", () => {
     expect(dashboardCounts([], base)).toEqual({
       inProgress: 0,
       completed: 0,
-      exception: 0,
-      arrivingToday: 0,
       trash: 0,
       unread: 0,
       amountTeaser: { total: 0, partial: false },
     });
   });
 
-  it("혼합 목록 → 버킷별 정확(stageBucket 사용)", () => {
+  it("혼합 목록 → 버킷별 정확(stageBucket 사용·예외는 진행 중에 흡수)", () => {
     const list = [
       ship({ id: "a", status: "이동중" }),
       ship({ id: "b", status: "배송출발" }),
@@ -44,46 +42,30 @@ describe("dashboardCounts", () => {
       ship({ id: "e", status: "미등록" }),
     ];
     const c = dashboardCounts(list, base);
-    expect(c.inProgress).toBe(3); // 이동중·배송출발·미등록
+    expect(c.inProgress).toBe(4); // 이동중·배송출발·예외·미등록(A1 — 예외 흡수)
     expect(c.completed).toBe(1);
-    expect(c.exception).toBe(1);
+    // 완료가 아니면 전부 진행 중 → 진행중+완료 = 전체(전수·배타).
+    expect(c.inProgress + c.completed).toBe(list.length);
   });
 
-  it("active=0 이 버킷을 바꾸지 않는다(비활성 미등록도 진행중)", () => {
+  it("예외 건은 진행 중에 포함된다(A1 — '확인 필요' 카드 제거·흡수)", () => {
+    const c = dashboardCounts([ship({ id: "x", status: "예외" })], base);
+    expect(c.inProgress).toBe(1);
+    expect(c.completed).toBe(0);
+  });
+
+  it("active=0 이 버킷을 바꾸지 않는다(비활성 미등록·예외 모두 진행 중)", () => {
     const list = [
       ship({ id: "x", status: "미등록", active: false }),
       ship({ id: "y", status: "예외", active: false }),
     ];
-    const c = dashboardCounts(list, base);
-    expect(c.inProgress).toBe(1);
-    expect(c.exception).toBe(1);
+    expect(dashboardCounts(list, base).inProgress).toBe(2);
   });
 
   it("trashCount·unreadCount 를 통과한다", () => {
     const c = dashboardCounts([], { ...base, trashCount: 5, unreadCount: 3 });
     expect(c.trash).toBe(5);
     expect(c.unread).toBe(3);
-  });
-
-  it("arrivingToday: 배송출발 ∩ KST 당일만", () => {
-    const list = [
-      ship({
-        id: "today",
-        status: "배송출발",
-        statusChangedAt: Date.parse("2026-06-23T09:00:00+09:00"),
-      }),
-      ship({
-        id: "yesterday",
-        status: "배송출발",
-        statusChangedAt: Date.parse("2026-06-22T23:00:00+09:00"),
-      }),
-      ship({
-        id: "moving-today",
-        status: "이동중",
-        statusChangedAt: Date.parse("2026-06-23T10:00:00+09:00"),
-      }),
-    ];
-    expect(dashboardCounts(list, base).arrivingToday).toBe(1);
   });
 });
 

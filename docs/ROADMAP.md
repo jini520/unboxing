@@ -35,9 +35,21 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 
 **계획된 기능(아래 §상세):**
 - 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
-- **v1.1 마이너 업데이트(설계 완료·phase 분할 완료·실행 대기)** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·택배함 필터. 설계: `PRD.md`/`ARCHITECTURE.md` "v1.1 …", `ADR.md` ADR-021~025, `UI_GUIDE.md` "v1.1 화면 …". 마이그레이션(서버 `notifications` 테이블·로컬 메모→정보)·엣지·TDD 타깃 명세됨.
-  - **Harness phase 07~10 분할 완료**(2026-06-23 · 권위 출처 `phases/index.json`). 실행 순서: `07-backend-v0-v11-notifications`(notifications·#9 한글명·휴지통 알림차단) → `08-ui-v0-v11-logic`(순수 로직 test-first) → `09-ui-v0-v11-screens`(⚠️ step0에서 `git stash pop`으로 삭제UX[확인 다이얼로그+햅틱] 복원) → `10-qa-v0-v11-release`(라이브 `privacyPolicy.ts` 정정). 의존: 08→09.
+- **v1.1 마이너 업데이트(구현·main 머지 완료 2026-06-23)** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·택배함 필터. 설계: `PRD.md`/`ARCHITECTURE.md` "v1.1 …", `ADR.md` ADR-021~025, `UI_GUIDE.md` "v1.1 화면 …". 마이그레이션(서버 `notifications` 테이블·로컬 메모→정보)·엣지·TDD 타깃 명세됨.
+  - **Harness phase 07~10 구현·머지 완료**(2026-06-23 · 권위 출처 `phases/index.json`·git). 머지 커밋: `07`→`eb3030a`, `08`→`f7a11c6`, `09`→`b9c5f83`, `10`→`7c1b560`. 실행 순서였음: `07-backend-v0-v11-notifications`(notifications·#9 한글명·휴지통 알림차단) → `08-ui-v0-v11-logic`(순수 로직 test-first) → `09-ui-v0-v11-screens`(step0에서 `git stash pop`으로 삭제UX[확인 다이얼로그+햅틱] 복원) → `10-qa-v0-v11-release`(라이브 `privacyPolicy.ts` 정정). ⚠️ **배포 전 외부 경계 실호출 스모크 미완**(원격 D1 `notifications` 마이그레이션 + 실 운송장 전환 푸시·한글명 확인).
   - 스코프 확정: 오늘 도착 예정·알림 모두읽음+날짜그룹·#9 푸시 한글명·휴지통 알림차단 **포함** / 알림→휴지통 복구 딥링크 **제외**. 금액 teaser·카드 카테고리 칩 기본 포함.
+
+**v1.1 Bug Fix (다음 harness `11-qa-v0-v11-fixes` 예정 — 07~10 구현·머지 완료 후 발견):**
+
+> 2026-06-23 iOS 시뮬레이터 전 화면 스모크 테스트 결과. **A=의도와 다르게 구현됨(동작은 하나 의도 불일치 — 설계 정정)**, **B=버그**. 수정 시 시뮬레이터 재캡처로 검증. 설계 정정은 해당 `PRD`/`UI_GUIDE`/`ADR` 사양도 함께 갱신.
+
+A. 의도와 다르게 구현됨 (설계 정정):
+- **A1. 대시보드 카드 4개로 축소 + 항목별 컬러** — 현재 6카드(진행 중·배송완료·확인 필요·오늘 도착·휴지통·새 알림) → **4카드(진행 중·배송 완료·휴지통·새 알림)** 로 축소. "확인 필요"·"오늘 도착" **제거**. 각 항목에 의미별 컬러 부여(현재 무채색). 영향: `app/app/(tabs)/dashboard.tsx`, `app/src/lib/dashboard.ts`(예외·오늘 도착 카운트 산출 제거), `UI_GUIDE.md`/`PRD.md` v1.1 대시보드 사양.
+- **A2. 택배함 필터 기능 제거(보류) + 완료 숨기기 토글 이동** — 필터 칩(전체/진행 중/임박/완료/예외) 기능 **전체 제거**. 대신 **"배송 완료된 항목 감추기" 토글을 설정 → 택배함으로 이동**(설정 "표시" 섹션에서 토글 제거[시작화면 라디오는 유지], 택배함 상단에 배치). 영향: `app/app/(tabs)/index.tsx`(칩·`selectedChip`·`filterParam` 라우트 프리셋·`filterShipments` 칩 인자 제거 → hideCompleted 토글만), `app/app/(tabs)/settings.tsx`(완료 숨기기 토글 제거), `app/app/(tabs)/dashboard.tsx`(카드 탭→필터 프리셋 네비 제거), `app/src/lib/filter.ts`(칩 필터 미사용 → hideCompleted 전용), `UI_GUIDE.md`/`PRD.md`/`ADR.md`(필터 사양·관련 ADR 정정). ※ 스모크에서 발견한 "필터 칩 세로 stretch" 레이아웃 깨짐은 **필터 제거로 자동 해소**(별도 수정 불필요).
+
+B. 버그:
+- **B1. (사용자 발견) 운송장 미등록(빈 목록) 시 대시보드가 열리지 않음** — 등록된 송장이 없을 때 대시보드 화면 렌더/진입 실패. 빈 상태에서도 대시보드가 정상 표시되도록 수정(빈 데이터 가드 + 콜드스타트 라우팅 점검). 영향: `app/app/(tabs)/dashboard.tsx`, `app/src/lib/route.ts`/`_layout`. 재현·원인 규명 필요.
+- **B2. (스모크 발견) 알림·휴지통 헤더 상단 여백 과다** — top safe-area inset **이중 적용**: 화면이 `SafeAreaView edges={["top"]}` 로 감싸는데 `ScreenHeader` 도 `paddingTop: insets.top` 적용. 수정: `edges={["top"]}` → **`edges={["bottom"]}`**(register/detail 과 통일). 영향: `app/app/notifications.tsx`, `app/app/trash.tsx`.
 
 **Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
 

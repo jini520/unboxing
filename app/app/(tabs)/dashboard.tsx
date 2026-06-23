@@ -1,9 +1,10 @@
 /**
- * 대시보드(하단 탭·좌측) — 진행 중·배송완료·예외·오늘 도착·휴지통·새 알림 요약 + 이번 달 등록 금액 teaser.
+ * 대시보드(하단 탭·좌측) — 진행 중·배송완료·휴지통·새 알림 요약 + 이번 달 등록 금액 teaser(ROADMAP v1.1
+ * Bug Fix A1: 4카드 축소·예외는 진행 중에 흡수·'오늘 도착' 제거).
  * 집계는 **클라이언트**에서(ADR-021, 새 서버 엔드포인트 없음): GET /shipments(또는 오프라인 캐시) + 로컬 휴지통/읽음/금액
  * → dashboardCounts(08 단일 출처)로 계산. 버킷 정의는 stageBucket(08) — 여기서 재정의하지 않는다(드리프트 금지).
- * 카드 탭 → 택배함(필터 프리셋 route param)·휴지통·알림으로 라우팅. 빈/오프라인 상태 처리(ADR-014 캐시 집계).
- * 색은 토큰만(예외>0=stage.exception 강조 + 라벨/아이콘 — 색 단독 아님). 헤더는 택배함과 동일 위치/스타일.
+ * 카드 탭 → 택배함·휴지통·알림으로 라우팅(A2 — 필터 프리셋 param 제거). 빈/오프라인 상태 처리(ADR-014 캐시 집계).
+ * 색은 토큰만(색 단독 아님 — 라벨/아이콘 동반). 헤더는 택배함과 동일 위치/스타일.
  * docs/UI_GUIDE.md "대시보드", docs/ARCHITECTURE.md "v1.1 네비게이션/데이터 흐름", ADR-021·025.
  */
 import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
@@ -26,17 +27,14 @@ import { loadTrash, trashStore } from "../../src/lib/trash";
 import { infoStore, loadInfo } from "../../src/lib/info";
 import { initLastSeen, notifStore, unreadCount } from "../../src/lib/notif";
 import { formatAmount } from "../../src/lib/amount";
-import type { ListFilter } from "../../src/lib/filter";
 import { relativeTime } from "../../src/lib/time";
 import { HeaderBell } from "../../src/components/HeaderBell";
 import {
-  AlertTriangle,
   Bell,
   CheckCircle,
   type IconProps,
   Package,
   Trash,
-  Truck,
 } from "../../src/components/icons";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
@@ -117,9 +115,9 @@ export default function DashboardScreen() {
     [shipments, trashCount, unread, now, amounts],
   );
 
-  // 카드 → 택배함 라우팅(필터 프리셋을 route param 으로 전달, 택배함이 칩 초기 선택에 반영).
-  const goList = useCallback((filter: ListFilter) => {
-    router.navigate({ pathname: "/", params: { filter } });
+  // 카드 → 택배함 라우팅. A2(필터 칩 제거)로 필터 프리셋 param 은 더 이상 전달하지 않는다(택배함으로만 이동).
+  const goList = useCallback(() => {
+    router.navigate("/");
   }, []);
 
   return (
@@ -172,28 +170,13 @@ export default function DashboardScreen() {
               count={counts.inProgress}
               label="진행 중"
               Icon={Package}
-              onPress={() => goList("진행중")}
+              onPress={goList}
             />
             <SummaryCard
               count={counts.completed}
               label="배송완료"
               Icon={CheckCircle}
-              onPress={() => goList("완료")}
-            />
-            <SummaryCard
-              count={counts.exception}
-              label="확인 필요"
-              Icon={AlertTriangle}
-              emphasize
-              onPress={() => goList("예외")}
-            />
-            {/* 오늘 도착(배송출발 ∩ KST 당일)은 임박(배송출발)의 부분집합 — 08 filter 에 별도 '오늘도착' 칩이
-                없으므로 가장 가까운 상위 필터 임박으로 진입(당일 정밀 집계는 대시보드 카드 전용). */}
-            <SummaryCard
-              count={counts.arrivingToday}
-              label="오늘 도착"
-              Icon={Truck}
-              onPress={() => goList("임박")}
+              onPress={goList}
             />
             <SummaryCard
               count={counts.trash}
