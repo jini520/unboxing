@@ -60,10 +60,10 @@ export interface PushDeps {
 
 /** 알림 대상 단계별 body 문구 (PRD "알림 정책"). 거래성/정보성만(ADR-018). 배송출발은 KST 당일 여부로 분기(아래 bodyFor). */
 const STAGE_BODY: Partial<Record<Stage, string>> = {
-  등록: "접수가 확인됐어요",
-  집화: "택배사가 상품을 수거했어요",
-  배송완료: "배송 완료 ✓",
-  예외: "배송에 문제가 있어요(지연/반송) — 확인이 필요해요",
+  등록: "📦 접수가 확인됐어요",
+  집화: "📥 택배사가 상품을 수거했어요",
+  배송완료: "✅ 배송 완료",
+  예외: "⚠️ 배송에 문제가 있어요(지연/반송) — 확인이 필요해요",
 };
 
 /** epoch ms → KST(UTC+9) 기준 yyyy-mm-dd 키. 날짜 경계 판정용(ARCHITECTURE: 날짜 판정은 KST). */
@@ -79,7 +79,7 @@ function bodyFor(stage: Stage, ctx: { eventTimeMs?: number; nowMs?: number }): s
       ctx.eventTimeMs !== undefined &&
       ctx.nowMs !== undefined &&
       kstDayKey(ctx.eventTimeMs) === kstDayKey(ctx.nowMs);
-    return sameDay ? "오늘 도착 예정 — 배송이 시작됐어요" : "배송이 시작됐어요";
+    return sameDay ? "🚚 오늘 도착 예정 — 배송이 시작됐어요" : "🚚 배송이 시작됐어요";
   }
   return STAGE_BODY[stage];
 }
@@ -107,7 +107,7 @@ export function buildMessage(
   return {
     to: ctx.token,
     // title 은 carrierId 대신 한글 택배사명(이슈 #9). 미상 id 는 carrierName 이 원문 폴백.
-    title: `${carrierName(ctx.carrier)} · …${ctx.last4}`,
+    title: `${carrierName(ctx.carrier)}(${ctx.last4})`,
     body, // 문구는 모두 짧음 → payload ≤4096B 자명 충족
     data: { shipment_id: ctx.shipmentId },
     channelId: DELIVERY_CHANNEL_ID,

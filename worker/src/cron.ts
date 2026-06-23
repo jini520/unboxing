@@ -361,7 +361,7 @@ async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: st
     row.id,
     (token) => ({
       to: token,
-      title: `${carrierName(row.carrier)} · …${last4}`, // 한글 택배사명(이슈 #9, 전환 푸시와 일관)
+      title: `${carrierName(row.carrier)}(${last4})`, // 한글 택배사명(이슈 #9, 전환 푸시와 일관)
       body,
       data: { shipment_id: row.id },
       channelId: DELIVERY_CHANNEL_ID,
@@ -372,12 +372,12 @@ async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: st
 
 /** '번호 확인'(미등록 7일) 안내 — 7일째 데이터 미수신(오타/잘못된 번호 의심). */
 async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
-  await notifyOperational(env, deps, row, "운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요");
+  await notifyOperational(env, deps, row, "❓ 운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요");
 }
 
 /** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림. */
 async function notifyLost(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
-  await notifyOperational(env, deps, row, "오래 변동이 없어요 — 배송 상태를 확인해 주세요");
+  await notifyOperational(env, deps, row, "🕵️ 오래 변동이 없어요 — 배송 상태를 확인해 주세요");
 }
 
 /**
