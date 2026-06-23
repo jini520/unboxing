@@ -80,7 +80,10 @@ export default function DashboardScreen() {
       setOffline(false);
       await cacheShipments(list, { store: cacheStore, now: ts });
     } catch (e) {
+      // NETWORK(오프라인)는 배너. 어떤 실패든(비-NETWORK 포함) 첫 로드(캐시 없음)에서 무한 스피너에
+      // 갇히지 않게 빈 목록으로 확정한다 → EmptyState 표시(B1). 캐시가 이미 있으면 그 값을 유지.
       if (e instanceof ApiError && e.code === "NETWORK") setOffline(true);
+      setShipments((prev) => prev ?? []);
     }
   }, []);
 
@@ -114,11 +117,6 @@ export default function DashboardScreen() {
         : dashboardCounts(shipments, { trashCount, unreadCount: unread, now, amounts }),
     [shipments, trashCount, unread, now, amounts],
   );
-
-  // 카드 → 택배함 라우팅. A2(필터 칩 제거)로 필터 프리셋 param 은 더 이상 전달하지 않는다(택배함으로만 이동).
-  const goList = useCallback(() => {
-    router.navigate("/");
-  }, []);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
@@ -165,29 +163,35 @@ export default function DashboardScreen() {
             </Text>
           )}
 
+          {/* 4카드(A1) — 각 항목 의미색(count>0 일 때만 tint, 0 이면 중립). 색 단독 아님: 아이콘+라벨 동반.
+              진행 중·배송완료 → 택배함 탭 단순 이동(A2 로 필터 프리셋 제거). 휴지통·새 알림 → 각 화면. */}
           <View style={styles.grid}>
             <SummaryCard
               count={counts.inProgress}
               label="진행 중"
               Icon={Package}
-              onPress={goList}
+              tint={tokens.accent}
+              onPress={() => router.navigate("/")}
             />
             <SummaryCard
               count={counts.completed}
               label="배송완료"
               Icon={CheckCircle}
-              onPress={goList}
+              tint={tokens.stage.delivered}
+              onPress={() => router.navigate("/")}
             />
             <SummaryCard
               count={counts.trash}
               label="휴지통"
               Icon={Trash}
+              tint={tokens.stage.exception}
               onPress={() => router.push("/trash")}
             />
             <SummaryCard
               count={counts.unread}
               label="새 알림"
               Icon={Bell}
+              tint={tokens.stage.inTransit}
               onPress={() => router.push("/notifications")}
             />
           </View>
@@ -203,31 +207,26 @@ export default function DashboardScreen() {
 }
 
 /**
- * 요약 카드 — 큰 숫자 + 아이콘 + 라벨. 숫자 0=중립(text.secondary), >0=text.primary.
- * emphasize(예외 전용): >0 이면 숫자·아이콘을 stage.exception 으로(색 + 라벨/아이콘 동반 — 색 단독 아님).
+ * 요약 카드 — 큰 숫자 + 아이콘 + 라벨. 카드별 의미색(tint, A1)을 인자로 받는다.
+ * count>0 이면 숫자·아이콘에 tint(의미색) 적용, 0 이면 중립(text.secondary). 라벨은 항상 중립.
+ * 색 단독 아님 — 아이콘+라벨이 항상 의미를 동반(접근성). tint 미지정이면 primary(중립 강조) 폴백.
  */
 function SummaryCard({
   count,
   label,
   Icon,
-  emphasize = false,
+  tint,
   onPress,
 }: {
   count: number;
   label: string;
   Icon: ComponentType<IconProps>;
-  emphasize?: boolean;
+  tint?: string;
   onPress: () => void;
 }) {
   const { tokens } = useTheme();
-  const active = count > 0;
-  const valueColor =
-    emphasize && active
-      ? tokens.stage.exception
-      : active
-        ? tokens.text.primary
-        : tokens.text.secondary;
-  const iconColor = emphasize && active ? tokens.stage.exception : tokens.text.secondary;
+  // count>0 → 의미색(tint), 0 → 중립. 숫자·아이콘 동일 tone.
+  const tone = count > 0 ? tint ?? tokens.text.primary : tokens.text.secondary;
   return (
     <Pressable
       onPress={onPress}
@@ -238,13 +237,13 @@ function SummaryCard({
       <View style={styles.cardTop}>
         <Icon
           size={20}
-          color={iconColor}
+          color={tone}
           accessibilityElementsHidden
           importantForAccessibility="no"
         />
         <Text style={[styles.cardLabel, { color: tokens.text.secondary }]}>{label}</Text>
       </View>
-      <Text style={[styles.cardValue, { color: valueColor }]}>{count}</Text>
+      <Text style={[styles.cardValue, { color: tone }]}>{count}</Text>
     </Pressable>
   );
 }

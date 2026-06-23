@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "dashboard-screen",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-23T15:58:30+0900",
+      "summary": "A1: 대시보드 4카드 의미색 — SummaryCard 의 emphasize(예외 전용) 패턴을 tint?:string 인자로 일반화(count>0 일 때만 숫자·아이콘에 의미색, 0 이면 중립 text.secondary, 라벨은 항상 중립; 색 단독 아님=아이콘+라벨 동반). 매핑: 진행 중=accent / 배송완료=stage.delivered / 새 알림=stage.inTransit / 휴지통=stage.exception. goList useCallback 제거 후 진행중·배송완료 onPress 를 inline router.navigate('/')(A2 필터 프리셋 없음), 휴지통/새 알림은 push 유지. B1 근본원인=H1(확정): sync 의 listShipments catch 가 NETWORK 만 처리하고 실패 시 shipments 를 null 로 방치→counts===null 무한 스피너. 수정: catch 에 setShipments(prev=>prev??[]) 폴백(캐시 있으면 유지·없으면 [] 확정→EmptyState; NETWORK 는 배너 유지). H2(라우팅)는 resolveInitialRoute/_layout 의 /dashboard 전환이 목록 내용과 독립이라 무관임을 코드로 확인. 시뮬 최종 확인은 사용자 몫으로 남김(iOS 빌드 미구동). npm run verify green(app 224·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T16:05:00+0900"
     },
     {
       "step": 2,
