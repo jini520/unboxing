@@ -52,7 +52,8 @@
     },
     {
       "dir": "11-qa-v0-v11-fixes",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-06-23T16:21:49+0900"
     }
   ]
 }
