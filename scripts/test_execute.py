@@ -323,6 +323,38 @@ class TestUpdateTopIndex:
 
 
 # ---------------------------------------------------------------------------
+# _finalize (auto-push 브랜치명)
+# ---------------------------------------------------------------------------
+
+class TestFinalizePush:
+    """auto_push 시 push 브랜치는 checkout 과 동일한 feat-{디렉토리명} 이어야 한다.
+    (회귀: 과거 push 가 feat-{phase scope} 를 써서 refspec 불일치로 실패했다.)"""
+
+    def _run_finalize(self, executor):
+        executor._auto_push = True
+        calls = []
+
+        def fake_git(*args):
+            calls.append(args)
+            # diff --cached --quiet: returncode!=0 → 스테이지 변경 있음(커밋 경로 진입).
+            if args[:2] == ("diff", "--cached"):
+                return MagicMock(returncode=1, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        executor._run_git = fake_git
+        executor._finalize()
+        return calls
+
+    def test_push_uses_dir_name_branch(self, executor):
+        calls = self._run_finalize(executor)
+        push = [c for c in calls if c and c[0] == "push"]
+        assert push, "auto_push 시 git push 가 호출돼야 한다"
+        # checkout 은 feat-{_phase_dir_name}=feat-00-core-v0-mvp 를 만든다 — push 도 동일해야 한다.
+        # (_phase_name='mvp' scope 를 쓰면 feat-mvp 로 어긋나 refspec 불일치.)
+        assert push[0] == ("push", "-u", "origin", "feat-00-core-v0-mvp")
+
+
+# ---------------------------------------------------------------------------
 # _checkout_branch (mocked)
 # ---------------------------------------------------------------------------
 

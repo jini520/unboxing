@@ -408,7 +408,8 @@ class StepExecutor:
                 print(f"  ✓ {msg}")
 
         if self._auto_push:
-            branch = f"feat-{self._phase_name}"
+            # checkout 과 동일한 브랜치명(feat-{디렉토리명}) — scope(_phase_name)를 쓰면 refspec 불일치.
+            branch = f"feat-{self._phase_dir_name}"
             r = self._run_git("push", "-u", "origin", branch)
             if r.returncode != 0:
                 print(f"\n  ERROR: git push 실패: {r.stderr.strip()}")
