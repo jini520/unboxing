@@ -25,6 +25,16 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - **iOS 실기기 빌드**: Apple Developer 멤버십 결제 완료, **활성화(team 생성) 대기 중** — 활성화 후 `eas device:create` → `eas build -p ios --profile preview`. 상세 경로 → 아래 "실기기 설치·배포 경로".
 - **iOS App Store 출시 준비 (2026-06-22):** 멤버십 활성. 정책 검토 완료 — **리젝 항목 없음**. `app.json` 패치 적용(`ITSAppUsesNonExemptEncryption=false`·`supportsTablet=false` iPhone 전용·`expo-secure-store faceIDPermission`). 절차·콘솔 체크리스트 → **`docs/IOS_SUBMISSION.md`**. `eas submit -p ios`는 **사용자 지시 대기**.
 
+**v1.1 마이너 업데이트 (phase 07~11) — 구현·설계정정·버그수정 완료 (2026-06-23):**
+- **07~10 구현·main 머지 완료** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·완료 숨기기. 머지 커밋: `07`→`eb3030a`, `08`→`f7a11c6`, `09`→`b9c5f83`, `10`→`7c1b560`. 실행 순서: `07-backend-v0-v11-notifications`(notifications·#9 한글명·휴지통 알림차단) → `08-ui-v0-v11-logic`(순수 로직 test-first) → `09-ui-v0-v11-screens`(삭제UX[확인 다이얼로그+햅틱] 복원) → `10-qa-v0-v11-release`(라이브 `privacyPolicy.ts` 정정). 설계: `PRD`/`ARCHITECTURE` "v1.1 …", `ADR` ADR-021~025, `UI_GUIDE` "v1.1 화면 …".
+- **11-qa-v0-v11-fixes 구현·설계정정 완료** — iOS 시뮬 스모크 후속 수정(권위 출처 `phases/index.json`·git):
+  - **A1(설계 정정)** 대시보드 6→**4카드**(진행 중·배송완료·휴지통·새 알림) + 항목별 의미색. "확인 필요(예외)"·"오늘 도착" 카드 폐기, 예외는 진행 중에 흡수(`dashboardCounts`·`filter.ts`). `PRD`·`UI_GUIDE`·`ADR-021` 사양 동기화.
+  - **A2(설계 정정)** 택배함 필터 칩(전체/진행중/임박/완료/예외) **전면 제거** + "배송 완료된 항목 감추기" 토글을 **설정→택배함 상단**으로 이동. `filterShipments`는 `hideCompleted` 전용. `PRD`·`UI_GUIDE`·`ADR-021`(필터 라우팅 철회) 사양 동기화.
+  - **B1(버그)** 빈 목록 시 대시보드 무한 스피너 — `sync` 의 `listShipments` catch 가 실패 시 shipments 를 null 로 방치하던 것을 `setShipments(prev=>prev??[])` 폴백으로 수정(빈 상태 진입).
+  - **B2(버그)** 알림·휴지통 헤더 상단 여백 과다(top inset 이중 적용) — `notifications.tsx`·`trash.tsx` `SafeAreaView edges` `["top"]`→`["bottom"]`(register/detail 과 통일).
+- **iOS 시뮬레이터 재캡처 (2026-06-23, dev build)**: **A1**(대시보드 4카드+의미색)·**A2**(택배함 완료숨기기 토글, 필터칩 제거)·**B2**(알림·휴지통 헤더 여백) 확인 완료. **B1**(빈 목록 대시보드 진입)은 무한 스피너는 해소됐으나, 빈 목록에서 카드가 아니라 "운송장 등록" CTA를 띄우는 게 의도와 달라 **#1로 정정**(아래 예정 §"v1.1 추가"). 동시에 사용자 추가 요청 **#2~#4** 접수.
+- ⚠️ **배포 전 외부 경계 실호출 스모크 미완**(미해소): 원격 D1 `notifications` 마이그레이션 + 실 운송장 전환 푸시·한글명·`GET /notifications` 기록 확인.
+
 ## 예정 작업 (무엇을 해야 하는가)
 
 **열린 이슈(GitHub):**
@@ -34,10 +44,14 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - `#14` (P1·제출차단) App Privacy/Data Safety 신고 — 초안(`QA` D절) 완료, **콘솔 제출은 외부 작업**.
 
 **계획된 기능(아래 §상세):**
+- **v1.1 추가 (2026-06-23 #1~#4 — 설계 완료·구현 대기):** 시뮬레이터 스모크/사용자 요청에서 발견. 설계 SoT: `PRD`/`UI_GUIDE`/`ARCHITECTURE` "v1.1 추가", `ADR-026`(택배사 자동선택)·`ADR-027`(식별자 수정=재등록).
+  - **#1 대시보드 빈 목록 = 항상 4카드** — EmptyState 제거(현황판). → harness **phase 12 `12-qa-v0-v11-dashboard-empty`**(설계·step 작성 완료, 실행 대기).
+  - **#3 택배사 자동선택 보수화** — 추정 후보 ≥2면 자동선택 없이 드롭다운 명시 선택(오선택 방지). → harness **phase 13**(`carrier` 로직·`register.tsx`).
+  - **#2 상세 "택배 정보"·"수정" 아이콘 분리** + **#4 택배사·번호 수정=재등록**(POST 새등록 먼저→정보 old→new id 이관→DELETE 기존, 새 서버 엔드포인트 없음). → harness **phase 14**(상세 화면·재등록 로직 test-first·신규 `FileText` 글리프).
+  - 의존: 12·13·14 각각 독립(13·14 동시 가능), 14의 택배사 선택 UI는 #3 컴포넌트 재사용. 각 phase 후 시뮬 재캡처 검증.
 - 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
-- **v1.1 마이너 업데이트(설계 완료·phase 분할 완료·실행 대기)** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·택배함 필터. 설계: `PRD.md`/`ARCHITECTURE.md` "v1.1 …", `ADR.md` ADR-021~025, `UI_GUIDE.md` "v1.1 화면 …". 마이그레이션(서버 `notifications` 테이블·로컬 메모→정보)·엣지·TDD 타깃 명세됨.
-  - **Harness phase 07~10 분할 완료**(2026-06-23 · 권위 출처 `phases/index.json`). 실행 순서: `07-backend-v0-v11-notifications`(notifications·#9 한글명·휴지통 알림차단) → `08-ui-v0-v11-logic`(순수 로직 test-first) → `09-ui-v0-v11-screens`(⚠️ step0에서 `git stash pop`으로 삭제UX[확인 다이얼로그+햅틱] 복원) → `10-qa-v0-v11-release`(라이브 `privacyPolicy.ts` 정정). 의존: 08→09.
-  - 스코프 확정: 오늘 도착 예정·알림 모두읽음+날짜그룹·#9 푸시 한글명·휴지통 알림차단 **포함** / 알림→휴지통 복구 딥링크 **제외**. 금액 teaser·카드 카테고리 칩 기본 포함.
+
+> v1.1 마이너 업데이트(phase 07~11)는 구현·설계정정·버그수정 완료 → **위 "진행 현황"** 으로 이동. **배포 전 외부 경계 실호출 스모크는 여전히 미완**(진행 현황 ⚠️ 항목 참조).
 
 **Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
 

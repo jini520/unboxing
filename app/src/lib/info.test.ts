@@ -9,6 +9,7 @@ import {
   clearInfo,
   memosToInfoMap,
   migrateMemosToInfo,
+  transferInfo,
 } from "./info";
 
 /** 인메모리 KeyValueStore(memo.test·trash.test 와 동일 패턴). */
@@ -112,6 +113,51 @@ describe("info — 스토어", () => {
     const store = memStore();
     await store.setItem(INFO_KEY, "{not json");
     expect(await loadInfo({ store })).toEqual({});
+  });
+});
+
+describe("info — transferInfo", () => {
+  it("old 정보(메모+카테고리+금액) → new 로 이동·old 제거", async () => {
+    const store = memStore();
+    await setInfo("old", { memo: "엄마 선물", category: "식품", amount: 12000 }, { store });
+    const map = await transferInfo("old", "new", { store });
+    expect(map.new).toEqual({ memo: "엄마 선물", category: "식품", amount: 12000 });
+    expect("old" in map).toBe(false);
+    expect(await loadInfo({ store })).toEqual({ new: { memo: "엄마 선물", category: "식품", amount: 12000 } });
+  });
+
+  it("amount 0 을 보존하며 이관한다(falsy 유실 금지)", async () => {
+    const store = memStore();
+    await setInfo("old", { amount: 0 }, { store });
+    await transferInfo("old", "new", { store });
+    expect(await getInfo("new", { store })).toEqual({ amount: 0 });
+    expect(await getInfo("old", { store })).toEqual({});
+  });
+
+  it("old 에 정보 없음 → new 변화 없음·old 도 없음(no-op)", async () => {
+    const store = memStore();
+    await setInfo("other", { memo: "유지" }, { store });
+    const map = await transferInfo("old", "new", { store });
+    expect("new" in map).toBe(false);
+    expect("old" in map).toBe(false);
+    expect(map).toEqual({ other: { memo: "유지" } });
+  });
+
+  it("oldId === newId → 맵 불변(자기 자신 삭제 안 함)", async () => {
+    const store = memStore();
+    await setInfo("s1", { memo: "내 메모", amount: 0 }, { store });
+    const map = await transferInfo("s1", "s1", { store });
+    expect(map).toEqual({ s1: { memo: "내 메모", amount: 0 } });
+    expect(await getInfo("s1", { store })).toEqual({ memo: "내 메모", amount: 0 });
+  });
+
+  it("new 에 기존 정보가 있어도 old 값으로 덮어쓴다", async () => {
+    const store = memStore();
+    await setInfo("old", { memo: "수정중 택배" }, { store });
+    await setInfo("new", { memo: "방금 등록" }, { store });
+    await transferInfo("old", "new", { store });
+    expect(await getInfo("new", { store })).toEqual({ memo: "수정중 택배" });
+    expect(await getInfo("old", { store })).toEqual({});
   });
 });
 

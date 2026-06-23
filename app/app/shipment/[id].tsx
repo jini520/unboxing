@@ -20,6 +20,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ApiError,
+  createShipment,
   deleteShipment,
   getShipment,
   type Contact,
@@ -27,15 +28,17 @@ import {
   type TimelineEvent,
 } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
-import { carrierName } from "../../src/lib/carrier";
+import { autoPickCarrier, carrierName, estimateCarriers } from "../../src/lib/carrier";
+import { isValidTrackingNumber, normalizeTrackingNumber } from "../../src/lib/tracking";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
 import { defaultMemoText } from "../../src/lib/memo";
-import { CATEGORIES, getInfo, infoStore, setInfo } from "../../src/lib/info";
+import { CATEGORIES, getInfo, infoStore, setInfo, transferInfo } from "../../src/lib/info";
 import { formatAmount, parseAmount } from "../../src/lib/amount";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
-import { Pencil } from "../../src/components/icons";
+import { CarrierSelect } from "../../src/components/CarrierSelect";
+import { FileText, Pencil } from "../../src/components/icons";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -48,6 +51,14 @@ type TimelineState =
   | { kind: "offline" }
   | { kind: "unavailable" } // upstream 실패 — 마지막 단계만
   | { kind: "notfound" };
+
+/** 재등록 실패 카피(코드 비노출) — 409=택배사 미지원(직접 조회 안내), 그 외(429·NETWORK·5xx)=일시 오류. */
+function reregisterErrorCopy(e: unknown): string {
+  if (e instanceof ApiError && e.code === "CARRIER_UNSUPPORTED") {
+    return "지원하지 않는 택배사예요. 택배사 앱에서 직접 조회해 주세요.";
+  }
+  return "잠시 후 다시 시도해 주세요";
+}
 
 export default function DetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -68,6 +79,14 @@ export default function DetailScreen() {
   const [categoryDraft, setCategoryDraft] = useState<string | undefined>(undefined);
   const [amountDraft, setAmountDraft] = useState("");
   const deleting = useRef(false);
+  // 운송장 "수정"(택배사·번호) 모달 — 택배 정보 모달과 별개(헤더 연필 진입). 저장 = 재등록(ADR-027).
+  // carrierDraft = 명시 선택(picked) — 번호 변경 시 null 로 비워 autoPickCarrier 정책(ADR-026)이 다시 적용되게 한다.
+  const [editModal, setEditModal] = useState(false);
+  const [carrierDraft, setCarrierDraft] = useState<string | null>(null);
+  const [trackingDraft, setTrackingDraft] = useState("");
+  const [carrierListOpen, setCarrierListOpen] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false); // 저장 버튼 비활성·중복탭 표시(시각)
+  const saving = useRef(false); // 동기 재진입 가드(setState 전파 전 빠른 더블탭 방지 — deleting 패턴)
 
   useEffect(() => {
     if (!id) return;
@@ -108,6 +127,81 @@ export default function DetailScreen() {
       );
     setInfoModal(false);
   }, [id, memoDraft, categoryDraft, amountDraft, amountInvalid]);
+
+  // ── 운송장 수정(택배사·번호) = 재등록(ADR-027) ────────────────
+  const openEdit = useCallback(() => {
+    if (!shipment) return;
+    setCarrierDraft(shipment.carrier); // 현재 송장으로 프리필
+    setTrackingDraft(shipment.trackingNo);
+    setCarrierListOpen(false);
+    setEditModal(true);
+  }, [shipment]);
+
+  // 택배사 선택은 등록 화면과 동일 정책(ADR-026): carrierDraft(명시 선택) 우선, 없으면 후보 1개일 때만 자동.
+  const editCandidates = estimateCarriers(trackingDraft);
+  const editCarrierId = carrierDraft ?? autoPickCarrier(editCandidates);
+  const editTrackingValid = isValidTrackingNumber(trackingDraft);
+  // 번호 형식이 잘못됐는데 비어있지 않으면 인라인 안내(저장은 비활성).
+  const editTrackingInvalid = trackingDraft.trim() !== "" && !editTrackingValid;
+  const editDisabled = !editTrackingValid || !editCarrierId || savingEdit;
+
+  // 저장 = 등록-먼저·삭제-나중(ADR-027). render-scope 값을 그대로 닫는 평범한 함수(useCallback X — 드래프트 의존 과다).
+  const saveEdit = async () => {
+    if (!shipment || !id || editDisabled || saving.current) return;
+    const newCarrier = editCarrierId;
+    if (!newCarrier) return; // editDisabled 가드와 동일 — TS 좁히기용(string)
+    const newNo = normalizeTrackingNumber(trackingDraft);
+    const oldId = id;
+
+    // no-op: 택배사·정규화 번호가 현재와 동일 → 호출 없이 닫기.
+    if (newCarrier === shipment.carrier && newNo === shipment.trackingNo) {
+      setEditModal(false);
+      return;
+    }
+
+    saving.current = true;
+    setSavingEdit(true);
+    try {
+      // 등록 먼저(실패하면 기존 구독 유지·삭제 안 함).
+      const { shipment: created, created: isNew } = await createShipment(newCarrier, newNo, apiDeps);
+
+      // 서버가 같은 행으로 멱등 처리(반환 id == 현재) → 자기 자신 삭제 금지. 닫고 새로고침만.
+      if (created.id === oldId) {
+        saving.current = false;
+        setSavingEdit(false);
+        setEditModal(false);
+        await load();
+        return;
+      }
+
+      // 이미 추적 중인 다른 송장(dedupe hit) → 새 구독 안 만듦·old 자동삭제·info 이관 안 함, 그 상세로 이동.
+      if (!isNew) {
+        saving.current = false;
+        setSavingEdit(false);
+        setEditModal(false);
+        Alert.alert("이미 추적 중인 운송장이에요", "해당 운송장으로 이동할게요.");
+        router.replace(`/shipment/${created.id}`);
+        return;
+      }
+
+      // 정상 재등록: info(메모·카테고리·금액) old→new 이관 → old 구독 해제 → 새 상세로 교체.
+      await transferInfo(oldId, created.id, { store: infoStore });
+      try {
+        await deleteShipment(oldId, apiDeps);
+      } catch {
+        // old 잔류 — 이미 새 구독 성공. 다음 sync/reconcile 에서 정리(진행은 계속).
+      }
+      saving.current = false;
+      setSavingEdit(false);
+      setEditModal(false);
+      router.replace(`/shipment/${created.id}`);
+    } catch (e) {
+      // 등록 실패(429/409/422/NETWORK 등): 기존 송장·구독 그대로, 모달 유지·값 보존, DELETE 안 함.
+      saving.current = false;
+      setSavingEdit(false);
+      Alert.alert("수정하지 못했어요", reregisterErrorCopy(e));
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -194,15 +288,27 @@ export default function DetailScreen() {
       <ScreenHeader
         title={headerTitle}
         right={
-          <Pressable
-            onPress={openInfo}
-            hitSlop={8}
-            style={styles.headerEdit}
-            accessibilityRole="button"
-            accessibilityLabel="택배 정보 편집"
-          >
-            <Pencil size={22} color={tokens.text.primary} />
-          </Pressable>
+          // 헤더 우측 아이콘 2개(#2 분리): 수정(택배사·번호) / 택배 정보(메모·카테고리·금액).
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={openEdit}
+              hitSlop={8}
+              style={styles.headerEdit}
+              accessibilityRole="button"
+              accessibilityLabel="운송장 수정"
+            >
+              <Pencil size={22} color={tokens.text.primary} />
+            </Pressable>
+            <Pressable
+              onPress={openInfo}
+              hitSlop={8}
+              style={styles.headerEdit}
+              accessibilityRole="button"
+              accessibilityLabel="택배 정보"
+            >
+              <FileText size={22} color={tokens.text.primary} />
+            </Pressable>
+          </View>
         }
       />
       {/* 상단 섹션 — 고정(스크롤 X). 타임라인만 이 아래 영역에서 내부 스크롤(요청). */}
@@ -395,6 +501,81 @@ export default function DetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* 운송장 수정 모달 — 택배사·번호 편집(헤더 연필 진입). 저장 = 재등록(ADR-027, 새 서버 엔드포인트 없음). */}
+      <Modal visible={editModal} transparent animationType="fade" onRequestClose={() => setEditModal(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setEditModal(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
+            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>운송장 수정</Text>
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+              {/* 운송장 번호 — 변경 시 carrierDraft 초기화(번호 바뀌면 택배사 자동선택 정책 재적용·ADR-026). */}
+              <Text style={[styles.fieldLabel, { color: tokens.text.secondary }]}>운송장 번호</Text>
+              <TextInput
+                value={trackingDraft}
+                onChangeText={(t) => {
+                  setTrackingDraft(t);
+                  setCarrierDraft(null);
+                }}
+                placeholder="번호를 입력하세요"
+                placeholderTextColor={tokens.text.disabled}
+                keyboardType="number-pad"
+                style={[
+                  styles.editInput,
+                  {
+                    backgroundColor: tokens.bg.secondary,
+                    borderColor: editTrackingInvalid ? tokens.stage.exception : tokens.border,
+                    color: tokens.text.primary,
+                  },
+                ]}
+                accessibilityLabel="운송장 번호 입력"
+              />
+              {editTrackingInvalid ? (
+                <Text style={[styles.errorText, { color: tokens.stage.exception }]}>
+                  운송장 번호를 다시 확인해 주세요
+                </Text>
+              ) : null}
+
+              {/* 택배사 — 등록 화면과 동일 컴포넌트·정책 재사용(ADR-026). 후보 ≥2 면 명시 선택 유도. */}
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap, { color: tokens.text.secondary }]}>
+                택배사
+              </Text>
+              <CarrierSelect
+                candidates={editCandidates}
+                value={editCarrierId}
+                onChange={setCarrierDraft}
+                open={carrierListOpen}
+                onToggleOpen={() => setCarrierListOpen((v) => !v)}
+              />
+
+              {/* 식별자 변경 = "사실 다른 택배" → 새 번호로 새로 추적(이전 타임라인 교체) 고지(PRD 톤·코드 비노출). */}
+              <Text style={[styles.editNotice, { color: tokens.text.secondary }]}>
+                번호를 바꾸면 새 운송장으로 다시 추적해요.
+              </Text>
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setEditModal(false)} hitSlop={8} accessibilityRole="button">
+                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void saveEdit()}
+                hitSlop={8}
+                disabled={editDisabled}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: editDisabled }}
+              >
+                <Text
+                  style={[
+                    styles.modalSave,
+                    { color: editDisabled ? tokens.text.disabled : tokens.text.primary },
+                  ]}
+                >
+                  저장
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -426,8 +607,13 @@ const styles = StyleSheet.create({
   statusLine: { fontSize: fontSize.title2, fontWeight: fontWeight.bold, lineHeight: 27, textAlign: "center", marginTop: spacing.xxl, marginBottom: spacing.xl },
   skeleton: { height: 40, justifyContent: "center", marginBottom: spacing.xl },
   progressWrap: { marginBottom: 28 },
-  // 메모 — 로컬 전용. 편집은 **헤더 연필 → 모달 입력**만(상세 본문에 인라인 박스 없음).
-  headerEdit: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  // 헤더 우측 아이콘 2개(수정·택배 정보) — 우측 정렬 행. 마지막 아이콘이 페이지 거터(16)에 맞도록 컨테이너 paddingRight xs.
+  headerActions: { flexDirection: "row", alignItems: "center", paddingRight: spacing.xs },
+  // 메모/수정 — 편집은 **헤더 아이콘 → 모달 입력**만(상세 본문에 인라인 박스 없음). 아이콘당 터치 타깃(패딩).
+  headerEdit: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  // 수정 모달 운송장 번호 입력(단일 행) — 등록 화면 field 스타일과 동형.
+  editInput: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: fontSize.base },
+  editNotice: { fontSize: fontSize.footnote, marginTop: spacing.lg },
   memoInput: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: fontSize.callout, minHeight: 80 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: spacing.xl },
   modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },

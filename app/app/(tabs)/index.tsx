@@ -4,7 +4,8 @@
  * 인터랙션: 상단 ＋ 버튼=등록 / 카드 좌스와이프=삭제(노출→실행, **확인 다이얼로그**)·우스와이프=음소거(낙관+롤백) /
  *   롱프레스=멀티선택 모드(체크박스·전체선택·취소·일괄삭제[확인 다이얼로그·부분실패 복원]).
  * 단건·일괄 삭제 모두 **확인 다이얼로그**로 통일(Undo 토스트 폐기 — 회귀 금지, 사용자 요구). 음소거 안내만 토스트.
- * v1.1(ADR-021~023): 헤더 알림 종+미읽음 배지(HeaderBell) · 필터 칩(filterShipments→sortShipments, filter→sort 별개) ·
+ * v1.1(ADR-021~023): 헤더 알림 종+미읽음 배지(HeaderBell) · "완료 숨기기" 필터(filterShipments→sortShipments,
+ *   filter→sort 별개. ROADMAP v1.1 Bug Fix A2 로 필터 칩 제거) ·
  *   삭제 시 휴지통 적재(addTrash, 서버 DELETE 전 — 보강④) · sync 시 휴지통 정합(reconcileTrash).
  * 색은 토큰만. 서버 에러 코드/기술 메시지는 화면에 노출하지 않는다(PRD 톤).
  */
@@ -17,12 +18,12 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
-import { useFocusEffect, router, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ApiError,
@@ -36,7 +37,7 @@ import { apiDeps } from "../../src/lib/deps";
 import { cacheShipments, cacheStore, readCachedShipments } from "../../src/lib/cache";
 import { defaultMemoText } from "../../src/lib/memo";
 import { sortShipments } from "../../src/lib/sort";
-import { filterShipments, type ListFilter } from "../../src/lib/filter";
+import { filterShipments } from "../../src/lib/filter";
 import {
   addTrash,
   reconcileTrash,
@@ -47,7 +48,7 @@ import {
 } from "../../src/lib/trash";
 import { getInfo, loadInfo, pruneInfo, infoStore, type InfoMap, type ShipmentInfo } from "../../src/lib/info";
 import { initLastSeen, notifStore, unreadCount } from "../../src/lib/notif";
-import { loadListFilter, prefsStore } from "../../src/lib/prefs";
+import { loadListFilter, prefsStore, saveListFilter } from "../../src/lib/prefs";
 import { pruneSelected, selectAll, toggleSelected } from "../../src/lib/selection";
 import { relativeTime } from "../../src/lib/time";
 import { Plus, Trash } from "../../src/components/icons";
@@ -57,15 +58,6 @@ import { useTheme } from "../../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
 
 const NOTICE_MS = 2000;
-
-/** 필터 칩(세션 UI 상태·비지속) — 값=filter 타입, 라벨=표시용("진행중"→"진행 중"). 버킷 정의는 08 filterShipments 단일 출처. */
-const CHIPS: { value: ListFilter; label: string }[] = [
-  { value: "전체", label: "전체" },
-  { value: "진행중", label: "진행 중" },
-  { value: "임박", label: "임박" },
-  { value: "완료", label: "완료" },
-  { value: "예외", label: "예외" },
-];
 
 /**
  * 삭제 시 휴지통에 적재할 스냅샷 — 송장 + 라이브 택배 정보(info). 보강④: info 는 prune 보다 먼저 읽어 유실 방지.
@@ -95,20 +87,10 @@ export default function ListScreen() {
   // 메모는 step5 마이그레이션으로 구 memos→info 통합 후 여기(info)에서 읽는다(단일 출처). 상세 편집 → 포커스 복귀 시 재로드.
   const [infoMap, setInfoMap] = useState<InfoMap>({});
 
-  // 필터: 칩(전체/진행중/임박/완료/예외)은 **세션 UI 상태**(비지속), "완료 숨기기"는 설정의 지속 토글(prefs).
-  const [selectedChip, setSelectedChip] = useState<ListFilter>("전체");
+  // 필터: ROADMAP v1.1 Bug Fix A2 로 칩(전체/진행중/임박/완료/예외)을 제거 — "완료 숨기기" 지속 토글(prefs)만 남는다.
   const [hideCompleted, setHideCompleted] = useState(false);
   // 헤더 알림 종 미읽음 수 — GET /notifications + 로컬 lastSeen 으로 계산(보강⑤·ADR-023).
   const [unread, setUnread] = useState(0);
-
-  // 대시보드 카드 → 라우팅 시 전달된 필터 프리셋(route param)을 칩에 반영(유효 값일 때만).
-  // 값이 바뀔 때만 적용 → 탭바로 복귀(param 불변)하면 사용자가 직접 고른 칩이 유지된다.
-  const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
-  useEffect(() => {
-    if (filterParam && CHIPS.some((c) => c.value === filterParam)) {
-      setSelectedChip(filterParam as ListFilter);
-    }
-  }, [filterParam]);
 
   // 멀티선택: 선택 모드는 명시적 플래그(롱프레스로 진입). **0개 선택이어도** 취소/뒤로 전까진 유지된다.
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -185,7 +167,7 @@ export default function ListScreen() {
       }
       const loaded = await loadInfo({ store: infoStore });
       if (active) setInfoMap(loaded);
-      // "완료 숨기기" 지속 토글(설정 step5)을 읽어 적용. 미설정/손상 → off 폴백.
+      // "완료 숨기기" 지속 토글(택배함 상단, A2 로 설정에서 이동)을 읽어 적용. 미설정/손상 → off 폴백.
       const filterPref = await loadListFilter({ store: prefsStore });
       if (active) setHideCompleted(filterPref.hideCompleted);
       await sync();
@@ -204,11 +186,17 @@ export default function ListScreen() {
     }, [sync]),
   );
 
-  // 표시 목록 — filter→sort 순서(별개 단계). filterShipments(08)로 칩·완료숨김 적용 후 기존 sortShipments.
+  // 표시 목록 — filter→sort 순서(별개 단계). filterShipments(08)로 완료숨김 적용 후 기존 sortShipments.
   const visible = useMemo(
-    () => sortShipments(filterShipments(shipments ?? [], selectedChip, { hideCompleted })),
-    [shipments, selectedChip, hideCompleted],
+    () => sortShipments(filterShipments(shipments ?? [], { hideCompleted })),
+    [shipments, hideCompleted],
   );
+
+  // 완료된 항목 숨기기 토글(택배함 상단, A2 로 설정에서 이동) — 로컬 저장(prefs). 즉시 반영.
+  const onHideCompleted = useCallback((value: boolean) => {
+    setHideCompleted(value);
+    void saveListFilter({ hideCompleted: value }, { store: prefsStore });
+  }, []);
 
   // 서버 반영 — 낙관적으로 목록에서 제거 + **휴지통 적재(서버 DELETE 전, 보강④)** 후 DELETE.
   // 실패(404=이미 없음 제외)면 휴지통 항목 되돌리고 목록 복원 + 안내.
@@ -411,50 +399,27 @@ export default function ListScreen() {
         )}
       </View>
 
-      {/* 필터 칩 — 송장이 있을 때·비선택 모드에서만(필터 변경용). 멀티선택과 공존: 진입해도 visible 이 선택 기준. */}
-      {!selectionMode && shipments !== null && shipments.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsRow}
-        >
-          {CHIPS.map(({ value, label }) => {
-            const active = selectedChip === value;
-            return (
-              <Pressable
-                key={value}
-                onPress={() => setSelectedChip(value)}
-                style={[
-                  styles.chip,
-                  {
-                    borderColor: active ? tokens.accent : tokens.border,
-                    backgroundColor: active ? tokens.accent : tokens.bg.surface,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={`${label} 필터`}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    {
-                      color: active ? tokens.onAccent : tokens.text.body,
-                      fontWeight: active ? fontWeight.semibold : fontWeight.medium,
-                    },
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-
       {offline && (
         <View style={[styles.banner, { backgroundColor: tokens.bg.secondary }]}>
           <Text style={{ color: tokens.text.body }}>오프라인 — 마지막으로 받은 상태예요</Text>
+        </View>
+      )}
+
+      {/* 완료 숨기기 토글(A2 로 설정에서 이동) — 송장이 있고 비선택 모드일 때만(빈 상태선 의미 없음). */}
+      {!selectionMode && shipments !== null && shipments.length > 0 && (
+        <View
+          style={[styles.filterToggle, { backgroundColor: tokens.bg.surface, borderColor: tokens.border }]}
+        >
+          <Text style={[styles.filterToggleLabel, { color: tokens.text.body }]}>
+            배송 완료된 항목 감추기
+          </Text>
+          <Switch
+            value={hideCompleted}
+            onValueChange={onHideCompleted}
+            trackColor={{ false: tokens.bg.secondary, true: tokens.accent }}
+            ios_backgroundColor={tokens.bg.secondary}
+            accessibilityLabel="배송 완료된 항목 감추기"
+          />
         </View>
       )}
 
@@ -543,11 +508,19 @@ const styles = StyleSheet.create({
   countTitle: { flex: 1, textAlign: "center", fontSize: fontSize.title3, fontWeight: fontWeight.semibold },
   pageDesc: { fontSize: fontSize.footnote, lineHeight: 19, marginTop: 10 },
   listFresh: { fontSize: fontSize.caption, textAlign: "right", marginBottom: spacing.sm },
-  // 필터 칩 행 — 헤더 아래 가로 스크롤(많아도 잘리지 않게). 좌우 거터=lg.
-  chipsRow: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  chip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.md, borderWidth: 1 },
-  chipText: { fontSize: fontSize.footnote },
   banner: { marginHorizontal: spacing.lg, marginVertical: spacing.sm, padding: spacing.md, borderRadius: radius.md },
+  filterToggle: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  filterToggleLabel: { fontSize: fontSize.callout },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xxl, gap: 20 },
   list: { padding: spacing.lg },
   emptyTitle: { fontSize: fontSize.base, textAlign: "center", lineHeight: 24 },

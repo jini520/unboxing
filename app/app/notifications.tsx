@@ -133,7 +133,7 @@ export default function NotificationsScreen() {
   const sections = useMemo(() => (list === null ? null : buildSections(list, now)), [list, now]);
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
       <ScreenHeader
         title="알림"
         right={

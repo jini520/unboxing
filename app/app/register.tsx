@@ -4,7 +4,7 @@
  * 미지원 택배사(409)는 친근한 안내 + 택배사 조회 딥링크 폴백. 등록 실패 시 입력값을 보존한다(재시도).
  * 서버 code/기술 메시지는 화면에 노출하지 않는다(PRD 톤). 색은 토큰만(색 단독 표시 금지).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -23,15 +23,12 @@ import { ApiError, createShipment } from "../src/lib/api";
 import { ensureDeviceRegistered } from "../src/lib/bootstrap";
 import { apiDeps } from "../src/lib/deps";
 import { pushDeps } from "../src/lib/push";
-import {
-  CARRIERS,
-  estimateCarriers,
-  type CarrierCandidate,
-} from "../src/lib/carrier";
+import { autoPickCarrier, carrierName, estimateCarriers } from "../src/lib/carrier";
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../src/lib/tracking";
 import { useTheme } from "../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../src/theme/layout";
-import { ChevronDown, Close, Check } from "../src/components/icons";
+import { Close } from "../src/components/icons";
+import { CarrierSelect } from "../src/components/CarrierSelect";
 import { ScreenHeader } from "../src/components/ScreenHeader";
 
 /** 푸시 priming 안내를 이미 했는지 — 첫 등록 직후 1회만 온보딩으로 유도(반복 유도 금지). */
@@ -68,9 +65,10 @@ export default function RegisterScreen() {
 
   const candidates = useMemo(() => estimateCarriers(input), [input]);
   const valid = isValidTrackingNumber(input);
-  // 사용자가 직접 고른 값이 우선, 없으면 추정 1순위.
-  const selectedId = picked ?? candidates[0]?.id ?? null;
-  const selected = CARRIERS.find((c) => c.id === selectedId) ?? null;
+  // 사용자가 직접 고른 값이 우선, 없으면 autoPickCarrier(후보 1개일 때만 자동 채움·≥2 면 미선택, ADR-026).
+  const selectedId = picked ?? autoPickCarrier(candidates);
+  // 번호가 유효한데 자동선택이 안 됨(후보 ≥2 라 미선택) = 모호 → 드롭다운을 펼쳐 명시 선택을 유도(UI_GUIDE).
+  const ambiguous = valid && selectedId === null;
 
   // 화면 진입 시 1회만 클립보드를 읽어 운송장-형태면 **제안**한다(자동 등록 ❌).
   useEffect(() => {
@@ -87,6 +85,14 @@ export default function RegisterScreen() {
       active = false;
     };
   }, []);
+
+  // 모호 상태로 **진입하는 순간 1회만** 드롭다운을 펼친다(상승 엣지). 사용자가 직접 접으면
+  // ambiguous 가 유지돼도 다시 강제로 펼치지 않는다(무한 펼침 금지) — prevAmbiguous 로 게이트.
+  const prevAmbiguous = useRef(false);
+  useEffect(() => {
+    if (ambiguous && !prevAmbiguous.current) setShowList(true);
+    prevAmbiguous.current = ambiguous;
+  }, [ambiguous]);
 
   const onChangeInput = (text: string) => {
     setInput(text);
@@ -134,7 +140,7 @@ export default function RegisterScreen() {
 
   // 미지원 택배사: 택배사 조회 페이지(공개 검색)로 직접 조회 폴백.
   const openCarrierLookup = () => {
-    const q = `${selected?.name ?? ""} 택배조회 ${normalizeTrackingNumber(input)}`.trim();
+    const q = `${selectedId ? carrierName(selectedId) : ""} 택배조회 ${normalizeTrackingNumber(input)}`.trim();
     void Linking.openURL(`https://search.naver.com/search.naver?query=${encodeURIComponent(q)}`);
   };
 
@@ -181,29 +187,13 @@ export default function RegisterScreen() {
         )}
 
         <Text style={[styles.label, { color: tokens.text.secondary }]}>택배사</Text>
-        <Pressable
-          onPress={() => setShowList((v) => !v)}
-          style={[styles.field, styles.selector, { backgroundColor: tokens.bg.secondary, borderColor: tokens.border }]}
-          accessibilityRole="button"
-          accessibilityLabel={selected ? `택배사 ${selected.name}, 변경하려면 누르세요` : "택배사 선택"}
-        >
-          <Text style={{ color: selected ? tokens.text.primary : tokens.text.disabled }}>
-            {selected ? selected.name : "택배사를 선택하세요"}
-          </Text>
-          <View style={{ transform: [{ rotate: showList ? "180deg" : "0deg" }] }}>
-            <ChevronDown size={18} color={tokens.text.secondary} />
-          </View>
-        </Pressable>
-
-        {showList && (
-          <View style={[styles.listBox, { borderColor: tokens.border }]}>
-            <CarrierList
-              candidates={candidates}
-              selectedId={selectedId}
-              onChoose={choose}
-            />
-          </View>
-        )}
+        <CarrierSelect
+          candidates={candidates}
+          value={selectedId}
+          onChange={choose}
+          open={showList}
+          onToggleOpen={() => setShowList((v) => !v)}
+        />
 
         {error === "unsupported" ? (
           <View style={[styles.notice, { backgroundColor: tokens.bg.secondary }]}>
@@ -246,49 +236,6 @@ export default function RegisterScreen() {
   );
 }
 
-/** 추정 후보(추천) 먼저, 나머지 택배사 순. 선택 행은 색+체크 아이콘(색 단독 금지). */
-function CarrierList({
-  candidates,
-  selectedId,
-  onChoose,
-}: {
-  candidates: CarrierCandidate[];
-  selectedId: string | null;
-  onChoose: (id: string) => void;
-}) {
-  const { tokens } = useTheme();
-  const recIds = new Set(candidates.map((c) => c.id));
-  // 추천(추정 후보) 먼저, 나머지 택배사 순. 행은 중첩 컴포넌트 없이 직접 매핑한다 —
-  // render 안에서 컴포넌트를 정의하면 매 렌더 새 타입이 돼 모든 행이 remount 된다.
-  const rows = [
-    ...candidates.map((c) => ({ c, recommended: true })),
-    ...CARRIERS.filter((c) => !recIds.has(c.id)).map((c) => ({ c, recommended: false })),
-  ];
-
-  return (
-    <View>
-      {rows.map(({ c, recommended }) => {
-        const isSel = c.id === selectedId;
-        return (
-          <Pressable
-            key={c.id}
-            onPress={() => onChoose(c.id)}
-            style={[styles.row, { borderColor: tokens.border }]}
-            accessibilityRole="button"
-            accessibilityState={{ selected: isSel }}
-          >
-            <Text style={{ color: isSel ? tokens.accent : tokens.text.body }}>
-              {c.name}
-              {recommended ? "  · 추천" : ""}
-            </Text>
-            {isSel && <Check size={16} color={tokens.accent} />}
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: spacing.lg, gap: spacing.sm },
@@ -309,16 +256,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     fontSize: fontSize.base,
-  },
-  selector: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  listBox: { borderWidth: 1, borderRadius: radius.md, overflow: "hidden" },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
   },
   notice: { borderRadius: radius.md, padding: spacing.md, gap: spacing.sm, marginTop: spacing.xs },
   link: { fontSize: fontSize.body, fontWeight: fontWeight.semibold },

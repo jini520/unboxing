@@ -218,7 +218,7 @@ export default function TrashScreen() {
     ) : undefined;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
       <ScreenHeader
         title="휴지통"
         description={selectionMode ? `${selectedKeys.size}개 선택` : undefined}

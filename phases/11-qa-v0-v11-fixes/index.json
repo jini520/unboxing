@@ -1,0 +1,48 @@
+{
+  "project": "unboxing",
+  "phase": "qa",
+  "steps": [
+    {
+      "step": 0,
+      "name": "logic-counts",
+      "status": "completed",
+      "started_at": "2026-06-23T15:44:19+0900",
+      "summary": "filter.ts hideCompleted 전용·dashboard.ts 예외→진행중 흡수(exception/arrivingToday 제거), 테스트 갱신. filterShipments 새 시그니처=(list,{hideCompleted}); DashboardCounts={inProgress,completed,trash,unread,amountTeaser}. + dashboard.tsx·index.tsx 는 제거된 심볼을 소비해 typecheck 훅(app .ts(x) 편집 후 tsc 강제)이 막으므로 최소 컴파일 호환 수정 필요(대시보드 예외/오늘도착 카드·택배함 필터 칩 제거) — 시각 재설계(색·토글 이동)는 step1·step2. npm run verify green.",
+      "completed_at": "2026-06-23T15:58:30+0900"
+    },
+    {
+      "step": 1,
+      "name": "dashboard-screen",
+      "status": "completed",
+      "started_at": "2026-06-23T15:58:30+0900",
+      "summary": "A1: 대시보드 4카드 의미색 — SummaryCard 의 emphasize(예외 전용) 패턴을 tint?:string 인자로 일반화(count>0 일 때만 숫자·아이콘에 의미색, 0 이면 중립 text.secondary, 라벨은 항상 중립; 색 단독 아님=아이콘+라벨 동반). 매핑: 진행 중=accent / 배송완료=stage.delivered / 새 알림=stage.inTransit / 휴지통=stage.exception. goList useCallback 제거 후 진행중·배송완료 onPress 를 inline router.navigate('/')(A2 필터 프리셋 없음), 휴지통/새 알림은 push 유지. B1 근본원인=H1(확정): sync 의 listShipments catch 가 NETWORK 만 처리하고 실패 시 shipments 를 null 로 방치→counts===null 무한 스피너. 수정: catch 에 setShipments(prev=>prev??[]) 폴백(캐시 있으면 유지·없으면 [] 확정→EmptyState; NETWORK 는 배너 유지). H2(라우팅)는 resolveInitialRoute/_layout 의 /dashboard 전환이 목록 내용과 독립이라 무관임을 코드로 확인. 시뮬 최종 확인은 사용자 몫으로 남김(iOS 빌드 미구동). npm run verify green(app 224·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T16:05:38+0900"
+    },
+    {
+      "step": 2,
+      "name": "list-settings",
+      "status": "completed",
+      "started_at": "2026-06-23T16:05:38+0900",
+      "summary": "A2: 택배함 필터 칩은 step0에서 이미 컴파일 제거됨 — step2는 '배송 완료된 항목 감추기' 토글을 택배함(index.tsx) 헤더 아래·목록 위에 신규 배치(송장 있고 비선택 모드일 때만; Switch trackColor=accent·색 토큰만)하고 onHideCompleted 핸들러(setState+saveListFilter) 추가. settings.tsx 에선 완료 숨기기 토글 카드·hideCompleted state·onHideCompleted·loadListFilter/saveListFilter import·Switch import·toggleCard 스타일 제거(시작 화면 HOME_OPTIONS 라디오·loadHomePref/saveHomePref 는 유지). 토글 값은 prefs(loadListFilter/saveListFilter) 그대로 영속 — 키·시그니처 무변경(마이그레이션 없음). prefs.ts·filter.ts 미수정. npm run verify green(app 224·worker 174+2todo·harness 51). 시뮬 최종 확인은 사용자 몫(iOS 빌드 미구동).",
+      "completed_at": "2026-06-23T16:10:25+0900"
+    },
+    {
+      "step": 3,
+      "name": "header-safearea",
+      "status": "completed",
+      "started_at": "2026-06-23T16:10:25+0900",
+      "summary": "B2: notifications.tsx·trash.tsx 최상위 SafeAreaView edges={[\"top\"]} → [\"bottom\"] (두 화면 한 줄씩). 원인=top safe-area inset 이중 적용(화면 SafeAreaView edges top + ScreenHeader 내부 paddingTop:insets.top). 수정으로 top inset 책임을 ScreenHeader 단독으로 환원 → register.tsx:142·shipment/[id].tsx:193 의 edges={[\"bottom\"]} 와 통일(확인함). ScreenHeader.tsx 및 그 외 edges/스타일 무수정. npm run verify green(app 224·worker 174+2todo·harness 51). 시뮬 재캡처는 사용자 몫(iOS 빌드 미구동) — 코드 근거로 헤더 위 여백이 register/detail 과 동일 수준.",
+      "completed_at": "2026-06-23T16:12:11+0900"
+    },
+    {
+      "step": 4,
+      "name": "docs-sync",
+      "status": "completed",
+      "started_at": "2026-06-23T16:12:11+0900",
+      "summary": "A1·A2 설계정정의 SoT 동기화(문서만, 코드 무변경). PRD: 대시보드 4카드(예외 흡수·오늘도착 폐기)+의미색·필터 프리셋 없는 카드 라우팅, '6.택배함 완료 숨기기'로 재작성(필터 칩 폐기·토글 설정→택배함 이동), 오늘도착 제안·필터설정·DoD 정정. UI_GUIDE: 화면표(대시보드 4카드·택배함 토글·설정 토글 제거)·대시보드 detail 4카드+색매핑·카드탭 프리셋제거·'필터 칩' 섹션→'완료 숨기기 토글' 섹션 교체·필터 글리프 미사용·섹션헤더 정정. ADR-021: 결정 보존+정정 노트(A1 4카드·예외흡수·dashboardCounts 필드, A2 필터 칩/카드 필터 라우팅 철회[superseded], stageBucket는 dashboardCounts가 계속 사용). ROADMAP: v1.1 Bug Fix 블록(A1·A2·B1·B2)을 '진행 현황'으로 이동·phase 07~11 완료 표기, 예정작업의 중복 v1.1 항목 제거, 배포 전 실호출 스모크 미완 경고 잔존. ADR 번호·이력 보존(append-only). npm run verify green(app 224·worker 174+2todo·harness 51) — 코드 .ts(x) 미수정 확인.",
+      "completed_at": "2026-06-23T16:21:49+0900"
+    }
+  ],
+  "created_at": "2026-06-23T15:44:19+0900",
+  "completed_at": "2026-06-23T16:21:49+0900"
+}

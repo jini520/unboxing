@@ -197,6 +197,19 @@ export function Pencil({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPro
   );
 }
 
+/** 택배 정보(문서) — 상세 헤더 "택배 정보" 진입(메모·카테고리·금액). UI_GUIDE 신규 글리프 FileText. */
+export function FileText({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <Path d="M14 2v6h6" />
+      <Path d="M16 13H8" />
+      <Path d="M16 17H8" />
+      <Path d="M10 9H8" />
+    </Svg>
+  );
+}
+
 /** 복구(반시계 회전 화살표) — 휴지통 항목 되살리기. UI_GUIDE 신규 글리프 ArrowCounterClockwise/Restore. */
 export function Restore({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@jest/globals";
-import { estimateCarriers, CARRIERS } from "./carrier";
+import { estimateCarriers, autoPickCarrier, CARRIERS } from "./carrier";
 import { isValidTrackingNumber } from "./tracking";
 
 describe("estimateCarriers", () => {
@@ -50,5 +50,40 @@ describe("estimateCarriers", () => {
     for (const n of ["1234567890123", "123456789012", "12345678901", "1234567890", "123456789"]) {
       for (const c of estimateCarriers(n)) expect(ids.has(c.id)).toBe(true);
     }
+  });
+});
+
+describe("autoPickCarrier", () => {
+  it("후보 0개(빈 배열)면 자동선택하지 않는다(null)", () => {
+    expect(autoPickCarrier([])).toBeNull();
+  });
+
+  it("후보가 정확히 1개면 그 id를 자동선택한다", () => {
+    expect(autoPickCarrier([{ id: "kr.cjlogistics", name: "CJ대한통운" }])).toBe("kr.cjlogistics");
+  });
+
+  it("후보 2개 이상이면 1순위를 자동선택하지 않는다(null) — 오선택 방지(ADR-026)", () => {
+    expect(
+      autoPickCarrier([
+        { id: "kr.logen", name: "로젠택배" },
+        { id: "kr.cjlogistics", name: "CJ대한통운" },
+      ]),
+    ).toBeNull();
+    expect(
+      autoPickCarrier([
+        { id: "kr.epost", name: "우체국택배" },
+        { id: "kr.cjlogistics", name: "CJ대한통운" },
+        { id: "kr.hanjin", name: "한진택배" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("estimateCarriers 연동: 모호한 번호(11자리=후보 2개)는 자동선택되지 않는다", () => {
+    expect(estimateCarriers("12345678901")).toHaveLength(2);
+    expect(autoPickCarrier(estimateCarriers("12345678901"))).toBeNull();
+  });
+
+  it("estimateCarriers 연동: 무효 번호(후보 0개)도 자동선택되지 않는다", () => {
+    expect(autoPickCarrier(estimateCarriers("123"))).toBeNull();
   });
 });

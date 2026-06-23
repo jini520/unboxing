@@ -87,6 +87,35 @@ export async function setInfo(
   return map;
 }
 
+/**
+ * 택배 정보 이관 — oldId 의 정보를 newId 로 옮기고 oldId 엔트리를 제거(식별자 수정=재등록, ADR-027).
+ * - oldId 에 정보가 있으면 newId 에 **그대로 복사**(memo·category·amount), oldId 삭제.
+ * - oldId 에 정보가 없으면(빈/없음) newId 는 건드리지 않고 oldId 만(있다면) 정리 → 사실상 no-op.
+ * - oldId === newId 면 아무것도 하지 않는다(자기 자신 삭제 방지 — no-op 수정에서 info 유실 금지).
+ * 한 번 load → 맵 안에서 이동 → 한 번 save. 갱신된 맵 반환.
+ * amount 0 은 유효값이라 객체를 재가공하지 않고 그대로 복사(falsy 로 떨구지 않음 — ShipmentInfo 계약).
+ */
+export async function transferInfo(
+  oldId: string,
+  newId: string,
+  deps: { store: KeyValueStore },
+): Promise<InfoMap> {
+  const map = await loadInfo(deps);
+  if (oldId === newId) return map; // 자기 이관 — 엔트리 삭제 금지(no-op 수정 보호).
+
+  const oldInfo = map[oldId];
+  if (oldInfo !== undefined && Object.keys(oldInfo).length > 0) {
+    map[newId] = oldInfo; // 정제된 값 그대로 복사(재검증 금지 — amount 0 보존).
+    delete map[oldId];
+    await saveInfo(map, deps);
+  } else if (oldId in map) {
+    // old 가 빈 객체로 존재 → newId 미변경, 잔재만 정리.
+    delete map[oldId];
+    await saveInfo(map, deps);
+  }
+  return map;
+}
+
 /** keepIds 에 없는(=삭제된 송장의) 정보를 정리. 갱신된 맵 반환(변경 없으면 그대로). */
 export async function pruneInfo(
   keepIds: string[],

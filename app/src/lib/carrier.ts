@@ -47,3 +47,11 @@ export function estimateCarriers(trackingNo: string): CarrierCandidate[] {
   const ids = BY_LENGTH[n.length] ?? DEFAULT_ORDER;
   return ids.map((id) => CARRIERS.find((c) => c.id === id)!);
 }
+
+/**
+ * 추정 후보 중 "자동 선택"할 carrierId. 후보가 **정확히 1개**일 때만 그 id, 그 외(0개·2개 이상)는 null.
+ * 후보가 모호하면(>=2) 자동선택하지 않고 사용자가 드롭다운에서 명시 선택한다(ADR-026, 오선택 방지).
+ */
+export function autoPickCarrier(candidates: CarrierCandidate[]): string | null {
+  return candidates.length === 1 ? candidates[0].id : null;
+}
