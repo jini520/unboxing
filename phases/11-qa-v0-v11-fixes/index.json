@@ -40,7 +40,7 @@
       "status": "completed",
       "started_at": "2026-06-23T16:12:11+0900",
       "summary": "A1·A2 설계정정의 SoT 동기화(문서만, 코드 무변경). PRD: 대시보드 4카드(예외 흡수·오늘도착 폐기)+의미색·필터 프리셋 없는 카드 라우팅, '6.택배함 완료 숨기기'로 재작성(필터 칩 폐기·토글 설정→택배함 이동), 오늘도착 제안·필터설정·DoD 정정. UI_GUIDE: 화면표(대시보드 4카드·택배함 토글·설정 토글 제거)·대시보드 detail 4카드+색매핑·카드탭 프리셋제거·'필터 칩' 섹션→'완료 숨기기 토글' 섹션 교체·필터 글리프 미사용·섹션헤더 정정. ADR-021: 결정 보존+정정 노트(A1 4카드·예외흡수·dashboardCounts 필드, A2 필터 칩/카드 필터 라우팅 철회[superseded], stageBucket는 dashboardCounts가 계속 사용). ROADMAP: v1.1 Bug Fix 블록(A1·A2·B1·B2)을 '진행 현황'으로 이동·phase 07~11 완료 표기, 예정작업의 중복 v1.1 항목 제거, 배포 전 실호출 스모크 미완 경고 잔존. ADR 번호·이력 보존(append-only). npm run verify green(app 224·worker 174+2todo·harness 51) — 코드 .ts(x) 미수정 확인.",
-      "completed_at": "2026-06-23T16:21:00+0900"
+      "completed_at": "2026-06-23T16:21:49+0900"
     }
   ],
   "created_at": "2026-06-23T15:44:19+0900"
