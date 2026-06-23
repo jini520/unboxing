@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "header-safearea",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-23T16:10:25+0900",
+      "summary": "B2: notifications.tsx·trash.tsx 최상위 SafeAreaView edges={[\"top\"]} → [\"bottom\"] (두 화면 한 줄씩). 원인=top safe-area inset 이중 적용(화면 SafeAreaView edges top + ScreenHeader 내부 paddingTop:insets.top). 수정으로 top inset 책임을 ScreenHeader 단독으로 환원 → register.tsx:142·shipment/[id].tsx:193 의 edges={[\"bottom\"]} 와 통일(확인함). ScreenHeader.tsx 및 그 외 edges/스타일 무수정. npm run verify green(app 224·worker 174+2todo·harness 51). 시뮬 재캡처는 사용자 몫(iOS 빌드 미구동) — 코드 근거로 헤더 위 여백이 register/detail 과 동일 수준.",
+      "completed_at": "2026-06-23T16:11:40+0900"
     },
     {
       "step": 4,
