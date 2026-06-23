@@ -9,7 +9,7 @@
  * - 광고성/마케팅 알림 설정은 두지 않는다(ADR-018 거래성만). 색은 토큰만(삭제=예외 색).
  */
 import { useCallback, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
@@ -22,14 +22,7 @@ import { clearMemos, memoStore } from "../../src/lib/memo";
 import { deleteDeviceId, deviceStorage } from "../../src/lib/device";
 import { pushDeps, registerForPush, registerPushIfGranted } from "../../src/lib/push";
 import { clearLocalStores, wipeAllData } from "../../src/lib/wipe";
-import {
-  type HomePref,
-  loadHomePref,
-  loadListFilter,
-  prefsStore,
-  saveHomePref,
-  saveListFilter,
-} from "../../src/lib/prefs";
+import { type HomePref, loadHomePref, prefsStore, saveHomePref } from "../../src/lib/prefs";
 import { Check, ChevronRight } from "../../src/components/icons";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
@@ -50,16 +43,14 @@ const HOME_OPTIONS: { value: HomePref; label: string }[] = [
 export default function SettingsScreen() {
   const { tokens, preference, setPreference } = useTheme();
   const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
-  // 표시(v1.1) — 시작 화면 preference·완료 숨기기. 둘 다 로컬 저장(서버 무관, ADR-025).
+  // 표시(v1.1) — 시작 화면 preference. 로컬 저장(서버 무관, ADR-025). 완료 숨기기 토글은 A2 로 택배함으로 이동.
   const [homePref, setHomePref] = useState<HomePref>("list");
-  const [hideCompleted, setHideCompleted] = useState(false);
 
-  // 포커스 복귀 시 권한·표시 설정 재확인(시스템 설정/타 화면에서 바꾸고 돌아온 경우 반영).
+  // 포커스 복귀 시 권한·시작 화면 설정 재확인(시스템 설정/타 화면에서 바꾸고 돌아온 경우 반영).
   useFocusEffect(
     useCallback(() => {
       void pushDeps.getPermissions().then((p) => setNotifGranted(p.granted));
       void loadHomePref({ store: prefsStore }).then(setHomePref);
-      void loadListFilter({ store: prefsStore }).then((p) => setHideCompleted(p.hideCompleted));
     }, []),
   );
 
@@ -67,11 +58,6 @@ export default function SettingsScreen() {
   const onHomePref = (value: HomePref) => {
     setHomePref(value);
     void saveHomePref(value, { store: prefsStore });
-  };
-  // 완료된 항목 숨기기(택배함 지속 필터) — 로컬 저장. 택배함이 focus 복귀 시 이 값을 읽어 반영.
-  const onHideCompleted = (value: boolean) => {
-    setHideCompleted(value);
-    void saveListFilter({ hideCompleted: value }, { store: prefsStore });
   };
 
   // 알림: 허용이면 시스템 설정으로(앱에서 OS 권한 끌 수 없음), 미허용이면 요청(priming은 온보딩에서 선행).
@@ -203,7 +189,7 @@ export default function SettingsScreen() {
           })}
         </View>
 
-        {/* 표시(v1.1) — 시작 화면 + 완료 숨기기. 둘 다 로컬 저장(서버 무관, ADR-025). */}
+        {/* 표시(v1.1) — 시작 화면. 로컬 저장(서버 무관, ADR-025). 완료 숨기기 토글은 A2 로 택배함으로 이동. */}
         <Text style={[styles.section, { color: tokens.text.secondary }]}>표시</Text>
         {/* 시작 화면 — 테마와 같은 라디오 그룹(선택=accent+체크). 기본 택배함. */}
         <View style={[styles.group, { backgroundColor: tokens.bg.surface, borderColor: tokens.border }]}>
@@ -232,23 +218,6 @@ export default function SettingsScreen() {
           })}
         </View>
         <Text style={[styles.caption, { color: tokens.text.secondary }]}>앱을 켜면 보여줄 첫 화면이에요.</Text>
-
-        {/* 완료된 항목 숨기기 — 택배함에서 배송완료 제외(지속 토글). */}
-        <View style={[styles.card, styles.toggleCard, { backgroundColor: tokens.bg.surface, borderColor: tokens.border }]}>
-          <View style={styles.rowText}>
-            <Text style={[styles.rowTitle, { color: tokens.text.primary }]}>완료된 항목 숨기기</Text>
-            <Text style={[styles.rowSub, { color: tokens.text.secondary }]}>
-              택배함에서 배송완료를 숨겨요
-            </Text>
-          </View>
-          <Switch
-            value={hideCompleted}
-            onValueChange={onHideCompleted}
-            trackColor={{ false: tokens.bg.secondary, true: tokens.accent }}
-            ios_backgroundColor={tokens.bg.secondary}
-            accessibilityLabel="완료된 항목 숨기기"
-          />
-        </View>
 
         {/* 개인정보처리방침 — 인앱 화면으로 이동(웹에서 보기 링크는 화면 내 제공) */}
         <Pressable
@@ -306,7 +275,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   cardSpaced: { marginTop: spacing.xl },
-  toggleCard: { marginTop: spacing.md },
   rowText: { flex: 1, gap: spacing.xs, paddingRight: spacing.md },
   rowEnd: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   rowTitle: { fontSize: fontSize.base },

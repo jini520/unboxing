@@ -19,6 +19,7 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -47,7 +48,7 @@ import {
 } from "../../src/lib/trash";
 import { getInfo, loadInfo, pruneInfo, infoStore, type InfoMap, type ShipmentInfo } from "../../src/lib/info";
 import { initLastSeen, notifStore, unreadCount } from "../../src/lib/notif";
-import { loadListFilter, prefsStore } from "../../src/lib/prefs";
+import { loadListFilter, prefsStore, saveListFilter } from "../../src/lib/prefs";
 import { pruneSelected, selectAll, toggleSelected } from "../../src/lib/selection";
 import { relativeTime } from "../../src/lib/time";
 import { Plus, Trash } from "../../src/components/icons";
@@ -166,7 +167,7 @@ export default function ListScreen() {
       }
       const loaded = await loadInfo({ store: infoStore });
       if (active) setInfoMap(loaded);
-      // "완료 숨기기" 지속 토글(설정 step5)을 읽어 적용. 미설정/손상 → off 폴백.
+      // "완료 숨기기" 지속 토글(택배함 상단, A2 로 설정에서 이동)을 읽어 적용. 미설정/손상 → off 폴백.
       const filterPref = await loadListFilter({ store: prefsStore });
       if (active) setHideCompleted(filterPref.hideCompleted);
       await sync();
@@ -190,6 +191,12 @@ export default function ListScreen() {
     () => sortShipments(filterShipments(shipments ?? [], { hideCompleted })),
     [shipments, hideCompleted],
   );
+
+  // 완료된 항목 숨기기 토글(택배함 상단, A2 로 설정에서 이동) — 로컬 저장(prefs). 즉시 반영.
+  const onHideCompleted = useCallback((value: boolean) => {
+    setHideCompleted(value);
+    void saveListFilter({ hideCompleted: value }, { store: prefsStore });
+  }, []);
 
   // 서버 반영 — 낙관적으로 목록에서 제거 + **휴지통 적재(서버 DELETE 전, 보강④)** 후 DELETE.
   // 실패(404=이미 없음 제외)면 휴지통 항목 되돌리고 목록 복원 + 안내.
@@ -398,6 +405,24 @@ export default function ListScreen() {
         </View>
       )}
 
+      {/* 완료 숨기기 토글(A2 로 설정에서 이동) — 송장이 있고 비선택 모드일 때만(빈 상태선 의미 없음). */}
+      {!selectionMode && shipments !== null && shipments.length > 0 && (
+        <View
+          style={[styles.filterToggle, { backgroundColor: tokens.bg.surface, borderColor: tokens.border }]}
+        >
+          <Text style={[styles.filterToggleLabel, { color: tokens.text.body }]}>
+            배송 완료된 항목 감추기
+          </Text>
+          <Switch
+            value={hideCompleted}
+            onValueChange={onHideCompleted}
+            trackColor={{ false: tokens.bg.secondary, true: tokens.accent }}
+            ios_backgroundColor={tokens.bg.secondary}
+            accessibilityLabel="배송 완료된 항목 감추기"
+          />
+        </View>
+      )}
+
       {shipments === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.text.secondary} />
@@ -484,6 +509,18 @@ const styles = StyleSheet.create({
   pageDesc: { fontSize: fontSize.footnote, lineHeight: 19, marginTop: 10 },
   listFresh: { fontSize: fontSize.caption, textAlign: "right", marginBottom: spacing.sm },
   banner: { marginHorizontal: spacing.lg, marginVertical: spacing.sm, padding: spacing.md, borderRadius: radius.md },
+  filterToggle: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  filterToggleLabel: { fontSize: fontSize.callout },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xxl, gap: 20 },
   list: { padding: spacing.lg },
   emptyTitle: { fontSize: fontSize.base, textAlign: "center", lineHeight: 24 },
