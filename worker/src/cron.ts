@@ -15,13 +15,20 @@
  */
 
 import type { Env } from "./index";
-import { isDue, type Stage } from "./lib/polling";
+import { isDue, WEBHOOK_FALLBACK_MS, type Stage } from "./lib/polling";
 import { normalizeStatus } from "./lib/normalize";
 import { shouldNotify } from "./lib/notify";
 import { lifecycleAction } from "./lib/lifecycle";
+import {
+  shouldRegisterWebhook,
+  reregisterDue,
+  webhookExpiration,
+  WEBHOOK_TTL_MS,
+  REREGISTER_THRESHOLD_MS,
+} from "./lib/webhook";
 import { isQuietHours, isUrgentStage } from "./lib/quiet";
 import { carrierName } from "./lib/carrier";
-import { track, d1TokenStore } from "./tracker";
+import { track, registerTrackWebhook, d1TokenStore, type TrackerDeps } from "./tracker";
 import { buildMessage, sendPush, getReceipts, classifyPushError, DELIVERY_CHANNEL_ID, type PushMessage } from "./push";
 
 /** 1회 실행당 외부 track subrequest 상한(ADR-012 cron 한도). due 처리 건수를 이 값으로 제한. */
@@ -30,6 +37,8 @@ const MAX_BATCH = 50;
 const MIN_POLL_INTERVAL_MS = 60 * 60_000;
 /** SQL 스캔 상한. 정렬상 미폴링·오래된 행이 먼저라 due가 우선 포함된다(초과분은 다음 fire 이월). */
 const DUE_SCAN_LIMIT = 200;
+/** lifecycle 독립 sweep(T7) 1회 스캔 상한. active 전체를 훑되 무한 적재 방지(초과분은 다음 fire). */
+const LIFECYCLE_SCAN_LIMIT = 500;
 /** 폴링 실패 백오프: base(다음 fire ~15분)부터 지수, 상한 6h. fail_count/next_retry_at 컬럼 사용. */
 const BACKOFF_BASE_MS = 15 * 60_000;
 const BACKOFF_MAX_MS = 6 * 3_600_000;
@@ -59,7 +68,7 @@ interface DueRow {
   created_at: number;
   fail_count: number;
   next_retry_at: number | null;
-  // webhook 만료 epoch ms(NULL=미등록→적응형 폴백 폴링, ADR-028). due 분기 소비는 step5(현재 SELECT 미포함).
+  // webhook 만료 epoch ms(NULL=미등록→적응형 폴백 폴링·등록분 ~12h, ADR-028). pollDue 의 isDue 4번째 인자로 소비.
   webhook_expires_at: number | null;
 }
 
@@ -72,6 +81,24 @@ export interface ShipmentUpdateRow {
   carrier: string;
   tracking_no: string;
   last_normalized_status: string | null;
+}
+
+/** lifecycle 독립 sweep(T7) 판정 행 — 만료/좀비 판단에 필요한 최소 필드. */
+interface LifecycleRow {
+  id: string;
+  carrier: string;
+  tracking_no: string;
+  last_normalized_status: string | null;
+  created_at: number;
+}
+
+/**
+ * cron webhook (재)등록 sweep 컨텍스트 — 자격증명·콜백 시크릿·공개 베이스 URL 가드(셋 중 하나라도 없으면 null).
+ * null 이면 등록/재등록 sweep 을 보류한다(폴백 폴링이 흡수). callbackUrl=/webhooks/track/<secret>(ADR-029 시크릿 경로).
+ */
+interface WebhookRegContext {
+  trackerDeps: TrackerDeps;
+  callbackUrl: string;
 }
 
 /**
@@ -115,44 +142,219 @@ function backoffMs(failCount: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, failCount - 1), BACKOFF_MAX_MS);
 }
 
-/** due 송장 배치 폴링 1회 실행 + receipt sweep. */
+/**
+ * cron 1회 실행 — webhook-first 전환 후 **유지보수 + 저빈도 폴백**(ADR-028). 신선도 1차는 webhook 콜백.
+ * 외부 subrequest 예산(≤MAX_BATCH·10 req/s)을 우선순위로 나눠 쓰고 초과분은 다음 fire 이월:
+ *   ① webhook 24h 재등록(생존=신선도 핵심) → ② 조건부 폴백 폴링 → ③ webhook 등록 sweep(마이그레이션/승급/재시도).
+ * lifecycle 독립 sweep 은 폴링과 분리(T7)돼 track/register 예산을 쓰지 않는다. receipt/flush/보존/rate_limits 도 예산 밖(자체 상한).
+ */
 export async function runPollingBatch(env: Env, deps: CronDeps): Promise<void> {
-  // 1. due 조회: active=1 AND (미폴링 또는 최소간격 경과) AND (백오프 해제) → '배송출발' 우선·오래된 순.
-  //    SQL로 1차로 좁혀(테이블 전체 적재 방지) JS isDue로 단계별 간격 정밀 판정 후 ≤50건.
-  const { results } = await env.DB.prepare(
-    "SELECT id, carrier, tracking_no, last_normalized_status, last_polled_at, created_at, fail_count, next_retry_at " +
-      "FROM shipments WHERE active = 1 " +
-      "AND (last_polled_at IS NULL OR last_polled_at <= ?) " +
-      "AND (next_retry_at IS NULL OR next_retry_at <= ?) " +
-      "ORDER BY CASE WHEN last_normalized_status = '배송출발' THEN 0 ELSE 1 END, last_polled_at ASC " +
-      "LIMIT ?",
-  )
-    .bind(deps.now - MIN_POLL_INTERVAL_MS, deps.now, DUE_SCAN_LIMIT)
-    .all<DueRow>();
+  let budget = MAX_BATCH;
+  // 등록/재등록 컨텍스트(자격증명·시크릿·베이스 URL 가드). 없으면 등록 sweep 보류 → 폴백 폴링이 흡수.
+  const reg = webhookRegContext(env, deps);
 
-  const due = results
-    .filter((r) => isDue(stageOf(r.last_normalized_status), r.last_polled_at, deps.now))
-    .slice(0, MAX_BATCH);
+  // ① webhook 24h 재등록 sweep — 만료 임박(<24h) active 송장만(예산 우선: 살아있는 webhook 이 신선도 핵심).
+  if (reg) budget -= await sweepReregisterWebhooks(env, deps, reg, budget);
 
-  for (const row of due) {
-    await pollOne(env, deps, row);
-  }
+  // ② 조건부 폴백 due 폴링 — webhook 등록분 ~12h·미등록분 적응형(isDue 단일 출처). 남은 예산 내(≤budget).
+  budget -= await pollDue(env, deps, budget);
 
-  // 9. receipt 확인(ADR-010 2단계): ~15분 지난 ticket의 전달 결과 확인 → 무효 토큰 정리 + ticket 폐기.
+  // ③ lifecycle 독립 sweep(T7) — **폴링 뒤**에 둬 방금 갱신된 단계를 읽고, **등록 sweep 앞**에 둬 비활성된 송장을
+  //    등록 대상에서 뺀다. webhook 송장은 무변화라 재폴링이 거의 없어, 폴링 루프 안에서 판정하면 만료가 누락된다(W11).
+  await sweepLifecycle(env, deps);
+
+  // ④ webhook 등록 sweep — active·NULL·등록가능 송장을 due 무관 등록(즉시 마이그레이션·승급·재시도). 남은 예산 내.
+  if (reg) budget -= await sweepRegisterWebhooks(env, deps, reg, budget);
+
+  // ⑤ receipt 확인(ADR-010 2단계): ~15분 지난 ticket의 전달 결과 확인 → 무효 토큰 정리 + ticket 폐기.
   await sweepReceipts(env, deps);
 
-  // 10. 아침 묶음 플러시 — 조용시간이 아니면 야간 보류분을 device·송장당 최신 1건으로 묶어 발송(PRD 알림 정책).
+  // ⑥ 아침 묶음 플러시 — 조용시간이 아니면 야간 보류분을 device·송장당 최신 1건으로 묶어 발송(PRD 알림 정책).
   if (!isQuietHours(deps.now)) {
     await flushQueue(env, deps);
   }
 
-  // 11. 알림 기록 보존 sweep(ADR-023) — 90일 경과분 + 디바이스당 상한 정리. 조용시간 무관(시각과 독립).
+  // ⑦ 알림 기록 보존 sweep(ADR-023) — 90일 경과분 + 디바이스당 상한 정리. 조용시간 무관(시각과 독립).
   await sweepNotifications(env, deps);
 
-  // 12. 만료된 rate_limits 윈도 정리(ADR-008 throttle 테이블 무한 증가 방지).
+  // ⑧ 만료된 rate_limits 윈도 정리(ADR-008 throttle 테이블 무한 증가 방지).
   await env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(deps.now - RATE_LIMIT_RETENTION_MS)
     .run();
+}
+
+/**
+ * cron 의 webhook (재)등록 컨텍스트. 자격증명·콜백 시크릿·공개 베이스 URL 중 하나라도 없으면 null
+ * (등록 sweep 보류 → 폴백 폴링이 흡수). deps.fetch 는 scheduled 진입에서 fetch.bind(globalThis) 된 것(T1·P-1) —
+ * track 과 **같은 deps 구성**을 재사용해 바인딩 누락을 구조적으로 막는다. 시크릿 경로·운송장번호는 로그 금지(T6).
+ */
+function webhookRegContext(env: Env, deps: CronDeps): WebhookRegContext | null {
+  if (!env.WEBHOOK_CALLBACK_SECRET || !env.WEBHOOK_CALLBACK_BASE_URL) return null;
+  if (!env.DELIVERY_TRACKER_CLIENT_ID || !env.DELIVERY_TRACKER_CLIENT_SECRET) return null;
+  return {
+    trackerDeps: {
+      fetch: deps.fetch,
+      now: deps.now,
+      store: d1TokenStore(env.DB),
+      clientId: env.DELIVERY_TRACKER_CLIENT_ID,
+      clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
+    },
+    callbackUrl: `${env.WEBHOOK_CALLBACK_BASE_URL}/webhooks/track/${env.WEBHOOK_CALLBACK_SECRET}`,
+  };
+}
+
+/**
+ * 조건부 폴백 due 폴링(ADR-028) — budget 만큼만 외부 호출(예산 공유). 반환 = 폴링한 건수(소비 예산).
+ * due 조회: active=1 AND 백오프 해제 AND (미폴링 | 미등록분[NULL] 적응형 경과 | webhook 등록분 ~12h 경과).
+ * SQL 1차로 좁혀(webhook 분이 12h 전엔 안 걸리게) JS isDue(…, webhook_expires_at)로 단계별 정밀 판정 후 ≤budget.
+ */
+async function pollDue(env: Env, deps: CronDeps, budget: number): Promise<number> {
+  if (budget <= 0) return 0;
+  const { results } = await env.DB.prepare(
+    "SELECT id, carrier, tracking_no, last_normalized_status, last_polled_at, created_at, fail_count, next_retry_at, webhook_expires_at " +
+      "FROM shipments WHERE active = 1 " +
+      "AND (last_polled_at IS NULL " +
+      "OR (webhook_expires_at IS NULL AND last_polled_at <= ?) " +
+      "OR (webhook_expires_at IS NOT NULL AND last_polled_at <= ?)) " +
+      "AND (next_retry_at IS NULL OR next_retry_at <= ?) " +
+      "ORDER BY CASE WHEN last_normalized_status = '배송출발' THEN 0 ELSE 1 END, last_polled_at ASC " +
+      "LIMIT ?",
+  )
+    .bind(deps.now - MIN_POLL_INTERVAL_MS, deps.now - WEBHOOK_FALLBACK_MS, deps.now, DUE_SCAN_LIMIT)
+    .all<DueRow>();
+
+  const due = results
+    .filter((r) => isDue(stageOf(r.last_normalized_status), r.last_polled_at, deps.now, r.webhook_expires_at))
+    .slice(0, budget);
+
+  for (const row of due) {
+    await pollOne(env, deps, row);
+  }
+  return due.length;
+}
+
+/**
+ * webhook 24h 재등록 sweep(ADR-028) — 만료 임박(<24h)·active 송장의 webhook 을 48h 앞으로 재등록.
+ * SQL 로 임박분만 1차로 좁히고 reregisterDue(단일 출처)로 확정한다. budget 만큼만(예산 우선). 반환 = 시도 건수(소비 예산).
+ * 비active·여유·NULL 은 제외(비active 는 재등록 안 돼 ≤48h 자연 만료로 1000 슬롯 회수 — 슬롯 위생).
+ */
+async function sweepReregisterWebhooks(
+  env: Env,
+  deps: CronDeps,
+  reg: WebhookRegContext,
+  budget: number,
+): Promise<number> {
+  if (budget <= 0) return 0;
+  const { results } = await env.DB.prepare(
+    "SELECT id, carrier, tracking_no, webhook_expires_at FROM shipments " +
+      "WHERE active = 1 AND webhook_expires_at IS NOT NULL AND webhook_expires_at < ? " +
+      "ORDER BY webhook_expires_at ASC LIMIT ?",
+  )
+    .bind(deps.now + REREGISTER_THRESHOLD_MS, DUE_SCAN_LIMIT)
+    .all<{ id: string; carrier: string; tracking_no: string; webhook_expires_at: number | null }>();
+
+  let used = 0;
+  for (const row of results) {
+    if (used >= budget) break;
+    if (!reregisterDue(row.webhook_expires_at, deps.now)) continue;
+    used += 1;
+    await registerWebhook(env, deps, reg, row.id, row.carrier, row.tracking_no);
+  }
+  return used;
+}
+
+/**
+ * webhook 등록 sweep(ADR-028) — active·webhook_expires_at NULL·등록 가능 단계 송장을 **due 무관** 매 fire 등록.
+ * 하나의 sweep 이 ① 즉시 마이그레이션(운영 D1 기존 NULL) ② 승급(미등록→첫 이벤트 후) ③ 등록 실패 NULL 재시도를 덮는다.
+ * 미등록(이벤트0)·배송완료·비active 는 shouldRegisterWebhook=false → 제외(미등록은 폴링이 첫 이벤트까지 적응형 커버).
+ * 예산 막내(재등록·폴백 뒤) — budget 만큼만, 초과분은 다음 fire 이월(W10). 등록되면 due 간격이 ~12h 로 낙하.
+ */
+async function sweepRegisterWebhooks(
+  env: Env,
+  deps: CronDeps,
+  reg: WebhookRegContext,
+  budget: number,
+): Promise<number> {
+  if (budget <= 0) return 0;
+  const { results } = await env.DB.prepare(
+    "SELECT id, carrier, tracking_no, last_normalized_status FROM shipments " +
+      "WHERE active = 1 AND webhook_expires_at IS NULL " +
+      "AND last_normalized_status IS NOT NULL AND last_normalized_status NOT IN ('미등록', '배송완료') " +
+      "LIMIT ?",
+  )
+    .bind(DUE_SCAN_LIMIT)
+    .all<{ id: string; carrier: string; tracking_no: string; last_normalized_status: string | null }>();
+
+  let used = 0;
+  for (const row of results) {
+    if (used >= budget) break;
+    // SQL 로 1차로 좁혔지만 shouldRegisterWebhook 을 단일 출처로 재확인(등록 가능 단계 판정 드리프트 방지).
+    if (!shouldRegisterWebhook(stageOf(row.last_normalized_status), true, null, deps.now)) continue;
+    used += 1;
+    await registerWebhook(env, deps, reg, row.id, row.carrier, row.tracking_no);
+  }
+  return used;
+}
+
+/**
+ * registerTrackWebhook 1회 + 성공 시 webhook_expires_at set(now+48h). 실패는 삼킨다(NULL 유지 → 폴백 흡수, W3·W4·W10).
+ * fetch 는 reg.trackerDeps(=deps.fetch 바인딩, T1·P-1). 시크릿 경로·운송장번호는 로그 금지(T6).
+ */
+async function registerWebhook(
+  env: Env,
+  deps: CronDeps,
+  reg: WebhookRegContext,
+  shipmentId: string,
+  carrier: string,
+  trackingNo: string,
+): Promise<void> {
+  try {
+    const res = await registerTrackWebhook(
+      carrier,
+      trackingNo,
+      reg.callbackUrl,
+      webhookExpiration(deps.now),
+      reg.trackerDeps,
+    );
+    if (res.ok) {
+      await env.DB.prepare("UPDATE shipments SET webhook_expires_at = ? WHERE id = ?")
+        .bind(deps.now + WEBHOOK_TTL_MS, shipmentId)
+        .run();
+    }
+  } catch {
+    // 삼킴 — webhook_expires_at NULL 유지 → 폴백 폴링이 적응형 간격으로 흡수. 다음 fire 재시도.
+  }
+}
+
+/**
+ * lifecycle 독립 sweep(ADR-028·T7) — active 송장의 수명을 **폴링과 분리해** 직접 판정한다.
+ * webhook 송장은 무변화라 재폴링이 거의 없어, 폴링 루프 안에서 만료를 판정하면 누락된다(W11). 그래서 매 fire
+ * active 전체를 스캔해 lifecycleAction(미등록7일·예외7일·분실의심30일)을 적용한다. **폴링 뒤에 호출**돼 방금 갱신된
+ * last_normalized_status 를 읽는다(예: 미등록→이동중 폴링 후 30일이면 '분실 의심'이지 '번호 확인' 아님). 데모 번호는 안내 제외.
+ * 판정은 순수(track/register 예산 무관)·발송은 push 파이프라인(자체 상한). 비활성 후엔 재등록 sweep 에서도 빠져 슬롯 회수.
+ */
+async function sweepLifecycle(env: Env, deps: CronDeps): Promise<void> {
+  const { results } = await env.DB.prepare(
+    "SELECT id, carrier, tracking_no, last_normalized_status, created_at FROM shipments WHERE active = 1 LIMIT ?",
+  )
+    .bind(LIFECYCLE_SCAN_LIMIT)
+    .all<LifecycleRow>();
+  for (const row of results) {
+    const action = lifecycleAction({
+      stage: stageOf(row.last_normalized_status),
+      createdAt: row.created_at,
+      now: deps.now,
+    });
+    if (action.type !== "deactivate") continue;
+    await env.DB.prepare("UPDATE shipments SET active = 0 WHERE id = ?").bind(row.id).run();
+    if (action.notify && row.tracking_no !== env.DEMO_TRACKING_NUMBER) {
+      if (action.reason === "미등록7일") {
+        await notifyCheckNumber(env, deps, row);
+      } else {
+        await notifyLost(env, deps, row);
+      }
+    }
+  }
 }
 
 /**
@@ -217,7 +419,7 @@ export async function processShipmentUpdate(
   return next;
 }
 
-/** 송장 1건: 선점 갱신 → 공용 다운스트림(track→정규화→전환/알림) → 만료. 외부 실패는 백오프. */
+/** 송장 1건: 선점 갱신 → 공용 다운스트림(track→정규화→전환/알림). 외부 실패는 백오프. (만료/lifecycle 은 독립 sweep — T7) */
 async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
   const { now } = deps;
 
@@ -225,11 +427,10 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
   await env.DB.prepare("UPDATE shipments SET last_polled_at = ? WHERE id = ?").bind(now, row.id).run();
 
   // 3~6. track → 정규화 → CAS → 전환 푸시(콜백과 공용 다운스트림). 외부 오류는 백오프(다음 fire 재시도).
-  let next: Stage;
   try {
-    next = await processShipmentUpdate(env, deps, row);
+    await processShipmentUpdate(env, deps, row);
   } catch (err) {
-    // 8. 외부 오류(UNAUTHENTICATED 재인증 실패·429·5xx·timeout): 선점 갱신 원복 + 백오프(다음 fire 재시도).
+    // 외부 오류(UNAUTHENTICATED 재인증 실패·429·5xx·timeout): 선점 갱신 원복 + 백오프(다음 fire 재시도).
     await onPollError(env, deps, row, err);
     return;
   }
@@ -240,21 +441,8 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
       .bind(row.id)
       .run();
   }
-
-  // 7. 만료/좀비: createdAt 기준. deactivate면 active=0 (+notify면 운영성 안내 1회). 데모 번호는 안내 제외.
-  //    비활성 후엔 active=0 이라 due 대상이 아님 → 재폴링 없음 → 안내는 정확히 1회(멱등, 과알림 방지).
-  //    reason 별 안내 분기: 미등록7일='번호 확인'(오타/잘못된 번호), 분실의심30일='분실 의심'(별개 경로). 예외7일은 notify:false(조용히).
-  const action = lifecycleAction({ stage: next, createdAt: row.created_at, now });
-  if (action.type === "deactivate") {
-    await env.DB.prepare("UPDATE shipments SET active = 0 WHERE id = ?").bind(row.id).run();
-    if (action.notify && row.tracking_no !== env.DEMO_TRACKING_NUMBER) {
-      if (action.reason === "미등록7일") {
-        await notifyCheckNumber(env, deps, row);
-      } else {
-        await notifyLost(env, deps, row);
-      }
-    }
-  }
+  // 만료/좀비(미등록7일·예외7일·분실의심30일)는 폴링과 분리된 sweepLifecycle 이 판정한다(T7·ADR-028) — 여기서 ❌.
+  // (폴링은 due 송장만 보는데 webhook 송장은 무변화라 재폴링이 거의 없어, 여기서 판정하면 만료가 누락된다 — W11.)
 }
 
 /** 외부 폴링 실패: 선점 갱신 원복(다음 fire 재시도) + fail_count 증가 + next_retry_at 백오프. 분류해 로깅. */
@@ -387,8 +575,16 @@ async function notifyTransition(
   );
 }
 
-/** 운영성 안내 푸시(번호 확인·분실 의심) — 단계 전환이 아니라 직접 구성하는 비긴급(야간 보류) 알림. body 만 다르다. */
-async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: string): Promise<void> {
+/**
+ * 운영성 안내 푸시(번호 확인·분실 의심) — 단계 전환이 아니라 직접 구성하는 비긴급(야간 보류) 알림. body 만 다르다.
+ * id·carrier·tracking_no 만 쓰므로 최소 구조 타입을 받는다(lifecycle 독립 sweep 의 LifecycleRow 가 그대로 만족).
+ */
+async function notifyOperational(
+  env: Env,
+  deps: CronDeps,
+  row: { id: string; carrier: string; tracking_no: string },
+  body: string,
+): Promise<void> {
   const last4 = row.tracking_no.slice(-4);
   await fanOut(
     env,
@@ -406,12 +602,20 @@ async function notifyOperational(env: Env, deps: CronDeps, row: DueRow, body: st
 }
 
 /** '번호 확인'(미등록 7일) 안내 — 7일째 데이터 미수신(오타/잘못된 번호 의심). */
-async function notifyCheckNumber(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+async function notifyCheckNumber(
+  env: Env,
+  deps: CronDeps,
+  row: { id: string; carrier: string; tracking_no: string },
+): Promise<void> {
   await notifyOperational(env, deps, row, "❓ 운송장 번호를 확인해 주세요 — 7일째 배송 정보가 없어요");
 }
 
 /** '분실 의심'(30일 미완료) 푸시 — 단계 전환이 아니라 운영성 알림. */
-async function notifyLost(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+async function notifyLost(
+  env: Env,
+  deps: CronDeps,
+  row: { id: string; carrier: string; tracking_no: string },
+): Promise<void> {
   await notifyOperational(env, deps, row, "🕵️ 오래 변동이 없어요 — 배송 상태를 확인해 주세요");
 }
 

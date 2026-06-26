@@ -17,5 +17,8 @@ database_id = "2222ba46-7652-4085-8e6a-69604d2fc4b5"
 # 심사용 데모 운송장(ADR-019) — 이 번호면 tracker.ts 가 외부 호출 없이 캔드 타임라인 반환.
 # 형식 검증(^\d{9,14}$)·지원 carrier 대조 통과 + 실 운송장과 충돌 없는 예약값(14자리 0).
 DEMO_TRACKING_NUMBER = "00000000000000"
+# cron webhook (재)등록 sweep 의 콜백 베이스 URL(공개·비밀 아님, ADR-028). scheduled 엔 request origin 이 없어 이 값으로
+# callbackUrl=`${base}/webhooks/track/<secret>` 를 만든다. 미설정 시 cron 등록 보류(폴백 폴링). 시크릿은 WEBHOOK_CALLBACK_SECRET.
+WEBHOOK_CALLBACK_BASE_URL = "https://unboxing-worker.dev-jinni520.workers.dev"
 
 # tracker.delivery 자격증명은 시크릿으로: `wrangler secret put DELIVERY_TRACKER_CLIENT_ID` (+ `..._CLIENT_SECRET`)

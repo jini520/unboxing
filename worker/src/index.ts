@@ -33,6 +33,12 @@ export interface Env {
   WEBHOOK_CALLBACK_SECRET: string;
   /** webhook 콜백 서명(HMAC) 검증 키 — tracker.delivery 제공 시 (ADR-029, 선택) */
   WEBHOOK_SIGNING_SECRET?: string;
+  /**
+   * cron webhook (재)등록 sweep 의 콜백 베이스 URL (공개 workers.dev/커스텀 도메인, var·비밀 아님).
+   * scheduled 핸들러엔 request origin 이 없어 callbackUrl=`${base}/webhooks/track/<secret>` 를 이 값으로 만든다(ADR-028 cron 등록).
+   * 미설정이면 cron 등록 sweep 보류(폴백 폴링이 흡수). POST /shipments 즉시 등록은 request origin 을 쓰므로 무관.
+   */
+  WEBHOOK_CALLBACK_BASE_URL?: string;
 }
 
 /** 디바이스당 활성 구독 상한 (ADR-008 남용 방어). 초과 시 429. */
