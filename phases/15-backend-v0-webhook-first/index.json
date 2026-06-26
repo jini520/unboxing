@@ -32,7 +32,7 @@
       "status": "completed",
       "started_at": "2026-06-26T21:52:33+0900",
       "summary": "tracker.ts 에 registerTrackWebhook(flat-arg mutation·{ok:true}·실패 throw) 추가 + 단위테스트(변수 전송·GraphQL오류 throw). index.ts: makeTrackerDeps 단일 deps 경로(fetch.bind(globalThis)·creds 가드)로 tryTrack 리팩터 + scheduleWebhookRegistration(ctx.waitUntil 비차단·실패삼킴) — 현재 행(단계·active·expires) 권위 읽기 후 shouldRegisterWebhook 일 때만 등록·성공 시 webhook_expires_at set. handleCreateShipment 에 ctx 인자+호출 배선, fetch 핸들러 _ctx→ctx. 신규 통합테스트 test/webhook-register.test.ts(createExecutionContext+waitOnExecutionContext+globalThis.fetch 스텁) — 배송출발→1회·set·시크릿경로 / 미등록·배송완료→미호출 / dedupe-hit→미호출·만료불변 / 등록실패→201성공·NULL(폴백). npm run verify green(worker 263+2todo)",
-      "completed_at": "2026-06-26T22:05:00+0900"
+      "completed_at": "2026-06-26T22:05:34+0900"
     },
     {
       "step": 4,
