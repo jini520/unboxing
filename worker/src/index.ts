@@ -7,9 +7,16 @@
 
 import { normalizeStatus } from "./lib/normalize";
 import type { Stage } from "./lib/polling";
-import { shouldRegisterWebhook, webhookExpiration, WEBHOOK_TTL_MS } from "./lib/webhook";
+import {
+  shouldRegisterWebhook,
+  webhookExpiration,
+  WEBHOOK_TTL_MS,
+  verifyCallbackSecret,
+  shouldRefetchOnCallback,
+  parseCallback,
+} from "./lib/webhook";
 import { track, registerTrackWebhook, d1TokenStore, type TrackResult, type TrackerDeps } from "./tracker";
-import { runPollingBatch } from "./cron";
+import { runPollingBatch, processShipmentUpdate } from "./cron";
 // 개인정보처리방침 공개 페이지(GET /privacy)는 인앱 화면과 동일한 구조화 데이터를 재사용한다(사본 증가 방지).
 import { PRIVACY_POLICY } from "../../app/src/content/privacyPolicy";
 
@@ -280,6 +287,72 @@ function scheduleWebhookRegistration(
       }
     })(),
   );
+}
+
+/**
+ * POST /webhooks/track/<secret> — tracker.delivery 콜백 수신(1차 신선도, ADR-028·029).
+ * **Bearer 인증 없음** — 콜백엔 device 토큰이 없다. 게이트는 추측 불가 **시크릿 경로**다.
+ * 동기 게이트(빠른 D1 읽기)로 **1초 내 202** 를 보장하고, 실제 track 재조회·CAS·푸시는 ctx.waitUntil 비동기로
+ * **폴링과 동일한 다운스트림(processShipmentUpdate) 을 재사용**한다(복제 금지 → 멱등·중복 푸시 0 보장).
+ *
+ * 3중 방어(ADR-029): ① 시크릿 경로(불일치 조용히 401·시크릿/URL 로그 금지 T6) ② 페이로드 불신(D1 active 송장으로
+ * 존재할 때만 재조회 — 위조 콜백의 quota 남용 차단 W1·W12) ③ 송장별 신선도 throttle(직전 폴링 <60s skip +
+ * last_polled_at 선점으로 동시·연속 콜백 dedupe W6). **IP rate limit 은 쓰지 않는다**(콜백은 tracker 고정 IP →
+ * 거짓양성, T2). 응답: 시크릿 불일치 401 / 미존재·비active·본문오류·신선 skip 202(무시) / 수락 202 + waitUntil track.
+ */
+async function handleWebhookCallback(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  secret: string,
+): Promise<Response> {
+  // ① 시크릿 경로 게이트(상수시간 비교). 불일치/미설정 → 401(본문 없음·조용히). 시크릿·URL 은 로그 금지(T6).
+  if (!env.WEBHOOK_CALLBACK_SECRET || !verifyCallbackSecret(secret, env.WEBHOOK_CALLBACK_SECRET)) {
+    return new Response(null, { status: 401 });
+  }
+
+  // ② 본문 파싱 → carrierId·trackingNumber 만(여분 무시). 손상/누락/형식오류 → 202(무시, 처리 안 함).
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(null, { status: 202 });
+  }
+  const parsed = parseCallback(body);
+  if (!parsed) return new Response(null, { status: 202 });
+
+  // ③ 페이로드 불신 — D1 에 active 송장으로 존재할 때만 처리. 없거나 비active(배송완료·만료) → 202·track 미호출
+  //    (위조·임의 번호 콜백이 quota 를 태우는 것을 차단, W1·W12). (carrier, tracking_no) 는 UNIQUE 라 단일 행.
+  const row = await env.DB.prepare(
+    "SELECT id, carrier, tracking_no, last_normalized_status, last_polled_at FROM shipments " +
+      "WHERE carrier = ? AND tracking_no = ? AND active = 1",
+  )
+    .bind(parsed.carrierId, parsed.trackingNumber)
+    .first<{
+      id: string;
+      carrier: string;
+      tracking_no: string;
+      last_normalized_status: string | null;
+      last_polled_at: number | null;
+    }>();
+  if (!row) return new Response(null, { status: 202 });
+
+  // ④ 신선도 throttle — 직전 폴링이 60s 이내면 연속·중복 콜백으로 보고 재조회 skip(202, W6).
+  const now = Date.now();
+  if (!shouldRefetchOnCallback(row.last_polled_at, now)) {
+    return new Response(null, { status: 202 });
+  }
+
+  // ⑤ last_polled_at 선점 갱신(ADR-012 — 동시 콜백 dedupe) 후 비동기 재조회 → 1초 내 202.
+  //    track 실패는 202 이후라 tracker 재시도에 의존하지 않고 다음 폴백 due 가 흡수한다(W5).
+  //    fetch.bind(globalThis): 전역 fetch this 유실("Illegal invocation") 방지(P-1·T1, 폴링과 동일).
+  await env.DB.prepare("UPDATE shipments SET last_polled_at = ? WHERE id = ?").bind(now, row.id).run();
+  ctx.waitUntil(
+    processShipmentUpdate(env, { now, fetch: fetch.bind(globalThis) }, row).catch(() => {
+      // track 실패·다운스트림 오류는 삼킨다 — 폴백 폴링이 다음 due 에 흡수(W5). 시크릿·운송장번호는 로그 금지.
+    }),
+  );
+  return new Response(null, { status: 202 });
 }
 
 /**
@@ -704,6 +777,7 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method;
+    const segments = pathname.split("/").filter(Boolean);
 
     try {
       if (pathname === "/health" && method === "GET") {
@@ -720,6 +794,11 @@ export default {
         });
       }
 
+      // tracker.delivery webhook 콜백(ADR-028·029) — **Bearer 인증 앞**·시크릿 경로로만 게이트(콜백엔 device 토큰 없음).
+      if (method === "POST" && segments.length === 3 && segments[0] === "webhooks" && segments[1] === "track") {
+        return await handleWebhookCallback(request, env, ctx, segments[2]);
+      }
+
       if (pathname === "/devices" && method === "POST") {
         return await handleRegisterDevice(request, env, requireDeviceId(request));
       }
@@ -733,7 +812,6 @@ export default {
         return await handleListNotifications(env, requireDeviceId(request), url);
       }
 
-      const segments = pathname.split("/").filter(Boolean);
       if (segments.length === 2 && segments[0] === "shipments") {
         const id = segments[1];
         if (method === "GET") return await handleGetShipment(env, requireDeviceId(request), id);

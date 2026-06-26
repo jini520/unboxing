@@ -64,6 +64,17 @@ interface DueRow {
 }
 
 /**
+ * track → CAS → 전환 푸시에 필요한 최소 송장 참조 — **폴백 폴링(DueRow)·webhook 콜백 공용**.
+ * processShipmentUpdate 가 소비한다(복제 금지). DueRow 는 이 필드를 모두 포함하므로 그대로 전달된다.
+ */
+export interface ShipmentUpdateRow {
+  id: string;
+  carrier: string;
+  tracking_no: string;
+  last_normalized_status: string | null;
+}
+
+/**
  * flushQueue collapse 결과 행 — (shipment_id, push_token)당 최신 보류 스냅샷(title·body) +
  * 발송/로깅에 필요한 JOIN 값. device_id=토큰 현재 소유자, carrier/tracking_no/active/stage=shipment 스냅샷.
  * (큐 자체는 title·body 만 저장 — ARCHITECTURE: 큐는 메시지 스냅샷만. 나머지는 flush 시점 JOIN 으로 해석.)
@@ -144,47 +155,43 @@ export async function runPollingBatch(env: Env, deps: CronDeps): Promise<void> {
     .run();
 }
 
-/** 송장 1건: 선점 갱신 → track → 정규화 → 멱등 전환/알림 → 만료. 외부 실패는 백오프. */
-async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+/**
+ * track → 정규화 → CAS → 전환 푸시 — **폴백 폴링·webhook 콜백 공용 다운스트림(복제 금지, ADR-028)**.
+ * pollOne(cron.ts)과 webhook 콜백(index.ts handleWebhookCallback)이 같은 정규화·CAS·푸시 경로를 공유한다
+ * → 두 경로가 갈리지 않아 중복 푸시·멱등 깨짐이 구조적으로 불가능하다. 반환 = 정규화된 현재 단계.
+ *
+ * - **last_polled_at 선점 갱신은 호출부 소관**(폴링·콜백 각자 track 전에 처리) — 여기선 갱신하지 않는다(중복 방지).
+ * - track 실패는 throw → 호출부가 경로별로 처리: 폴링=백오프(onPollError), 콜백=무시(202 후 폴백 폴링이 흡수, W5).
+ * - 단계 전환(CAS 영향행=1)일 때만 notifyTransition fan-out(발송 + 알림 기록 1행). 중복 콜백(같은 단계)은
+ *   next===prev → CAS no-op → 푸시 0(멱등, W6). 배송완료는 active=0 으로 재폴링 중단(보관, ADR-005).
+ */
+export async function processShipmentUpdate(
+  env: Env,
+  deps: CronDeps,
+  row: ShipmentUpdateRow,
+): Promise<Stage> {
   const { now } = deps;
   const stored = row.last_normalized_status; // CAS 비교용 원본(null 가능)
   const prev = stageOf(stored);
 
-  // 2. 선점 갱신: 처리 시작 시 last_polled_at=now 로 먼저 갱신(중첩/중복 방지, ADR-012).
-  await env.DB.prepare("UPDATE shipments SET last_polled_at = ? WHERE id = ?").bind(now, row.id).run();
+  // track(외부 1회). 토큰은 D1 캐시(ADR-013). 데모 번호는 외부 호출 우회. 실패는 throw — 호출부가 처리.
+  const result = await track(row.carrier, row.tracking_no, {
+    fetch: deps.fetch,
+    now,
+    store: d1TokenStore(env.DB),
+    clientId: env.DELIVERY_TRACKER_CLIENT_ID,
+    clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
+    demoTrackingNumber: env.DEMO_TRACKING_NUMBER,
+  });
 
-  // 3. track(외부 1회). 토큰은 D1 캐시(ADR-013). 데모 번호는 step4가 외부 호출 우회.
-  let result: Awaited<ReturnType<typeof track>>;
-  try {
-    result = await track(row.carrier, row.tracking_no, {
-      fetch: deps.fetch,
-      now,
-      store: d1TokenStore(env.DB),
-      clientId: env.DELIVERY_TRACKER_CLIENT_ID,
-      clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
-      demoTrackingNumber: env.DEMO_TRACKING_NUMBER,
-    });
-  } catch (err) {
-    // 8. 외부 오류(UNAUTHENTICATED 재인증 실패·429·5xx·timeout): 선점 갱신 원복 + 백오프(다음 fire 재시도).
-    await onPollError(env, deps, row, err);
-    return;
-  }
-
-  // 성공 → 백오프 상태가 있었다면 해제.
-  if (row.fail_count > 0) {
-    await env.DB.prepare("UPDATE shipments SET fail_count = 0, next_retry_at = NULL WHERE id = ?")
-      .bind(row.id)
-      .run();
-  }
-
-  // 4. 정규화: lastEvent 우선, 없으면 events 최신값으로 폴백(upstream이 lastEvent를 비워도 단계 회귀 방지).
+  // 정규화: lastEvent 우선, 없으면 events 최신값으로 폴백(upstream이 lastEvent를 비워도 단계 회귀 방지).
   const ev = result.lastEvent ?? result.events[result.events.length - 1];
   const next = normalizeStatus(ev?.statusCode);
   // 단계 전환 시 기록할 status_changed_at: 전환을 일으킨 이벤트 시각(파싱 불가/누락이면 now).
   const parsedEvent = ev?.time ? Date.parse(ev.time) : NaN;
   const changedAt = Number.isNaN(parsedEvent) ? now : parsedEvent;
 
-  // 6. 배송완료: 자동 삭제하지 않고 **보관**한다(기본 사양 — 사용자가 수동 삭제). active=0 으로 재폴링만 멈춘다.
+  // 배송완료: 자동 삭제하지 않고 **보관**한다(기본 사양 — 사용자가 수동 삭제). active=0 으로 재폴링만 멈춘다.
   //    CAS(배송완료 + active=0)를 한 문장으로 원자화 → 좀비(완료·active=1) 방지 + 영향행으로 전환 차지 판정
   //    → 이긴 경우에만 정확히 1회 알림. (배송완료 자동 삭제는 다음 phase 설정 옵션 → docs/ROADMAP.md.)
   if (next === "배송완료" && prev !== "배송완료") {
@@ -197,15 +204,41 @@ async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
       // 전환 차지(영향행=1) → notifyTransition 으로 fan-out(발송 + 알림 기록 1행). 긴급 → 야간에도 즉시.
       await notifyTransition(env, deps, row, "배송완료", ev?.time);
     }
-    return;
+    return next;
   }
 
-  // 5. 멱등 단계 전환(compare-and-set): 단계가 실제로 바뀐 경우에만, 영향행=1일 때만 전환 인정 후 알림.
+  // 멱등 단계 전환(compare-and-set): 단계가 실제로 바뀐 경우에만, 영향행=1일 때만 전환 인정 후 알림.
   if (next !== prev) {
     const changed = await casStage(env, row.id, stored, next, changedAt);
     if (changed && shouldNotify(prev, next)) {
       await notifyTransition(env, deps, row, next, ev?.time);
     }
+  }
+  return next;
+}
+
+/** 송장 1건: 선점 갱신 → 공용 다운스트림(track→정규화→전환/알림) → 만료. 외부 실패는 백오프. */
+async function pollOne(env: Env, deps: CronDeps, row: DueRow): Promise<void> {
+  const { now } = deps;
+
+  // 2. 선점 갱신: 처리 시작 시 last_polled_at=now 로 먼저 갱신(중첩/중복 방지, ADR-012).
+  await env.DB.prepare("UPDATE shipments SET last_polled_at = ? WHERE id = ?").bind(now, row.id).run();
+
+  // 3~6. track → 정규화 → CAS → 전환 푸시(콜백과 공용 다운스트림). 외부 오류는 백오프(다음 fire 재시도).
+  let next: Stage;
+  try {
+    next = await processShipmentUpdate(env, deps, row);
+  } catch (err) {
+    // 8. 외부 오류(UNAUTHENTICATED 재인증 실패·429·5xx·timeout): 선점 갱신 원복 + 백오프(다음 fire 재시도).
+    await onPollError(env, deps, row, err);
+    return;
+  }
+
+  // 성공 → 백오프 상태가 있었다면 해제.
+  if (row.fail_count > 0) {
+    await env.DB.prepare("UPDATE shipments SET fail_count = 0, next_retry_at = NULL WHERE id = ?")
+      .bind(row.id)
+      .run();
   }
 
   // 7. 만료/좀비: createdAt 기준. deactivate면 active=0 (+notify면 운영성 안내 1회). 데모 번호는 안내 제외.
@@ -329,7 +362,7 @@ async function fanOut(
 async function notifyTransition(
   env: Env,
   deps: CronDeps,
-  row: DueRow,
+  row: ShipmentUpdateRow,
   stage: Stage,
   eventTime?: string,
 ): Promise<void> {
