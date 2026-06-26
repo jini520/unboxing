@@ -16,7 +16,7 @@
       "status": "completed",
       "started_at": "2026-06-26T21:41:52+0900",
       "summary": "신규 worker/src/lib/webhook.ts(+test) — shouldRegisterWebhook·webhookExpiration(ISO8601 UTC)·reregisterDue + 상수 WEBHOOK_TTL_MS(48h)·REREGISTER_THRESHOLD_MS(24h). 폴백 간격 단일 출처는 polling.ts 에 WEBHOOK_FALLBACK_MS·fallbackInterval 추가하고 webhook.ts 가 re-export(순환 import 회피). isDue 에 선택 4번째 인자 webhookExpiresAt(기본 null·하위호환) 추가해 fallbackInterval 소비 — 등록분 ~12h·NULL 적응형. QA F-1 8단계 전수 테스트 green(test-first)",
-      "completed_at": "2026-06-26T21:45:42+0900"
+      "completed_at": "2026-06-26T21:46:17+0900"
     },
     {
       "step": 2,
