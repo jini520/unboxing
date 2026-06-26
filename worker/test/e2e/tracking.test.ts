@@ -166,31 +166,31 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(await statusOf(id)).toBe("집화");
     expect(f.sendCalls).toBe(2);
 
-    // 이동중 — 무알림(타임라인만).
+    // 이동중 — 첫 진입 알림(ADR-030). 터미널 입·출고 재관측은 같은 단계라 무발송(아래 배송출발 전 멱등).
     clock += DAY;
     f.status = "IN_TRANSIT";
     await run();
     expect(await statusOf(id)).toBe("이동중");
-    expect(f.sendCalls).toBe(2);
+    expect(f.sendCalls).toBe(3);
 
     // 배송출발 — 알림.
     clock += DAY;
     f.status = "OUT_FOR_DELIVERY";
     await run();
     expect(await statusOf(id)).toBe("배송출발");
-    expect(f.sendCalls).toBe(3);
+    expect(f.sendCalls).toBe(4);
 
     // 동일 단계 재폴링 — CAS 0행 → 멱등 무발송(알림 신뢰성 핵심).
     clock += DAY;
     await run();
     expect(await statusOf(id)).toBe("배송출발");
-    expect(f.sendCalls).toBe(3);
+    expect(f.sendCalls).toBe(4);
 
     // 배송완료 — 알림 1회 후 보관(기본 사양: 자동 삭제 아님). active=0 으로 재폴링 중단, 사용자가 수동 삭제.
     clock += DAY;
     f.status = "DELIVERED";
     await run();
-    expect(f.sendCalls).toBe(4);
+    expect(f.sendCalls).toBe(5);
     expect(await statusOf(id)).toBe("배송완료"); // 보관됨(삭제 아님)
     expect(await count("SELECT COUNT(*) AS c FROM shipments")).toBe(1);
     expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE active = 0")).toBe(1); // 재폴링 중단
@@ -199,7 +199,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     // 재실행 — active=0 이라 due 아님 → 재폴링·재발송 없음(멱등, 좀비 알림 없음).
     clock += DAY;
     await run();
-    expect(f.sendCalls).toBe(4);
+    expect(f.sendCalls).toBe(5);
     expect(await statusOf(id)).toBe("배송완료");
   });
 

@@ -196,15 +196,20 @@ describe("cron — 배치 폴링", () => {
     expect(f.sendCalls).toBe(1); // 발송은 1회뿐
   });
 
-  it("이동중 전환은 푸시 없음(타임라인만)", async () => {
+  it("이동중 첫 진입 → 푸시 1회, 재관측(이동중→이동중)은 무발송(ADR-030)", async () => {
     await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     const f = makeFetch({ trackStatus: "IN_TRANSIT" });
 
+    // 등록 → 이동중: 첫 진입이라 1회 발송
     await runPollingBatch(env, { now: NOW, fetch: f.fetch });
-
-    expect(f.sendCalls).toBe(0);
+    expect(f.sendCalls).toBe(1);
     expect(await statusOf("S")).toBe("이동중");
+
+    // 이동중 → 이동중(터미널 입고→출고 재관측): 전환 아님 → 무발송(CAS 멱등).
+    // 이동중 폴링 간격 240분 → 5h 뒤면 due 라 실제 재폴링하지만 단계 불변이라 발송 0.
+    await runPollingBatch(env, { now: NOW + 5 * 60 * MINUTE, fetch: f.fetch });
+    expect(f.sendCalls).toBe(1);
   });
 
   it("배송완료 전환 → 푸시 후 보관(active=0·재폴링 중단, 자동 삭제 아님)", async () => {

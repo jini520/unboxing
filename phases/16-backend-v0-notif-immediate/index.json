@@ -2,7 +2,18 @@
   "project": "unboxing",
   "phase": "backend",
   "steps": [
-    { "step": 0, "name": "inmotion-notify", "status": "pending" },
-    { "step": 1, "name": "immediate-delivery", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "inmotion-notify",
+      "status": "completed",
+      "started_at": "2026-06-27T00:41:35+0900",
+      "summary": "이동중을 NOTIFYING_STAGES + STAGE_BODY('🚛 상품이 이동을 시작했어요')에 추가 — CAS(prev!==next)로 첫 진입 1회만 발송, 재관측 무발송(추가 상태 없음, ADR-030). 영향받은 통합/E2E 테스트(cron·tracking·lifecycle)를 새 동작으로 갱신, verify green."
+    },
+    {
+      "step": 1,
+      "name": "immediate-delivery",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-27T00:41:35+0900"
 }

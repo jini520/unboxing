@@ -46,10 +46,19 @@ function msg(i: number): PushMessage {
 const baseCtx = { token: "ExponentPushToken[x]", shipmentId: "abc", carrier: "CJ대한통운", last4: "1234" };
 
 describe("buildMessage", () => {
-  it("비알림 단계(이동중·기타·미등록)는 null", () => {
-    expect(buildMessage("이동중", baseCtx)).toBeNull();
+  it("비알림 단계(기타·미등록)는 null", () => {
     expect(buildMessage("기타", baseCtx)).toBeNull();
     expect(buildMessage("미등록", baseCtx)).toBeNull();
+  });
+
+  it("이동중: 알림 메시지 생성(null 아님·body 있음·배송출발과 다른 이모지) — ADR-030", () => {
+    const m = buildMessage("이동중", baseCtx);
+    expect(m).not.toBeNull();
+    expect(m!.body.length).toBeGreaterThan(0);
+    expect(m!.body).toContain("이동");
+    expect(m!.data.shipment_id).toBe("abc");
+    // 배송출발(🚚)과 이모지 구분(이동중=🚛) — "이동 시작"과 "배송 출발" 혼동 금지
+    expect(m!.body).not.toBe(buildMessage("배송출발", baseCtx)!.body);
   });
 
   it("알림 단계는 메시지 생성 + data.shipment_id 포함", () => {
@@ -65,7 +74,7 @@ describe("buildMessage", () => {
   });
 
   it("모든 알림 단계가 shipment_id 를 포함하고 body 가 비지 않는다", () => {
-    for (const stage of ["등록", "집화", "배송출발", "배송완료", "예외"] as const) {
+    for (const stage of ["등록", "집화", "이동중", "배송출발", "배송완료", "예외"] as const) {
       const m = buildMessage(stage, baseCtx);
       expect(m, stage).not.toBeNull();
       expect(m!.data.shipment_id).toBe("abc");
