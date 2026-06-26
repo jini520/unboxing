@@ -17,7 +17,7 @@ import { runPollingBatch } from "../src/cron";
  * 토큰·track·registerTrackWebhook·push 를 캔드로 돌려준다. 자격증명/시크릿/베이스URL 를 채워 등록 sweep 핫패스를 켠다.
  */
 
-const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (주간 — 조용시간 아님, 운영성 안내 즉시 발송)
+const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (시각 무관 즉시 발송 — ADR-030)
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const BASE = "https://wh.example.com";
@@ -273,7 +273,7 @@ describe("cron lifecycle 독립 sweep (폴링 분리·W11)", () => {
 
     expect(calls.track).toBe(0); // 폴링 안 됨(not-due webhook 송장)
     expect((await rowOf("zombie"))?.active).toBe(0); // 독립 sweep 이 비활성(W11)
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 주간이라 즉시 발송(보류 아님)
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 즉시 발송(보류 큐 미사용·ADR-030)
   });
 });
 

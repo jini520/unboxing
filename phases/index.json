@@ -77,7 +77,8 @@
     },
     {
       "dir": "16-backend-v0-notif-immediate",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-06-27T01:06:10+0900"
     }
   ]
 }

@@ -170,7 +170,7 @@ unboxing/
 
 ### cron 실행 모델 (→ ADR-012·028)
 > webhook-first 전환(ADR-028)으로 cron은 **신선도 1차에서 유지보수 + 저빈도 폴백**으로 역할 전환. cron *fire*(15~30분)는 무료라 유지하되, 폴백 재폴링 간격을 늘려 fire당 subrequest를 줄인다.
-- **cron 1회 작업**: ① webhook 24h 재등록 sweep ② lifecycle 독립 sweep(아래) ③ 폴백 due 재폴링 ④ receipt sweep ⑤ 아침 flush ⑥ 보존·rate_limits 정리.
+- **cron 1회 작업**: ① webhook 24h 재등록 sweep ② lifecycle 독립 sweep(아래) ③ 폴백 due 재폴링 ④ receipt sweep ⑤ 보존·rate_limits 정리. (조용시간 아침 flush는 ADR-030으로 폐지 — 전환 푸시는 시각 무관 즉시 발송.)
 - **폴백 due 조회·정렬**: `active=1 AND now >= last_polled_at + interval(stage, webhook_expires_at)`, 정렬 `배송출발` 우선 → `last_polled_at ASC`. **interval = webhook 등록분이면 ~12h 안전망, 미등록분(`webhook_expires_at IS NULL`)이면 적응형(표)** — webhook 송장은 거의 due 안 되고, 미등록 송장만 자주 폴링된다.
 - **청크/이월**: 1회 실행당 외부 subrequest **≤50**, 합산 **10 req/s** 준수. 초과분은 다음 fire로 자연 이월.
 - **중첩 방지**: 처리 시작 시 `last_polled_at` 선점 갱신(성공·실패 무관 재선택 방지). 단 외부 오류 시 백오프와 결합(아래).
@@ -255,13 +255,13 @@ unboxing/
 [복구] 휴지통 → POST /shipments(carrier,tracking_no) 재등록(멱등 dedupe + 즉시 track) → info 라이브 복원 → 휴지통 항목 제거
 [영구삭제] 휴지통 항목 + info 스냅샷 로컬 제거(서버 호출 없음 — 이미 구독 해제)
 [수정] 상세 "수정"에서 택배사·번호 변경 → POST /shipments(새 carrier,번호)[먼저] → info old_id→new_id 이관 → DELETE old_id → 새 상세 (새 엔드포인트 없음·ADR-027. 같은 조합이면 no-op, 이미 추적 중이면 그 상세로)
-[알림 기록] cron 전환 푸시 발송 시(+조용시간 flush 시) notifications INSERT(device_id별) → 앱 GET /notifications → 로컬 캐시·표시
+[알림 기록] cron 전환 푸시 발송 시(시각 무관 즉시·ADR-030) notifications INSERT(device_id별) → 앱 GET /notifications → 로컬 캐시·표시
 [대시보드] GET /shipments(또는 캐시) → dashboardCounts(목록) + 휴지통 수 + 미읽음 수(로컬)
 ```
 
 ### 알림 기록 write 지점 (서버)
 - cron 알림 fan-out(`subscriberTokens` 경유)에서 **실제 발송되는 (device_id, shipment_id, 메시지)별로 `notifications` 1행 INSERT**. 음소거(ADR-020) 구독은 fan-out에서 빠지므로 기록도 안 생김(일관).
-- 조용시간 보류(`notification_queue`)분은 **flush(실제 발송) 시점**에 기록(적재 시점 아님 — 사용자가 받는 시점 기준).
+- **항상 발송 시점 1회 기록**(ADR-030 — 조용시간 폐지로 보류·flush 경로 없음). `notification_queue`는 미사용 빈 테이블로 남는다(DROP 안 함 — 운영 D1 드리프트, ENGINEERING P-3).
 - title/body는 `buildMessage`와 동일 소스(`carrier`·`last4`·`stage`·`body`). 표시용 택배사 **한글명 변환은 앱**에서(서버는 carrierId 저장 — 이슈 `#9`와 동일 원칙). `ctx.waitUntil`로 푸시 경로에 묶어 비동기 완료.
 
 ### 마이그레이션 (꼼꼼히)
@@ -316,7 +316,7 @@ unboxing/
 | 대시보드 | 오프라인 | 캐시 목록으로 집계(ADR-014), 신선도 표기 |
 | 대시보드 | 다른 탭/기기에서 삭제·등록됨 | 포커스 복귀·당겨서 새로고침 시 목록 기준 **재집계**(낙관 변경도 반영) |
 | 휴지통 | 기기 시계 변경/오차 | `deletedAt`·만료는 **로컬 시각** 기준 — 시계 급변 시 30일 경계 어긋날 수 있음(로컬 편의 기능이라 허용·문서화) |
-| 알림 | 송장 orphan 삭제 시 보류 큐 | `notification_queue` FK `ON DELETE CASCADE` 로 보류분 자동 정리(기존). `notifications` 는 SET NULL(이력 보존) |
+| 알림 | 송장 orphan 삭제 | `notifications` 는 SET NULL(이력 보존). (`notification_queue` 는 ADR-030으로 미사용 — 적재 안 함) |
 | 필터 | 결과 0건 | "조건에 맞는 택배가 없어요" 안내(빈 목록과 구분) |
 
 ### v1.1 설계 보강 (확정 정의 — 갭 해소)
@@ -338,7 +338,7 @@ unboxing/
 **② 알림 로깅 시점·멱등 (ADR-023 구체화):**
 - 로깅 단위 = **전환 CAS 승리 후 fan-out 에서 실제 메시지가 만들어지는 (device_id, shipment) 쌍**. fan-out 은 `subscriptions`(device_id)⋈`devices`(token)를 돌므로 device_id 를 바로 안다 → `notifications` 1행. 전환 CAS 가 전환당 fan-out 1회를 보장하므로 **재독·중복 cron 에도 중복 로깅 없음**.
 - **send 재시도(MessageRateExceeded 등)는 재로깅하지 않는다** — 로깅은 메시지 구성(fan-out) 시점 1회, send HTTP 재시도 루프와 분리. (트레이드오프: 최종 전달 실패[DeviceNotRegistered]분도 "발송 시도"로 기록될 수 있음 — 드물고 무해, 단순성 우선.)
-- **조용시간 보류분**: `notification_queue` 는 token 키 스냅샷 → **flush(실제 발송) 시점에 로깅**, device_id 는 그 token 의 현재 소유자로 해석. token 이 양도됐으면 보류분은 steal 시 이미 정리(F3)되어 flush·로깅 안 됨(교차 누설 없음).
+- **즉시 발송(ADR-030)**: 조용시간 폐지로 보류·flush 경로가 없다 — 모든 전환 푸시는 시각 무관 즉시 발송되며 **항상 발송 시점에 로깅**한다(`notification_queue`는 미사용 빈 테이블).
 - **best-effort(에러 격리)**: `notifications` INSERT 실패는 **푸시 발송·전환 CAS 를 막지 않는다** — 로깅은 부수효과라 try/catch + `ctx.waitUntil` 로 격리(로깅 실패로 알림이 안 가면 더 나쁨).
 - **운송장 삭제와 독립**: 단건 삭제(구독 해제)는 서버 `notifications` 를 지우지 **않는다** — 받은 알림 이력은 90일/상한/`DELETE /me` 로만 정리. `shipment_id` 는 송장 정리 시 `SET NULL`(이력·표시는 유지, 딥링크만 무효). 개인정보처리방침에 이 보존을 명시(QA D절·PRIVACY_POLICY §6).
 
@@ -475,7 +475,7 @@ unboxing/
 - **필수(순수 로직)**: 상태 정규화 매핑(전수 + 미매핑→`기타`), 알림 트리거·멱등(`이동중` 무알림·재독 무발송·compare-and-set), 폴링 due 계산, 만료 정책, 운송장 검증.
 - **권장(통합)**: HTTP API + D1 — 등록 dedupe·멱등·**인가(타인 리소스 403/404)**·목록·삭제·throttle(429), 푸시 receipt 처리(무효 토큰 정리), webhook 콜백 멱등.
 - **(v1.1) 필수(순수 로직)**: `stageBucket`(단계→버킷 **단일 출처** — 전수·배타·망라 검증), 이를 쓰는 `dashboardCounts`·`filterShipments`(완료숨김 vs 명시 `완료` 칩 **우선순위**), `pruneTrash`(30일·`now` 주입·용량 상한)·휴지통 add/restore(반환 id 귀속)/permanent/reconcile, `migrateMemosToInfo`(구→신·멱등·손상안전)·정보 set/get, `parseAmount`(0이상 정수·경계 거부), 미읽음 수(`lastSeen` 미설정 시 `now` 초기화), 콜드스타트 라우팅 우선순위(딥링크 > 시작화면).
-- **(v1.1) 권장(통합)**: 워커 — 전환 푸시 시 `notifications` 1행 기록(**fan-out 시점 1회·send 재시도 무중복**·음소거 제외·flush 시점), `GET /notifications`(인증·`device_id`별·정렬·limit), `DELETE /me`가 `notifications` 정리, 보존 sweep(90일/상한), 송장 삭제 시 `shipment_id` SET NULL. 앱 — 대시보드/휴지통/알림/정보 모달 렌더·api mock(jest-expo).
+- **(v1.1) 권장(통합)**: 워커 — 전환 푸시 시 `notifications` 1행 기록(**fan-out 시점 1회·send 재시도 무중복**·음소거 제외·발송 시점 즉시 ADR-030), `GET /notifications`(인증·`device_id`별·정렬·limit), `DELETE /me`가 `notifications` 정리, 보존 sweep(90일/상한), 송장 삭제 시 `shipment_id` SET NULL. 앱 — 대시보드/휴지통/알림/정보 모달 렌더·api mock(jest-expo).
 - **보류(Phase 2)**: 앱 화면 컴포넌트 E2E(Maestro), 가계부 서버 집계.
 - **(v1.1) 상세 테스트 케이스·에러 케이스 카탈로그·실호출 스모크는 `docs/QA.md` E절**(구현 착수 전 사전 설계 — Harness TDD 가 빨간 테스트로 먼저 소비).
 

@@ -62,6 +62,8 @@ export interface PushDeps {
 const STAGE_BODY: Partial<Record<Stage, string>> = {
   등록: "📦 접수가 확인됐어요",
   집화: "📥 택배사가 상품을 수거했어요",
+  // 이동중 = 허브 간 이동 시작(첫 진입 1회 — ADR-030). 배송출발(🚚=최종 배송)과 이모지 구분(🚛).
+  이동중: "🚛 상품이 이동을 시작했어요",
   배송완료: "✅ 배송 완료",
   예외: "⚠️ 배송에 문제가 있어요(지연/반송) — 확인이 필요해요",
 };
@@ -87,7 +89,7 @@ function bodyFor(stage: Stage, ctx: { eventTimeMs?: number; nowMs?: number }): s
 /**
  * 알림 대상 단계 → PushMessage 생성.
  * title 은 어떤 택배인지(택배사·끝4자리), body 는 무슨 일인지(단계 문구).
- * 비알림 단계(이동중·기타·미등록)는 null(step2 알림 규칙과 일관).
+ * 비알림 단계(기타·미등록)는 null(이동중은 ADR-030으로 알림 대상이 됨).
  * 배송출발 '오늘 도착' 단정은 eventTimeMs/nowMs 로 KST 당일 여부를 확인한다(ARCHITECTURE 날짜=KST).
  */
 export function buildMessage(

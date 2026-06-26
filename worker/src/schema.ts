@@ -45,6 +45,7 @@ export const SCHEMA_STATEMENTS: string[] = [
   window_start INTEGER NOT NULL,
   count        INTEGER NOT NULL
 )`,
+  // deprecated (ADR-030, 미사용) — 조용시간 폐지로 보류 큐는 더는 쓰지 않는다. DROP 하지 않는다(운영 D1 드리프트·P-3).
   `CREATE TABLE IF NOT EXISTS notification_queue (
   id          TEXT PRIMARY KEY,
   shipment_id TEXT REFERENCES shipments(id) ON DELETE CASCADE,

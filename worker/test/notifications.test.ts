@@ -9,7 +9,7 @@ import { runPollingBatch } from "../src/cron";
 const BASE = "https://example.com";
 const TOKEN_A = "ExponentPushToken[AAAAAAAAAAAAAAAAAAAAAA]";
 const TOKEN_B = "ExponentPushToken[BBBBBBBBBBBBBBBBBBBBBB]";
-const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (주간 — flushQueue 동작)
+const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
@@ -69,14 +69,18 @@ async function getNotifs(deviceId: string, query = ""): Promise<{ status: number
   return { status: res.status, notifications: body.notifications };
 }
 
-/** flush 발송 검증용 최소 fake fetch(track=미등록·send 카운트). */
-function makeSendFetch() {
+/** cron 발송 검증용 최소 fake fetch(track 단계 주입·send 카운트). trackCode=null 이면 미등록. */
+function makeSendFetch(trackCode: string | null = null) {
   const state = { sendCalls: 0, sentTo: [] as string[], fetch: undefined as unknown as typeof fetch };
   state.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("oauth2/token")) return Response.json({ access_token: "tok", expires_in: 3600 });
     if (url.includes("graphql")) {
-      return Response.json({ data: { track: { lastEvent: null, events: { edges: [] } } } });
+      const ev =
+        trackCode == null
+          ? null
+          : { time: new Date(NOW).toISOString(), status: { code: trackCode }, description: "d" };
+      return Response.json({ data: { track: { lastEvent: ev, events: { edges: ev ? [{ node: ev }] : [] } } } });
     }
     if (url.includes("push/getReceipts")) return Response.json({ data: {} });
     if (url.includes("push/send")) {
@@ -211,42 +215,29 @@ describe("HTTP API — notifications", () => {
     expect(row?.stage).toBe("배송완료");
   });
 
-  // ── 삭제 시 보류 큐 정리 — 휴지통 송장 미발송(per-device) ──
+  // ── 삭제(구독 해제) 후 전환 푸시는 그 기기 제외(per-device 즉시 발송, ADR-030) ──
 
-  it("DELETE /shipments/:id 가 이 기기 보류 큐를 정리 → 휴지통 송장은 flush 미발송(타 구독자 무영향)", async () => {
+  it("DELETE /shipments/:id 후 전환 푸시는 삭제한 기기 제외 → 타 구독자만 즉시 발송", async () => {
     await registerDevice("dev-A", TOKEN_A);
     await registerDevice("dev-B", TOKEN_B);
     const id = await createShipment("dev-A", "123456789012");
     await createShipment("dev-B", "123456789012"); // dedupe 동일 송장(구독 2개)
-    // 송장이 not-due 가 되게(flush 만 검증) 선점 갱신 + 단계 고정.
+    // due 가 되게 단계 고정 + 미폴링(NULL) — cron 이 폴링해 전환을 일으키도록.
     await env.DB.prepare(
-      "UPDATE shipments SET last_normalized_status='배송출발', last_polled_at=? WHERE id=?",
+      "UPDATE shipments SET last_normalized_status='등록', last_polled_at=NULL WHERE id=?",
     )
-      .bind(NOW, id)
+      .bind(id)
       .run();
 
-    // 두 기기의 야간 보류분을 직접 적재(A·B).
-    for (const [qid, token] of [["qa", TOKEN_A], ["qb", TOKEN_B]] as const) {
-      await env.DB.prepare(
-        "INSERT INTO notification_queue (id, shipment_id, push_token, title, body, created_at) VALUES (?, ?, ?, 't', 'b', ?)",
-      )
-        .bind(qid, id, token, NOW - MINUTE)
-        .run();
-    }
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(2);
-
-    // dev-A 가 삭제(휴지통으로) → A 의 보류분만 정리, 송장은 dev-B 구독이라 생존(B 보류분 잔존).
+    // dev-A 가 삭제(휴지통으로) → 구독만 해제. 송장은 dev-B 구독이라 생존.
     const del = await SELF.fetch(`${BASE}/shipments/${id}`, { method: "DELETE", headers: bearer("dev-A") });
     expect(del.status).toBe(204);
-    expect(await count(`SELECT COUNT(*) AS c FROM notification_queue WHERE push_token='${TOKEN_A}'`)).toBe(0);
-    expect(await count(`SELECT COUNT(*) AS c FROM notification_queue WHERE push_token='${TOKEN_B}'`)).toBe(1);
     expect(await count("SELECT COUNT(*) AS c FROM shipments")).toBe(1); // 송장 생존(B 구독)
 
-    // 주간 flush → dev-A 는 큐에서 빠져 발송 0, dev-B 만 발송(휴지통 송장 미발송 불변).
-    const f = makeSendFetch();
+    // cron 전환(등록→배송출발) → 시각 무관 즉시 발송. 단 dev-A 는 구독 해제라 dev-B 만 받는다.
+    const f = makeSendFetch("OUT_FOR_DELIVERY");
     await runPollingBatch(env, { now: NOW, fetch: f.fetch });
     expect(f.sentTo).toEqual([TOKEN_B]);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
   });
 
   // ── 토큰 양도(재설치) E10 — notifications 는 device_id 키라 교차 누설 없음 ──

@@ -406,13 +406,12 @@ async function handleRegisterDevice(request: Request, env: Env, deviceId: string
           "ON CONFLICT(id) DO UPDATE SET push_token = excluded.push_token, platform = excluded.platform",
       ).bind(deviceId, pushToken, platform, now),
     ];
-    // 토큰이 실제로 다른 기기에서 이동했다면(steal>0), 옛 기기의 보류 ticket/queue 도 정리한다 —
+    // 토큰이 실제로 다른 기기에서 이동했다면(steal>0), 옛 기기의 receipt 대기 ticket 도 정리한다 —
     // 그 행들이 옛 토큰을 가리켜 새 기기로 잘못 발송되는 교차기기 누설 방지(F3). 자기 토큰 재갱신(steal=0)은
     // 자기 보류분을 지우면 안 되므로 제외한다(조건부).
     if ((steal.meta.changes ?? 0) > 0) {
       stmts.unshift(
         env.DB.prepare("DELETE FROM push_tickets WHERE push_token = ?").bind(pushToken),
-        env.DB.prepare("DELETE FROM notification_queue WHERE push_token = ?").bind(pushToken),
       );
     }
     await env.DB.batch(stmts);
@@ -626,23 +625,11 @@ async function handleMuteShipment(
     .first();
   if (!owns) throw new ApiError(404, "NOT_FOUND", "송장을 찾을 수 없어요");
 
-  // device_id + shipment_id 둘 다로 WHERE — 타 구독자 보호.
+  // device_id + shipment_id 둘 다로 WHERE — 타 구독자 보호. 음소거된 구독은 cron fan-out 의
+  // subscribers 에서 제외돼 즉시 발송(ADR-030)에서 빠진다 — 보류 큐가 없으므로 추가 정리 불필요.
   await env.DB.prepare("UPDATE subscriptions SET muted = ? WHERE device_id = ? AND shipment_id = ?")
     .bind(muted ? 1 : 0, deviceId, id)
     .run();
-
-  // 음소거 시: 이 기기의 야간 보류분 정리. 아침 flushQueue 는 subscribers 를 거치지 않고 큐에서
-  // 직접 발송하므로, 음소거 이전에 적재된 분이 음소거 후에도 발송되는 누락을 막는다. 토큰 NULL 이면 보류분 없음.
-  if (muted) {
-    const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
-      .bind(deviceId)
-      .first<{ push_token: string | null }>();
-    if (dev?.push_token) {
-      await env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?")
-        .bind(id, dev.push_token)
-        .run();
-    }
-  }
   return new Response(null, { status: 204 });
 }
 
@@ -659,20 +646,8 @@ async function handleDeleteShipment(env: Env, deviceId: string, id: string): Pro
     .bind(id, deviceId)
     .run();
 
-  // 휴지통(로컬 소프트 삭제, ADR-022)으로 보낸 송장이 야간 보류분으로 **지연 푸시**되지 않도록 이 기기의
-  // 보류 알림을 정리한다 — 구독 해제로 새 폴링·푸시는 멈추지만, 이미 적재된 notification_queue 보류분은
-  // 아침 flushQueue 가 subscribers 를 거치지 않고 직접 발송하기 때문(음소거 정리와 동일 불변, ADR-020).
-  // per-device: 이 기기 토큰의 (shipment) 보류분만 — 타 구독자 보류분 무영향. 토큰 NULL 이면 보류분 없음.
-  // notifications(이력)는 건드리지 않는다 — 단건 삭제는 구독 해제일 뿐, 받은 알림 기록은 독립 보존(ADR-023).
-  const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
-    .bind(deviceId)
-    .first<{ push_token: string | null }>();
-  if (dev?.push_token) {
-    await env.DB.prepare("DELETE FROM notification_queue WHERE shipment_id = ? AND push_token = ?")
-      .bind(id, dev.push_token)
-      .run();
-  }
-
+  // 구독 해제로 cron 폴링·즉시 발송(ADR-030)의 subscribers 에서 빠져 새 푸시가 멈춘다 — 보류 큐가 없으므로
+  // 추가 정리 불필요. notifications(이력)는 건드리지 않는다 — 받은 알림 기록은 독립 보존(ADR-023).
   await deleteIfOrphan(env, id);
   return new Response(null, { status: 204 });
 }
@@ -685,14 +660,13 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
     .bind(deviceId)
     .all<{ shipment_id: string }>();
 
-  // 이 기기의 push_token 을 먼저 읽어 둔다 — receipt 대기/보류 버퍼의 토큰 사본까지 즉시 폐기하기 위함(ADR-017).
+  // 이 기기의 push_token 을 먼저 읽어 둔다 — receipt 대기 버퍼의 토큰 사본까지 즉시 폐기하기 위함(ADR-017).
   const dev = await env.DB.prepare("SELECT push_token FROM devices WHERE id = ?")
     .bind(deviceId)
     .first<{ push_token: string | null }>();
 
-  // device 삭제(→subscriptions CASCADE) + push_token 사본(비-FK: receipt 대기 push_tickets·야간 보류
-  // notification_queue)을 **한 batch 로 원자 폐기** — devices 만 지우면 ~15분 sweep 까지 토큰 잔존.
-  // ADR-017 "푸시 토큰 폐기"는 즉시·완전, 크래시 창 최소화(QA-008/#11, CL4).
+  // device 삭제(→subscriptions CASCADE) + push_token 사본(비-FK: receipt 대기 push_tickets)을 **한 batch 로
+  // 원자 폐기** — devices 만 지우면 ~15분 sweep 까지 토큰 잔존. ADR-017 "푸시 토큰 폐기"는 즉시·완전, 크래시 창 최소화(QA-008/#11, CL4).
   const wipeStmts: D1PreparedStatement[] = [
     env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(deviceId),
     // 발송 알림 기록도 함께 즉시 폐기(ADR-017·023) — device_id 키라 이 기기 행만. 90일/상한 sweep 을 기다리지 않는다.
@@ -701,7 +675,6 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
   if (dev?.push_token) {
     wipeStmts.push(
       env.DB.prepare("DELETE FROM push_tickets WHERE push_token = ?").bind(dev.push_token),
-      env.DB.prepare("DELETE FROM notification_queue WHERE push_token = ?").bind(dev.push_token),
     );
   }
   await env.DB.batch(wipeStmts);

@@ -3,14 +3,17 @@ import { shouldNotify, NOTIFYING_STAGES } from "./notify";
 import type { Stage } from "./polling";
 
 describe("NOTIFYING_STAGES", () => {
-  it("알림 대상은 등록·집화·배송출발·배송완료·예외", () => {
+  it("알림 대상은 등록·집화·이동중·배송출발·배송완료·예외", () => {
     expect([...NOTIFYING_STAGES].sort()).toEqual(
-      (["등록", "집화", "배송출발", "배송완료", "예외"] as Stage[]).sort(),
+      (["등록", "집화", "이동중", "배송출발", "배송완료", "예외"] as Stage[]).sort(),
     );
   });
 
-  it("이동중·기타·미등록은 알림 대상이 아니다", () => {
-    expect(NOTIFYING_STAGES.has("이동중")).toBe(false);
+  it("이동중은 알림 대상(첫 진입 1회 — ADR-030)", () => {
+    expect(NOTIFYING_STAGES.has("이동중")).toBe(true);
+  });
+
+  it("기타·미등록은 알림 대상이 아니다", () => {
     expect(NOTIFYING_STAGES.has("기타")).toBe(false);
     expect(NOTIFYING_STAGES.has("미등록")).toBe(false);
   });
@@ -22,7 +25,9 @@ describe("shouldNotify (단계 전환 알림 판단)", () => {
     [null, "미등록", false], // 첫 관측이지만 무알림 단계
     ["등록", "등록", false], // 재관측, 멱등
     ["배송출발", "배송완료", true],
-    ["집화", "이동중", false], // 이동중 무알림
+    ["집화", "이동중", true], // 이동중 첫 진입 → 알림(ADR-030)
+    [null, "이동중", true], // 집화 건너뛴 직행도 첫 진입 1회
+    ["이동중", "이동중", false], // 이동중 재관측(터미널 입→출고) → 최초 1회 잠금
     ["이동중", "배송출발", true],
     ["배송완료", "배송완료", false],
     ["등록", "기타", false], // 기타 무알림
@@ -44,9 +49,9 @@ describe("shouldNotify (멱등성 — 재관측 무발송)", () => {
 });
 
 describe("shouldNotify (무알림 단계로의 전환은 무조건 false)", () => {
-  it("이동중·기타·미등록 으로의 전환은 prev 무관 false", () => {
-    const silent: Stage[] = ["이동중", "기타", "미등록"];
-    const anyPrev: (Stage | null)[] = [null, "등록", "집화", "배송출발", "예외"];
+  it("기타·미등록 으로의 전환은 prev 무관 false", () => {
+    const silent: Stage[] = ["기타", "미등록"];
+    const anyPrev: (Stage | null)[] = [null, "등록", "집화", "이동중", "배송출발", "예외"];
     for (const next of silent) {
       for (const prev of anyPrev) {
         expect(shouldNotify(prev, next)).toBe(false);
