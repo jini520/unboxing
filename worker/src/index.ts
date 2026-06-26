@@ -20,6 +20,10 @@ export interface Env {
   EXPO_ACCESS_TOKEN?: string;
   /** 심사용 데모 분기 — 실폴링 우회 (ADR-019, 선택) */
   DEMO_TRACKING_NUMBER?: string;
+  /** webhook 콜백 경로 시크릿 — /webhooks/track/<secret> 게이트 (ADR-029, 필수·로그 금지) */
+  WEBHOOK_CALLBACK_SECRET: string;
+  /** webhook 콜백 서명(HMAC) 검증 키 — tracker.delivery 제공 시 (ADR-029, 선택) */
+  WEBHOOK_SIGNING_SECRET?: string;
 }
 
 /** 디바이스당 활성 구독 상한 (ADR-008 남용 방어). 초과 시 429. */

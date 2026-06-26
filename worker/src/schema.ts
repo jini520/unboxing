@@ -68,5 +68,6 @@ export const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE shipments ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE shipments ADD COLUMN next_retry_at INTEGER`,
   `ALTER TABLE shipments ADD COLUMN status_changed_at INTEGER`,
+  `ALTER TABLE shipments ADD COLUMN webhook_expires_at INTEGER`,
   `ALTER TABLE subscriptions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`,
 ];

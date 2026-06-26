@@ -59,6 +59,8 @@ interface DueRow {
   created_at: number;
   fail_count: number;
   next_retry_at: number | null;
+  // webhook 만료 epoch ms(NULL=미등록→적응형 폴백 폴링, ADR-028). due 분기 소비는 step5(현재 SELECT 미포함).
+  webhook_expires_at: number | null;
 }
 
 /**

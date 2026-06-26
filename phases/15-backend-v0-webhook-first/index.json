@@ -2,12 +2,43 @@
   "project": "unboxing",
   "phase": "backend",
   "steps": [
-    { "step": 0, "name": "schema-migration", "status": "pending" },
-    { "step": 1, "name": "decision-logic", "status": "pending" },
-    { "step": 2, "name": "callback-lifecycle-logic", "status": "pending" },
-    { "step": 3, "name": "registration", "status": "pending" },
-    { "step": 4, "name": "callback-endpoint", "status": "pending" },
-    { "step": 5, "name": "cron-sweeps", "status": "pending" },
-    { "step": 6, "name": "smoke-config", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "schema-migration",
+      "status": "completed",
+      "started_at": "2026-06-26T21:37:21+0900",
+      "summary": "shipments.webhook_expires_at(INTEGER nullable) ALTER 를 schema.sql·src/schema.ts 1:1 추가, Env 에 WEBHOOK_CALLBACK_SECRET(필수)·WEBHOOK_SIGNING_SECRET?(선택) + .dev.vars 더미, DueRow 에 webhook_expires_at 타입만 추가 — 로직·SELECT 미변경(step1·3·5 소관)"
+    },
+    {
+      "step": 1,
+      "name": "decision-logic",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "callback-lifecycle-logic",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "registration",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "callback-endpoint",
+      "status": "pending"
+    },
+    {
+      "step": 5,
+      "name": "cron-sweeps",
+      "status": "pending"
+    },
+    {
+      "step": 6,
+      "name": "smoke-config",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-26T21:37:21+0900"
 }
