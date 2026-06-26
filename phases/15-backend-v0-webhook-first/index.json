@@ -48,7 +48,7 @@
       "status": "completed",
       "started_at": "2026-06-26T22:17:11+0900",
       "summary": "cron 을 신선도 1차에서 유지보수+저빈도 폴백으로 전환(ADR-028). runPollingBatch 를 예산(≤MAX_BATCH·우선순위) 오케스트레이션으로 재구성: ①재등록 sweep(만료<24h active·reregisterDue 단일출처) →②조건부 폴백 pollDue(due SELECT 에 webhook_expires_at 추가, isDue 4번째 인자로 등록분~12h·NULL 적응형 — 드리프트0) →③lifecycle 독립 sweep(폴링 분리·active 전체 스캔, 폴링 뒤·등록 앞 — 갱신단계 읽고 비활성건 등록 제외) →④등록 sweep(active·NULL·등록가능 due무관 등록=즉시마이그레이션+승급W7+실패NULL재시도) →⑤receipt/flush/보존/rate_limits. pollOne 에서 lifecycle 제거(T7·W11). notifyOperational/Check/Lost param 을 최소 구조타입으로 완화. registerWebhook 헬퍼(fetch.bind 된 deps.fetch 재사용·실패삼킴·webhook_expires_at set). cron 콜백 URL origin 부재 해소: Env WEBHOOK_CALLBACK_BASE_URL(var) + wrangler.toml[vars] + ARCHITECTURE 표 동기화(미설정 시 등록 sweep 보류·폴백). 신규 test/webhook-sweeps.test.ts 8건(재등록 임박만/조건부 폴백 due/즉시마이그레이션/등록제외/승급W7/실패재시도W3·W4/lifecycle독립W11/예산우선·이월W10). npm run verify green(app234·worker279+2todo·harness51).",
-      "completed_at": "2026-06-26T22:35:00+0900"
+      "completed_at": "2026-06-26T22:35:04+0900"
     },
     {
       "step": 6,
