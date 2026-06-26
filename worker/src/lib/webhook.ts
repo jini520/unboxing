@@ -47,3 +47,46 @@ export function webhookExpiration(now: number): string {
 export function reregisterDue(webhookExpiresAt: number | null, now: number): boolean {
   return webhookExpiresAt !== null && webhookExpiresAt - now < REREGISTER_THRESHOLD_MS;
 }
+
+// ── 콜백 처리 순수부 (ADR-029 콜백 보안) ───────────────────────────────────────
+
+/** 콜백 신선도 throttle: 직전 폴링이 이 시간보다 최근이면 재조회 skip(연속·중복 콜백 dedupe). */
+export const CALLBACK_FRESHNESS_MS = 60_000;
+
+/**
+ * 콜백 경로 시크릿을 **상수시간(timing-safe)**으로 비교한다. → ADR-029 ①, ENGINEERING T6.
+ * 첫 불일치/길이에서 early-return 으로 끊지 않는다(타이밍 오라클 차단) — 길이 차는 누산기에 반영하고
+ * got 전체를 끝까지 스캔한다. 빈 got 은 비교할 콘텐츠가 없어 seed=1(항상 불일치)로 두어 빈 콜백 경로
+ * 우회를 막는다. 길이·seed 항은 attacker-controlled 인 got 길이에만 의존하므로 비밀 콘텐츠 타이밍은 누출되지 않는다.
+ */
+export function verifyCallbackSecret(got: string, expected: string): boolean {
+  let mismatch = got.length === 0 ? 1 : got.length ^ expected.length;
+  for (let i = 0; i < got.length; i += 1) {
+    mismatch |= got.charCodeAt(i) ^ expected.charCodeAt(i % expected.length);
+  }
+  return mismatch === 0;
+}
+
+/**
+ * 콜백 수신 시 track 을 재조회해야 하는가(송장별 신선도 throttle). → ADR-029 ③, QA W6.
+ * 직전 폴링이 60s 이내(<CALLBACK_FRESHNESS_MS)면 연속·중복 콜백으로 보고 skip(false). 그 외 true.
+ * IP rate limit 은 쓰지 않는다(콜백은 tracker 고정 IP — 거짓양성, ADR-029·T2).
+ */
+export function shouldRefetchOnCallback(lastPolledAt: number | null, now: number): boolean {
+  if (lastPolledAt !== null && now - lastPolledAt < CALLBACK_FRESHNESS_MS) return false;
+  return true;
+}
+
+/**
+ * 콜백 본문에서 carrierId·trackingNumber 만 파싱(여분 필드 무시). → ADR-029 ②(형식부), QA W1.
+ * 누락·타입오류·손상(비객체)·빈 문자열 → null. 페이로드 불신(D1 active 송장 확인)은 호출부(step4) 소관.
+ */
+export function parseCallback(
+  body: unknown,
+): { carrierId: string; trackingNumber: string } | null {
+  if (typeof body !== "object" || body === null) return null;
+  const { carrierId, trackingNumber } = body as Record<string, unknown>;
+  if (typeof carrierId !== "string" || carrierId.length === 0) return null;
+  if (typeof trackingNumber !== "string" || trackingNumber.length === 0) return null;
+  return { carrierId, trackingNumber };
+}

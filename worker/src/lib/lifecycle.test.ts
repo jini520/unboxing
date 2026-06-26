@@ -90,3 +90,47 @@ describe("lifecycleAction (만료 전 단계는 keep)", () => {
     }
   });
 });
+
+// webhook-first 전환(ADR-028·ENGINEERING T7)으로 lifecycle 판정은 폴링 루프에서 **독립 sweep**으로 분리된다.
+// webhook 송장은 콜백으로만 갱신돼 재폴링이 거의 없으므로(last_polled_at 이 오래 전), 만약 폴링 안에서
+// 판정하면 만료가 누락된다. lifecycleAction 의 입력은 {stage, createdAt, now} 뿐 — last_polled_at 이 없음을
+// 잠가, 분리 sweep 이 재폴링 cadence 와 무관하게 동일 판정함을 보증한다(QA F-3 W11 회귀 잠금).
+describe("lifecycleAction 폴링 분리 회귀 잠금 (W11·T7 — last_polled_at 무관)", () => {
+  it("판정은 createdAt/now 만으로 결정 — 시그니처에 last_polled_at 이 없다", () => {
+    // 함수 시그니처가 {stage, createdAt, now} 뿐임을 잠근다(폴링 이력 입력 추가 시 컴파일/이 테스트가 깨짐).
+    const input: { stage: Stage; createdAt: number; now: number } = {
+      stage: "미등록",
+      createdAt: NOW - 8 * DAY,
+      now: NOW,
+    };
+    expect(lifecycleAction(input)).toEqual({
+      type: "deactivate",
+      reason: "미등록7일",
+      notify: true,
+    });
+  });
+
+  it("미등록7일: 재폴링이 오래 전인 webhook 송장도 동일 비활성 판정", () => {
+    expect(lifecycleAction({ stage: "미등록", createdAt: NOW - 9 * DAY, now: NOW })).toEqual({
+      type: "deactivate",
+      reason: "미등록7일",
+      notify: true,
+    });
+  });
+
+  it("분실의심30일: webhook 등록분(재폴링 ≈0)도 동일 비활성 판정", () => {
+    expect(lifecycleAction({ stage: "이동중", createdAt: NOW - 31 * DAY, now: NOW })).toEqual({
+      type: "deactivate",
+      reason: "분실의심30일",
+      notify: true,
+    });
+  });
+
+  it("예외7일: 폴링 분리 후에도 동일 판정(notify:false)", () => {
+    expect(lifecycleAction({ stage: "예외", createdAt: NOW - 8 * DAY, now: NOW })).toEqual({
+      type: "deactivate",
+      reason: "예외7일",
+      notify: false,
+    });
+  });
+});

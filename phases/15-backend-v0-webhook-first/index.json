@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "callback-lifecycle-logic",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-26T21:46:17+0900",
+      "summary": "webhook.ts 에 콜백 순수부 추가(+test-first) — verifyCallbackSecret(상수시간 누산 비교·early-return 없음·빈값 false), shouldRefetchOnCallback(직전 폴링 <60s skip·경계 엄격<·CALLBACK_FRESHNESS_MS=60s), parseCallback(carrierId·trackingNumber 만·여분 무시·누락/타입오류/비객체/빈값 → null). lifecycle.test.ts 에 W11 회귀 잠금 — lifecycleAction 판정이 {stage,createdAt,now} 뿐이고 last_polled_at 에 무관함을 잠가 폴링 분리 sweep 안전성 보증. lifecycleAction 로직 복제 없이 재사용. QA F-1·F-3(W1·W2·W6·W11) green",
+      "completed_at": "2026-06-26T21:51:58+0900"
     },
     {
       "step": 3,
