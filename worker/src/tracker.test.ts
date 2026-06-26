@@ -3,6 +3,7 @@ import {
   getAccessToken,
   track,
   carriers,
+  registerTrackWebhook,
   type TokenStore,
   type TrackerDeps,
 } from "./tracker";
@@ -244,5 +245,56 @@ describe("carriers (목록 파싱)", () => {
       { id: "kr.cjlogistics", name: "CJ대한통운" },
       { id: "kr.epost", name: "우체국택배" },
     ]);
+  });
+});
+
+describe("registerTrackWebhook (등록 mutation)", () => {
+  /** init.body(GraphQL 요청)를 캡처하는 mock fetch — 변수 검증용(scriptedFetch 는 URL 만 기록). */
+  function capturingFetch(graphqlBody: unknown): {
+    fetch: typeof fetch;
+    bodies: { query: string; variables: Record<string, unknown> }[];
+  } {
+    const bodies: { query: string; variables: Record<string, unknown> }[] = [];
+    const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("graphql")) {
+        bodies.push(JSON.parse((init?.body as string) ?? "{}"));
+        return jsonResponse(graphqlBody);
+      }
+      return jsonResponse({ access_token: "t", expires_in: 3600 });
+    }) as unknown as typeof fetch;
+    return { fetch: fn, bodies };
+  }
+
+  it("성공 응답 → { ok:true }, 변수(carrierId·trackingNumber·callbackUrl·expirationTime) 전송", async () => {
+    const cap = capturingFetch({ data: { registerTrackWebhook: { id: "wh-1" } } });
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), cap.fetch);
+
+    const res = await registerTrackWebhook(
+      "kr.cjlogistics",
+      "123456789012",
+      "https://x.example/webhooks/track/s3cr3t",
+      "2026-06-28T00:00:00.000Z",
+      deps,
+    );
+
+    expect(res).toEqual({ ok: true });
+    expect(cap.bodies).toHaveLength(1);
+    expect(cap.bodies[0].query).toContain("registerTrackWebhook");
+    expect(cap.bodies[0].variables).toEqual({
+      carrierId: "kr.cjlogistics",
+      trackingNumber: "123456789012",
+      callbackUrl: "https://x.example/webhooks/track/s3cr3t",
+      expirationTime: "2026-06-28T00:00:00.000Z",
+    });
+  });
+
+  it("GraphQL 오류(쿼터·1000 초과 등) → throw (호출부가 삼켜 폴백)", async () => {
+    const cap = capturingFetch({ errors: [{ message: "quota", extensions: { code: "RESOURCE_EXHAUSTED" } }] });
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), cap.fetch);
+
+    await expect(
+      registerTrackWebhook("kr.cjlogistics", "1", "https://x/cb", "2026-06-28T00:00:00.000Z", deps),
+    ).rejects.toThrow();
   });
 });

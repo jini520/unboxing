@@ -6,7 +6,9 @@
  */
 
 import { normalizeStatus } from "./lib/normalize";
-import { track, d1TokenStore, type TrackResult } from "./tracker";
+import type { Stage } from "./lib/polling";
+import { shouldRegisterWebhook, webhookExpiration, WEBHOOK_TTL_MS } from "./lib/webhook";
+import { track, registerTrackWebhook, d1TokenStore, type TrackResult, type TrackerDeps } from "./tracker";
 import { runPollingBatch } from "./cron";
 // 개인정보처리방침 공개 페이지(GET /privacy)는 인앱 화면과 동일한 구조화 데이터를 재사용한다(사본 증가 방지).
 import { PRIVACY_POLICY } from "../../app/src/content/privacyPolicy";
@@ -196,24 +198,88 @@ function serializeNotification(row: NotificationRow) {
 }
 
 /**
+ * tracker deps 구성(자격증명 가드 — 없으면 null). 즉시 1회 track 과 registerTrackWebhook 가
+ * **같은 단일 경로**로 deps 를 만든다 → fetch 바인딩 누락을 한 곳에서 차단한다.
+ * CRITICAL(P-1·T1): fetch 는 반드시 fetch.bind(globalThis) — 맨 fetch 를 deps 로 넘기면 호출 시 this 유실로
+ * "Illegal invocation" throw(mock 테스트는 못 잡음). track·webhook 등록이 이 구성을 공유한다.
+ */
+function makeTrackerDeps(env: Env): (TrackerDeps & { demoTrackingNumber?: string }) | null {
+  if (!env.DELIVERY_TRACKER_CLIENT_ID || !env.DELIVERY_TRACKER_CLIENT_SECRET) return null;
+  return {
+    fetch: fetch.bind(globalThis),
+    now: Date.now(),
+    store: d1TokenStore(env.DB),
+    clientId: env.DELIVERY_TRACKER_CLIENT_ID,
+    clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
+    demoTrackingNumber: env.DEMO_TRACKING_NUMBER,
+  };
+}
+
+/**
  * 즉시 1회 track / 상세 타임라인용 best-effort 조회.
  * 자격증명이 없거나 외부 호출이 실패하면 throw 하지 않고 null 을 반환한다(등록을 막지 않는다).
  */
 async function tryTrack(env: Env, carrier: string, trackingNo: string): Promise<TrackResult | null> {
-  if (!env.DELIVERY_TRACKER_CLIENT_ID || !env.DELIVERY_TRACKER_CLIENT_SECRET) return null;
+  const deps = makeTrackerDeps(env);
+  if (!deps) return null;
   try {
-    return await track(carrier, trackingNo, {
-      // globalThis 바인딩 필수 — 전역 fetch 를 deps 로 넘기면 this 를 잃어 호출 시 "Illegal invocation" 으로 throw.
-      fetch: fetch.bind(globalThis),
-      now: Date.now(),
-      store: d1TokenStore(env.DB),
-      clientId: env.DELIVERY_TRACKER_CLIENT_ID,
-      clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
-      demoTrackingNumber: env.DEMO_TRACKING_NUMBER,
-    });
+    return await track(carrier, trackingNo, deps);
   } catch {
     return null;
   }
+}
+
+/**
+ * webhook 등록(ADR-028) — **비차단(ctx.waitUntil)·실패허용**. 사용자 등록 응답을 절대 막지 않는다.
+ * 현재 행 상태(단계·active·기존 만료)를 권위 있게 읽어 멱등 판정한다: 등록 가능 단계(비종료·미등록 아님)·active 이고
+ * 미등록(NULL)/만료임박일 때만 송장당 1개 등록(dedupe-hit·이미 등록·여유면 skip → 중복 없음).
+ * 성공 → webhook_expires_at set. 실패(네트워크·쿼터·1000 동시 초과·GraphQL)는 삼켜 NULL 유지 → 폴백 폴링이
+ * 적응형 간격으로 흡수(W3·W4). 콜백 시크릿 경로(ADR-029 ①): callbackUrl=/webhooks/track/<secret>. 시크릿·번호는 로그 금지.
+ */
+function scheduleWebhookRegistration(
+  env: Env,
+  ctx: ExecutionContext,
+  origin: string,
+  shipmentId: string,
+): void {
+  if (!env.WEBHOOK_CALLBACK_SECRET) return; // 콜백 게이트 시크릿 없으면 등록 보류(폴백 폴링)
+  const deps = makeTrackerDeps(env);
+  if (!deps) return; // 자격증명 없음 → 등록 불가(폴백 폴링)
+  ctx.waitUntil(
+    (async () => {
+      const row = await env.DB.prepare(
+        "SELECT carrier, tracking_no, last_normalized_status, active, webhook_expires_at FROM shipments WHERE id = ?",
+      )
+        .bind(shipmentId)
+        .first<{
+          carrier: string;
+          tracking_no: string;
+          last_normalized_status: string | null;
+          active: number;
+          webhook_expires_at: number | null;
+        }>();
+      if (!row) return;
+      const stage = (row.last_normalized_status ?? "미등록") as Stage;
+      if (!shouldRegisterWebhook(stage, row.active === 1, row.webhook_expires_at, deps.now)) return;
+      const callbackUrl = `${origin}/webhooks/track/${env.WEBHOOK_CALLBACK_SECRET}`;
+      try {
+        const res = await registerTrackWebhook(
+          row.carrier,
+          row.tracking_no,
+          callbackUrl,
+          webhookExpiration(deps.now),
+          deps,
+        );
+        if (res.ok) {
+          await env.DB.prepare("UPDATE shipments SET webhook_expires_at = ? WHERE id = ?")
+            .bind(deps.now + WEBHOOK_TTL_MS, shipmentId)
+            .run();
+        }
+      } catch {
+        // 실패 삼킴 — webhook_expires_at NULL 유지 → 폴백 폴링이 흡수(W3·W4). 콜백 시크릿·운송장번호는 로그 금지.
+      }
+    })(),
+  );
 }
 
 /**
@@ -275,8 +341,13 @@ async function handleRegisterDevice(request: Request, env: Env, deviceId: string
   return Response.json({ device_id: deviceId });
 }
 
-/** POST /shipments — dedupe + 구독 + 즉시 1회 track(best-effort). 신규 201 / 기존 구독 200(멱등). */
-async function handleCreateShipment(request: Request, env: Env, deviceId: string): Promise<Response> {
+/** POST /shipments — dedupe + 구독 + 즉시 1회 track(best-effort) + webhook 등록(비차단). 신규 201 / 기존 구독 200(멱등). */
+async function handleCreateShipment(
+  request: Request,
+  env: Env,
+  deviceId: string,
+  ctx: ExecutionContext,
+): Promise<Response> {
   await enforceIpRateLimit(env, request);
   // 구독은 등록된 device 만(subscriptions FK). 미등록 device_id 는 인증 실패로 본다.
   const dev = await env.DB.prepare("SELECT 1 FROM devices WHERE id = ?").bind(deviceId).first();
@@ -383,6 +454,9 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   )
     .bind(deviceId, shipment.id, now)
     .run();
+
+  // webhook 등록(ADR-028) — 비차단·실패허용·송장당 1개(멱등). 등록 가능 단계가 아니면 no-op, 실패해도 폴백 폴링.
+  scheduleWebhookRegistration(env, ctx, new URL(request.url).origin, shipment.id);
 
   return Response.json({ shipment: serializeShipment(shipment) }, { status: 201 });
 }
@@ -626,7 +700,7 @@ ${sections}
 
 export default {
   // 앱 → Worker HTTP API
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method;
@@ -650,7 +724,7 @@ export default {
         return await handleRegisterDevice(request, env, requireDeviceId(request));
       }
       if (pathname === "/shipments" && method === "POST") {
-        return await handleCreateShipment(request, env, requireDeviceId(request));
+        return await handleCreateShipment(request, env, requireDeviceId(request), ctx);
       }
       if (pathname === "/shipments" && method === "GET") {
         return await handleListShipments(env, requireDeviceId(request));

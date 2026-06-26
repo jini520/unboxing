@@ -126,6 +126,19 @@ const CARRIERS_QUERY = `query Carriers {
   carriers(first: 100) { edges { node { id name } } }
 }`;
 
+/**
+ * Mutation.registerTrackWebhook — 변화 시 tracker.delivery 가 callbackUrl 로 POST 하도록 송장당 1개 등록(ADR-028).
+ * track 쿼리와 동일하게 carrierId/trackingNumber 를 flat arg 로 둔다. 정확한 input 스키마(input 래퍼 여부)·
+ * expirationTime 스칼라명·반환 타입·최대 TTL·재등록 멱등(갱신 vs 중복 생성)은 **실호출 스모크로 확정**(docs/QA.md F-4 W9).
+ */
+const REGISTER_WEBHOOK_MUTATION = `mutation RegisterTrackWebhook($carrierId: ID!, $trackingNumber: String!, $callbackUrl: String!, $expirationTime: DateTime!) {
+  registerTrackWebhook(carrierId: $carrierId, trackingNumber: $trackingNumber, callbackUrl: $callbackUrl, expirationTime: $expirationTime)
+}`;
+
+interface RegisterWebhookData {
+  registerTrackWebhook: unknown;
+}
+
 /** 주입 fetch로 timeout(AbortController)을 적용해 호출. */
 function fetchWithTimeout(deps: TrackerDeps, url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -283,4 +296,29 @@ export async function track(
 export async function carriers(deps: TrackerDeps): Promise<CarrierInfo[]> {
   const data = await graphqlRequest<CarriersQueryData>(deps, CARRIERS_QUERY, {});
   return (data.carriers?.edges ?? []).map((edge) => ({ id: edge.node.id, name: edge.node.name }));
+}
+
+/**
+ * Webhook 등록 — Mutation.registerTrackWebhook(carrierId, trackingNumber, callbackUrl, expirationTime).
+ * 성공 시 { ok:true }. 실패(네트워크·쿼터·1000 동시 초과·GraphQL 오류)는 graphqlRequest 가 throw → **호출부가 삼킨다**
+ * (등록 응답을 막지 않음, ADR-028 비차단). expirationTime 은 webhookExpiration(now) 의 ISO8601 UTC 문자열.
+ *
+ * CRITICAL(T1·P-1): deps.fetch 는 반드시 fetch.bind(globalThis) 여야 한다 — track 과 **같은 deps 구성 경로**를
+ * 재사용하면 자동 충족된다. 맨 fetch 를 deps 로 넘기면 호출 때 this 유실로 "Illegal invocation" throw(mock 테스트는
+ * 못 잡고 런타임에서만 깨지며 폴백에 가려진다, docs/ENGINEERING.md T1).
+ */
+export async function registerTrackWebhook(
+  carrierId: string,
+  trackingNumber: string,
+  callbackUrl: string,
+  expirationTime: string,
+  deps: TrackerDeps,
+): Promise<{ ok: boolean }> {
+  await graphqlRequest<RegisterWebhookData>(deps, REGISTER_WEBHOOK_MUTATION, {
+    carrierId,
+    trackingNumber,
+    callbackUrl,
+    expirationTime,
+  });
+  return { ok: true };
 }
