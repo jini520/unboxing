@@ -197,6 +197,14 @@ async function postGraphql<T>(
   return (await res.json()) as GraphQLResponse<T>;
 }
 
+/** GraphQL errors[] 를 코드 배열과 함께 던지는 에러 — 호출부가 NOT_FOUND(미등록=데이터없음) 등으로 분기. */
+export class TrackerGraphQLError extends Error {
+  constructor(readonly codes: string[]) {
+    super(`tracker.delivery GraphQL 오류: ${codes.join(", ")}`);
+    this.name = "TrackerGraphQLError";
+  }
+}
+
 /**
  * GraphQL 호출 + 에러 분류.
  * UNAUTHENTICATED(토큰 만료)면 토큰 재발급 후 **정확히 1회만** 재시도(무한 루프 금지, ADR-013).
@@ -212,8 +220,7 @@ async function graphqlRequest<T>(
     body = await postGraphql<T>(deps, await issueToken(deps), query, variables);
   }
   if (body.errors && body.errors.length > 0) {
-    const codes = body.errors.map((e) => e.extensions?.code ?? e.message).join(", ");
-    throw new Error(`tracker.delivery GraphQL 오류: ${codes}`);
+    throw new TrackerGraphQLError(body.errors.map((e) => e.extensions?.code ?? e.message));
   }
   if (body.data === undefined || body.data === null) {
     throw new Error("tracker.delivery 응답에 data 없음");
@@ -283,7 +290,17 @@ export async function track(
   if (deps.demoTrackingNumber && trackingNumber === deps.demoTrackingNumber) {
     return demoResult(deps.now);
   }
-  const data = await graphqlRequest<TrackQueryData>(deps, TRACK_QUERY, { carrierId, trackingNumber });
+  let data: TrackQueryData;
+  try {
+    data = await graphqlRequest<TrackQueryData>(deps, TRACK_QUERY, { carrierId, trackingNumber });
+  } catch (e) {
+    // NOT_FOUND = tracker.delivery 에 아직 데이터 없음 = 미등록(조회전)의 정상 상태이지 일시 장애가 아니다.
+    // 빈 결과를 돌려 호출부가 '미등록'으로 정상 폴링하게 한다(백오프 ❌ — 백오프면 등록 후 집화까지 조회전 고착).
+    if (e instanceof TrackerGraphQLError && e.codes.includes("NOT_FOUND")) {
+      return { lastEvent: null, events: [] };
+    }
+    throw e;
+  }
   const events = (data.track?.events?.edges ?? [])
     .map((edge) => toEvent(edge.node))
     .filter((e): e is TrackEvent => e !== null);

@@ -170,6 +170,32 @@ describe("track (UNAUTHENTICATED 재인증)", () => {
   });
 });
 
+describe("track (NOT_FOUND = 미등록·데이터없음 → 빈 결과, 백오프 ❌)", () => {
+  // tracker.delivery 는 아직 자료가 없는 번호에 NOT_FOUND GraphQL 오류로 응답한다(등록 직후·집화 전).
+  const notFoundBody = {
+    errors: [{ message: "배송자료를 조회할 수 없습니다!", extensions: { code: "NOT_FOUND" } }],
+    data: { track: null },
+  };
+
+  it("NOT_FOUND → throw 안 하고 빈 결과(미등록) 반환 — 백오프 대상 아님", async () => {
+    const rec = scriptedFetch({ graphql: [notFoundBody] });
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), rec.fetch);
+
+    const result = await track("kr.logen", "44658278615", deps);
+
+    expect(result).toEqual({ lastEvent: null, events: [] });
+  });
+
+  it("NOT_FOUND 외 GraphQL 오류(쿼터 등)는 그대로 throw (백오프 대상)", async () => {
+    const rec = scriptedFetch({
+      graphql: [{ errors: [{ message: "quota", extensions: { code: "RESOURCE_EXHAUSTED" } }] }],
+    });
+    const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), rec.fetch);
+
+    await expect(track("kr.cjlogistics", "1", deps)).rejects.toThrow();
+  });
+});
+
 describe("getAccessToken (캐싱)", () => {
   it("유효 캐시 토큰 → 재발급 fetch 호출 안 함", async () => {
     const rec = scriptedFetch({});
