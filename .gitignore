@@ -12,3 +12,8 @@ node_modules/
 # phase execution outputs (Harness)
 phases/**/phase*-output.json
 phases/**/step*-output.json
+
+# coverage 산출물 (app/worker/harness)
+coverage/
+.coverage
+.nyc_output/

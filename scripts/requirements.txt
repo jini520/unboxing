@@ -1,3 +1,4 @@
 # Harness 실행 엔진(execute.py) 테스트 의존성
 # 설치: python3 -m pip install -r scripts/requirements.txt
 pytest
+coverage  # npm run test:harness:coverage 용

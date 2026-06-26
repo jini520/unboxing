@@ -22,4 +22,19 @@ export default defineConfig({
       },
     }),
   ],
+  test: {
+    coverage: {
+      // workerd 런타임은 v8 coverage(node:inspector/promises)를 지원하지 않음 →
+      // 소스 변환 기반 istanbul provider 사용.
+      provider: "istanbul",
+      include: ["src/**"],
+      reporter: ["text-summary", "text"],
+      thresholds: {
+        lines: 90,
+        statements: 90,
+        functions: 88,
+        branches: 80,
+      },
+    },
+  },
 });

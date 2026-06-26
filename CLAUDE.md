@@ -30,6 +30,7 @@ Phase 1 (MVP): 국내·익명(로그인 없음)·tracker.delivery Free / Phase 2
 ## 명령어
 ```bash
 npm run verify                       # typecheck + test (app + worker + harness) — 매 작업 후 검증
+npm run test:coverage                # 커버리지 측정 + 회귀 게이트 (app 순수로직·worker src·harness)
 npm --prefix app start               # Expo 개발 서버 (run ios | android | web)
 npm --prefix worker run dev          # Worker 로컬 실행
 npm --prefix worker run deploy       # Worker 배포

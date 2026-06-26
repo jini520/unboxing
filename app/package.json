@@ -36,13 +36,32 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest",
+    "test:coverage": "jest --coverage",
     "typecheck": "tsc --noEmit"
   },
   "jest": {
     "preset": "jest-expo",
     "setupFiles": [
       "<rootDir>/jest.setup.js"
-    ]
+    ],
+    "collectCoverageFrom": [
+      "src/lib/**/*.ts",
+      "src/theme/tokens.ts",
+      "src/config.ts",
+      "!src/lib/push.ts",
+      "!src/lib/usePushNotifications.ts",
+      "!src/lib/deps.ts",
+      "!**/*.test.ts",
+      "!**/__qa__/**"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "lines": 92,
+        "statements": 92,
+        "functions": 85,
+        "branches": 85
+      }
+    }
   },
   "private": true
 }

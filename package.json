@@ -7,6 +7,8 @@
     "typecheck": "npm --prefix app run typecheck && npm --prefix worker run typecheck",
     "test": "npm --prefix app test && npm --prefix worker test && npm run test:harness",
     "test:harness": "python3 -m pytest scripts/",
+    "test:coverage": "npm --prefix app run test:coverage && npm --prefix worker run test:coverage && npm run test:harness:coverage",
+    "test:harness:coverage": "python3 -m coverage run --source=scripts -m pytest scripts/ && python3 -m coverage report --fail-under=78",
     "verify": "npm run typecheck && npm run test",
     "install:all": "npm --prefix app install && npm --prefix worker install"
   }
