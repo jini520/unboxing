@@ -40,7 +40,7 @@
       "status": "completed",
       "started_at": "2026-06-26T22:05:34+0900",
       "summary": "POST /webhooks/track/<secret> 콜백 수신(ADR-028·029). cron.ts 에서 track→정규화→CAS→전환푸시를 processShipmentUpdate(export·ShipmentUpdateRow) 로 추출해 pollOne·콜백 공용(복제 금지·반환=정규화단계, pollOne 은 선점갱신+fail_count리셋+lifecycle 만 유지). notifyTransition param 을 ShipmentUpdateRow 로 완화. index.ts handleWebhookCallback: Bearer 앞·시크릿경로 게이트(verifyCallbackSecret 불일치 401) → parseCallback(손상/누락 202) → 페이로드 불신(D1 active 송장만, 없으면 202·track 미호출 W1·W12) → 신선도 throttle(직전폴링<60s skip W6) → last_polled_at 선점(동시콜백 dedupe) + ctx.waitUntil(processShipmentUpdate, fetch.bind·실패삼킴 W5) → 1초내 202. dispatch 에 webhooks/track 라우트를 인증 앞 배치(segments 단일화). IP rate limit 미적용(T2). 신규 test/webhook-callback.test.ts 8건(401·미존재·비active·본문오류·전환푸시·중복CAS멱등·신선도skip·track실패202) — 신선도/조용시간이 실시간 Date.now() 의존이라 긴급전환(배송완료)·실시간 lastPolledAt 로 결정적화. npm run verify green(worker 271+2todo).",
-      "completed_at": "2026-06-26T22:16:00+0900"
+      "completed_at": "2026-06-26T22:17:10+0900"
     },
     {
       "step": 5,
