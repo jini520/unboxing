@@ -9,10 +9,10 @@ const BASE = "https://example.com";
 // fakeFetch 가 tracker.delivery(token·graphql)와 Expo Push(send)를 URL로 분기해 응답한다.
 // (실네트워크 호출 없음. outboundService 차단과 무관 — 주입 fetch를 직접 쓴다.)
 
-// 고정 시계(epoch ms). 조용시간(step3, KST 22–08) 도입 후 발송 시각이 의미를 가지므로
-// 즉시 발송 기준 NOW 는 **주간(KST 12:00)** 으로 둔다. 야간 보류 검증은 NIGHT(KST 07:13)을 쓴다.
-const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (주간 — 조용시간 아님)
-const NIGHT = 1_700_000_000_000; // KST 2023-11-15 07:13 (야간/조용시간 — 보류 검증)
+// 고정 시계(epoch ms). 조용시간 폐지(ADR-030) 후 시각과 무관하게 즉시 발송하므로 NOW(주간)·NIGHT(야간)
+// 둘 다 즉시 발송이어야 한다. NIGHT 는 "야간에도 즉시 발송"을 잠그는 회귀 테스트에 쓴다.
+const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (주간)
+const NIGHT = 1_700_000_000_000; // KST 2023-11-15 07:13 (야간 — 즉시 발송 회귀 잠금)
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
@@ -357,59 +357,30 @@ describe("cron — 배치 폴링", () => {
     expect(await statusChangedAtOf("S")).toBe(EVENT); // 완료 전환도 이벤트 시각
   });
 
-  // ── 조용시간(step3, #7/QA-004): 야간 비긴급 보류 → 아침 묶음 발송 ──
+  // ── 즉시 발송(ADR-030, 조용시간 폐지): 시각 무관 전환 푸시 즉시 발송 ──
 
-  it("야간 비긴급 전환은 보류(즉시 발송 0·큐 1), 주간 재실행이 플러시", async () => {
+  it("야간 전환도 즉시 발송(조용시간 폐지) — 큐 미적재", async () => {
     await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
 
-    // 야간(NIGHT) — 등록→배송출발(비긴급) → 보류. CAS 는 즉시 적용(보류는 발송 시점만 미룸).
+    // 야간(NIGHT) — 등록→배송출발: 과거엔 보류였으나 이제 시각 무관 즉시 발송(ADR-030).
     await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
-    expect(f.sendCalls).toBe(0);
-    expect(await statusOf("S")).toBe("배송출발");
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
-
-    // 주간(NOW) — 재폴(동일 단계, 무전환) + 보류 큐 플러시로 발송 후 큐 비움.
-    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
     expect(f.sendCalls).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+    expect(await statusOf("S")).toBe("배송출발");
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 보류 큐 미사용(ADR-030)
   });
 
-  it("야간 긴급(배송완료) 전환은 보류 없이 즉시 발송", async () => {
+  it("야간 배송완료(긴급) 전환도 즉시 발송 + 보관", async () => {
     await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: null });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     const f = makeFetch({ trackStatus: "DELIVERED" });
 
     await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
 
-    expect(f.sendCalls).toBe(1); // 긴급 → 야간에도 즉시
+    expect(f.sendCalls).toBe(1); // 야간에도 즉시
     expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
     expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1); // 완료 보관(재폴링 중단)
-  });
-
-  it("collapse: 한 송장 다중 보류 → 아침 플러시 시 최신 1건만 발송", async () => {
-    // 송장은 not-due(방금 폴링) → 재폴 없음. 야간 보류 3건을 직접 적재해 collapse 만 검증.
-    await seedShipment("S", { trackingNo: "123456789012", status: "배송출발", lastPolledAt: NOW });
-    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
-    const bodies = ["등록 접수", "집화 수거", "배송출발 시작"];
-    for (let i = 0; i < bodies.length; i++) {
-      await env.DB.prepare(
-        "INSERT INTO notification_queue (id, shipment_id, push_token, title, body, created_at) " +
-          "VALUES (?, 'S', 'ExponentPushToken[AAA]', 't', ?, ?)",
-      )
-        .bind(`q${i}`, bodies[i], NOW - (bodies.length - i) * MINUTE)
-        .run();
-    }
-    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
-
-    await runPollingBatch(env, { now: NOW, fetch: f.fetch }); // 주간 → 플러시
-
-    expect(f.graphqlCalls).toBe(0); // not-due → 재폴 없음
-    expect(f.sendCalls).toBe(1); // collapse → 1건만(과알림 방지)
-    expect(f.sentMessages).toHaveLength(1);
-    expect(f.sentMessages[0].body).toBe("배송출발 시작"); // 최신(created_at 최대)
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 버린 보류분 포함 전체 삭제
   });
 
   // ── 음소거(step1, ADR-020): per-구독 알림 끄기 — 발송만 빠지고 추적은 계속 ──
@@ -432,47 +403,25 @@ describe("cron — 배치 폴링", () => {
     expect(f.sentMessages[0].to).toBe("ExponentPushToken[BBB]");
   });
 
-  it("음소거 시 야간 보류분 정리 — 아침 플러시에서 음소거한 기기 제외", async () => {
+  it("음소거 후 재폴(다른 기기 전환)은 음소거 기기 제외 — 즉시 발송도 B 만", async () => {
     await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     await seedSubscriber("dev-B", "ExponentPushToken[BBB]", "S");
     const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
 
-    // 야간 — 등록→배송출발(비긴급) → A·B 둘 다 보류 적재(음소거 전).
-    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
-    expect(f.sendCalls).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(2);
-
-    // A 가 음소거(PATCH) → A 의 보류분이 함께 정리된다(아침 flushQueue 누락 방지).
+    // A 가 음소거(PATCH) → 구독 muted=1.
     const patch = await SELF.fetch(`${BASE}/shipments/S`, {
       method: "PATCH",
       headers: { ...bearer("dev-A"), "Content-Type": "application/json" },
       body: JSON.stringify({ muted: true }),
     });
     expect(patch.status).toBe(204);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1); // A 보류분 제거, B 만 잔존
 
-    // 아침(주간) 재실행 — 보류 큐 플러시. A 는 큐에서 빠졌고 재폴(동일 단계)도 무전환 → B 만 발송.
+    // 등록→배송출발 전환 → 즉시 발송이지만 음소거한 A 는 subscribers 에서 제외 → B 만 받는다.
     await runPollingBatch(env, { now: NOW, fetch: f.fetch });
     expect(f.sendCalls).toBe(1);
     expect(f.sentMessages).toHaveLength(1);
     expect(f.sentMessages[0].to).toBe("ExponentPushToken[BBB]");
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
-  });
-
-  it("보류분의 송장 삭제 시 FK CASCADE 로 큐 행도 정리(죽은 토큰 발송 방지)", async () => {
-    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: NOW });
-    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
-    await env.DB.prepare(
-      "INSERT INTO notification_queue (id, shipment_id, push_token, title, body, created_at) " +
-        "VALUES ('q0', 'S', 'ExponentPushToken[AAA]', 't', 'b', ?)",
-    )
-      .bind(NOW)
-      .run();
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
-
-    await env.DB.prepare("DELETE FROM shipments WHERE id = 'S'").run();
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // CASCADE
   });
 
   // ── 알림 기록(step1, ADR-023): 전환 푸시 fan-out 시점 1행 INSERT — 음소거 제외·멱등·best-effort ──
@@ -561,16 +510,17 @@ describe("cron — 배치 폴링", () => {
     expect(rows[0]).toMatchObject({ device_id: "dev-A", shipment_id: "S", stage: "배송완료", last4: "1360" });
   });
 
-  it("야간 비긴급 전환은 보류 → 즉시 미기록(기록은 flush 시점=step2)", async () => {
+  it("야간 전환도 발송 시점에 즉시 1행 기록(조용시간 폐지, ADR-030)", async () => {
     await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
 
     await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
 
-    expect(f.sendCalls).toBe(0); // 보류
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0); // 적재 시점엔 기록 안 함
+    expect(f.sendCalls).toBe(1); // 야간에도 즉시 발송
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 큐 미사용
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(1); // 발송 시점 1행
+    expect((await notifs())[0].sent_at).toBe(NIGHT); // 발송 시점(NIGHT) 기준
   });
 
   it("best-effort(E12): notifications 기록 실패해도 발송·전환 CAS 는 진행", async () => {
@@ -586,79 +536,22 @@ describe("cron — 배치 폴링", () => {
     expect(await statusOf("S")).toBe("배송출발"); // 전환 CAS 도 그대로
   });
 
-  // ── flush 시점 로깅(step2, ADR-023 보강②): 보류분은 받는 시점(flush)에 기록 ──
-
-  it("조용시간 보류 → 적재 시 미기록, 주간 flush 시 1행(device_id=토큰 현재 소유자)", async () => {
-    await seedShipment("S", { trackingNo: "5220934513601234", status: "등록", lastPolledAt: null });
-    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
-    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
-
-    // 야간 — 등록→배송출발(비긴급) 보류. 적재 시점엔 기록 안 함(수신 시점 기준).
-    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
-    expect(f.sendCalls).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0);
-
-    // 주간 — flush 발송 시점에 기록 1행. carrier=carrierId, last4, stage 스냅샷, sent_at=flush now.
-    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
-    expect(f.sendCalls).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
-    const rows = await notifs();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      device_id: "dev-A",
-      shipment_id: "S",
-      carrier: "kr.cjlogistics",
-      last4: "1234",
-      stage: "배송출발",
-      sent_at: NOW, // 적재(NIGHT) 가 아니라 flush(NOW) 시점
-    });
-    expect(rows[0].body.length).toBeGreaterThan(0);
-  });
-
-  it("token 양도분(steal 정리)은 flush·로깅 안 됨 — 큐·기록 모두 0", async () => {
-    await seedShipment("S", { trackingNo: "123456789012", status: "등록", lastPolledAt: null });
-    await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
-    const f = makeFetch({ trackStatus: "OUT_FOR_DELIVERY" });
-
-    // 야간 보류 적재(dev-A 토큰).
-    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
-
-    // 다른 기기(dev-B)가 같은 토큰을 등록 → steal → F3 가 옛 토큰의 보류분을 정리(교차 누설 방지).
-    const reg = await SELF.fetch(`${BASE}/devices`, {
-      method: "POST",
-      headers: { ...bearer("dev-B"), "Content-Type": "application/json" },
-      body: JSON.stringify({ platform: "ios", push_token: "ExponentPushToken[AAA]" }),
-    });
-    expect(reg.status).toBe(200);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // F3 정리
-
-    // 주간 flush — 보류분이 없으니 발송·기록 모두 없음.
-    await runPollingBatch(env, { now: NOW, fetch: f.fetch });
-    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0);
-  });
-
-  it("운영성 안내(분실 의심) 보류분은 flush 발송돼도 기록 안 함(전환 푸시만 기록·step1 일관)", async () => {
-    // 30일 경과 미완료(이동중) → 야간 cron 에서 비활성(active=0) + '분실 의심'(비긴급) 보류.
+  it("운영성 안내(분실 의심)는 즉시 발송돼도 기록 안 함(전환 푸시만 기록·step1 일관)", async () => {
+    // 30일 경과 미완료(이동중) → cron 에서 비활성(active=0) + '분실 의심' 즉시 발송(시각 무관).
     await seedShipment("S", {
       trackingNo: "123456789012",
       status: "이동중",
       lastPolledAt: null,
-      createdAt: NIGHT - 31 * DAY,
+      createdAt: NOW - 31 * DAY,
     });
     await seedSubscriber("dev-A", "ExponentPushToken[AAA]", "S");
     const f = makeFetch({ trackStatus: "IN_TRANSIT" }); // 무전환 단계 → 전환 푸시 없음
 
-    await runPollingBatch(env, { now: NIGHT, fetch: f.fetch });
-    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1); // 분실 의심 보류
-
-    // 주간 flush — 안내는 발송되지만 active=0(운영성)이라 기록은 안 함.
     await runPollingBatch(env, { now: NOW, fetch: f.fetch });
-    expect(f.sendCalls).toBe(1); // 분실 의심 발송됨
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0); // 전환 푸시만 기록
+
+    expect(await count("SELECT COUNT(*) AS c FROM shipments WHERE id='S' AND active=0")).toBe(1);
+    expect(f.sendCalls).toBe(1); // 분실 의심 즉시 발송됨
+    expect(await count("SELECT COUNT(*) AS c FROM notifications")).toBe(0); // 운영성 안내는 기록 안 함(전환 푸시만)
   });
 
   // ── 보존 sweep(step2, ADR-023): 90일 경과 + 디바이스당 상한 ──

@@ -357,28 +357,21 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     expect(f.sentMessages[0].title).not.toContain("kr.cjlogistics");
   });
 
-  // ── QA-004(#7) 수정: 조용시간 야간 보류·아침 묶음 발송 ──
-  // 사양(PRD 알림 정책): 야간(KST 22–08)은 예외·배송완료 외 발송 보류 후 아침 묶음.
-  it("QA-004: 야간 비긴급 전환은 보류(즉시 발송 0·큐 1)·주간 재실행이 플러시", async () => {
+  // ── 조용시간 폐지(ADR-030): 야간에도 시각 무관 즉시 발송 ──
+  it("야간 비긴급 전환도 즉시 발송(조용시간 폐지·큐 미적재)", async () => {
     await registerDevice("dev-A", TOKEN_A);
     const id = await registerShipment("dev-A", "123456789012");
     const f = makeFetch();
-    const base = Date.now();
 
-    // 야간(KST 02:00) 등록 전환 — 비긴급이라 보류(즉시 발송 0, 큐 1). CAS 는 즉시(상태=등록).
+    // 야간(KST 02:00) 등록 전환 — 과거엔 보류였으나 이제 시각 무관 즉시 발송(ADR-030).
     f.status = "INFORMATION_RECEIVED";
-    await runPollingBatch(env, { now: nighttime(base), fetch: f.fetch });
+    await runPollingBatch(env, { now: nighttime(Date.now()), fetch: f.fetch });
     expect(await statusOf(id)).toBe("등록");
-    expect(f.sendCalls).toBe(0);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(1);
-
-    // 주간(KST 정오) 재실행 — 보류 큐 플러시로 발송, 큐 비워짐.
-    await runPollingBatch(env, { now: daytime(base), fetch: f.fetch });
     expect(f.sendCalls).toBe(1);
-    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0); // 보류 큐 미사용
   });
 
-  it("QA-004: 야간 긴급(예외) 전환은 보류 없이 즉시 발송", async () => {
+  it("야간 긴급(예외) 전환도 즉시 발송", async () => {
     await registerDevice("dev-A", TOKEN_A);
     const id = await registerShipment("dev-A", "123456789012");
     const f = makeFetch();
@@ -387,7 +380,7 @@ describe("E2E 추적·알림 cron 여정 — 등록은 HTTP, 폴링은 주입 fe
     await runPollingBatch(env, { now: nighttime(Date.now()), fetch: f.fetch });
 
     expect(await statusOf(id)).toBe("예외");
-    expect(f.sendCalls).toBe(1); // 긴급 → 야간에도 즉시
+    expect(f.sendCalls).toBe(1); // 야간에도 즉시
     expect(await count("SELECT COUNT(*) AS c FROM notification_queue")).toBe(0);
   });
 

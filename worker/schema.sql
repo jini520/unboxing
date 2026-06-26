@@ -51,8 +51,8 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count        INTEGER NOT NULL
 );
 
--- 조용시간(야간 KST 22–08) 보류 큐 (PRD 알림 정책) — 비긴급 단계 전환/안내를 보류했다가 아침 cron이 묶어 발송 후 삭제.
--- 메시지 스냅샷(title·body)을 저장한다(아침에 재구성 안 함). 송장 삭제 시 FK CASCADE로 보류분도 자동 정리.
+-- deprecated (ADR-030, 미사용) — 조용시간 폐지로 더는 적재하지 않는다. 모든 거래성 알림은 즉시 발송(즉시 로깅).
+-- DROP 하지 않는다(운영 D1 드리프트·hook, ENGINEERING P-3) — 빈 테이블로 남긴다.
 CREATE TABLE IF NOT EXISTS notification_queue (
   id          TEXT PRIMARY KEY,
   shipment_id TEXT REFERENCES shipments(id) ON DELETE CASCADE,  -- 송장 삭제 시 보류분 정리

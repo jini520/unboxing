@@ -17,7 +17,7 @@ import { applySchema } from "./helpers";
 
 const BASE = "https://example.com";
 const SECRET = "wh-secret-xyz";
-const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (주간 — 조용시간 아님, 즉시 발송)
+const NOW = 1_700_017_200_000; // KST 2023-11-15 12:00 (시각 무관 즉시 발송 — ADR-030)
 const MINUTE = 60_000;
 
 let saved: { id: string; secret: string; cb: string };
@@ -174,8 +174,7 @@ describe("POST /webhooks/track/<secret> 콜백", () => {
   });
 
   it("유효 active 콜백 → track→CAS→전환 푸시(폴링과 동일 다운스트림)", async () => {
-    // 핸들러는 실시간 Date.now() 를 deps.now 로 쓰므로 비긴급 전환은 실 KST 야간이면 보류돼 send 가 흔들린다.
-    // 긴급 전환(배송완료)은 야간에도 즉시 발송이라 결정적 — 콜백이 공용 다운스트림(CAS·푸시)을 구동함을 검증.
+    // 모든 전환은 시각 무관 즉시 발송(조용시간 폐지·ADR-030) — 콜백이 공용 다운스트림(CAS·푸시)을 구동함을 검증.
     await seedShipment({ status: "배송출발", lastPolledAt: null, withSubscriber: true });
     const calls = stubFetch({ trackCode: "DELIVERED" }); // 배송출발 → 배송완료(긴급) 전환
 

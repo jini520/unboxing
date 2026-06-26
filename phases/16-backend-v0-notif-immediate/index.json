@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "immediate-delivery",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-27T00:47:24+0900",
+      "summary": "조용시간 폐지(ADR-030) — deliver()를 시각 무관 항상 즉시 발송 + 발송 시점 1회 로깅으로 단순화. 야간 보류 머신 제거(flushQueue·enqueue·FlushRow·FLUSH_SCAN_LIMIT·isQuietHours/isUrgentStage import), quiet.ts/quiet.test.ts 삭제, index.ts notification_queue 정리(음소거·구독해제·steal·deleteMe) 제거(큐 외 동작 보존). notification_queue 테이블은 미사용 deprecated 로 남김(DROP 금지·P-3). 보류/flush 테스트를 즉시 발송으로 재작성, 음소거·CAS·dedupe·전환-only 로깅 보존. ARCHITECTURE/ADR-023 문서 동기화. verify green(worker 272·harness 51).",
+      "completed_at": "2026-06-27T01:05:30+0900"
     }
   ],
   "created_at": "2026-06-27T00:41:35+0900"
