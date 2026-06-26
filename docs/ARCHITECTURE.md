@@ -385,6 +385,7 @@ unboxing/
 | `EXPO_ACCESS_TOKEN` | secret | `wrangler secret put` | Expo Push 서버 발송 인증 — Enhanced Security 활성화 시 **필수**(권장, → ADR-010) | 선택(권장) |
 | `WEBHOOK_CALLBACK_SECRET` | secret | `wrangler secret put`(prod) · `.dev.vars`(local) | `/webhooks/track/<secret>` 콜백 경로 시크릿(추측불가 게이트, → ADR-029). **로그 금지** | 필수(webhook) |
 | `WEBHOOK_SIGNING_SECRET` | secret | `wrangler secret put` | `/webhooks/track` 콜백 **서명(HMAC) 검증** — tracker.delivery 제공 시(→ ADR-029) | 선택(제공 시) |
+| `WEBHOOK_CALLBACK_BASE_URL` | var (비밀 아님) | `wrangler.toml [vars]` | **cron** webhook (재)등록 sweep 의 콜백 베이스 URL(공개 workers.dev/커스텀 도메인). scheduled 엔 request origin 이 없어 `callbackUrl=${base}/webhooks/track/<secret>` 를 이 값으로 만든다(→ ADR-028). 미설정 시 cron 등록 sweep 보류(폴백 폴링). POST /shipments 즉시 등록은 request origin 사용이라 무관 | 선택(cron 등록) |
 | `DEMO_TRACKING_NUMBER` | var (비밀 아님) | `wrangler.toml [vars]` 또는 코드 상수 | 심사용 데모 분기(실폴링 우회, → ADR-019) | 선택 |
 
 - **로컬 dev**: `worker/.dev.vars`(KEY=VALUE)에 위 secret을 둔다. **gitignore됨 — 커밋 금지.** Vitest(`@cloudflare/vitest-pool-workers`)도 `.dev.vars`를 읽는다.

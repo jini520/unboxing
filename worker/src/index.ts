@@ -6,8 +6,17 @@
  */
 
 import { normalizeStatus } from "./lib/normalize";
-import { track, d1TokenStore, type TrackResult } from "./tracker";
-import { runPollingBatch } from "./cron";
+import type { Stage } from "./lib/polling";
+import {
+  shouldRegisterWebhook,
+  webhookExpiration,
+  WEBHOOK_TTL_MS,
+  verifyCallbackSecret,
+  shouldRefetchOnCallback,
+  parseCallback,
+} from "./lib/webhook";
+import { track, registerTrackWebhook, d1TokenStore, type TrackResult, type TrackerDeps } from "./tracker";
+import { runPollingBatch, processShipmentUpdate } from "./cron";
 // 개인정보처리방침 공개 페이지(GET /privacy)는 인앱 화면과 동일한 구조화 데이터를 재사용한다(사본 증가 방지).
 import { PRIVACY_POLICY } from "../../app/src/content/privacyPolicy";
 
@@ -20,6 +29,16 @@ export interface Env {
   EXPO_ACCESS_TOKEN?: string;
   /** 심사용 데모 분기 — 실폴링 우회 (ADR-019, 선택) */
   DEMO_TRACKING_NUMBER?: string;
+  /** webhook 콜백 경로 시크릿 — /webhooks/track/<secret> 게이트 (ADR-029, 필수·로그 금지) */
+  WEBHOOK_CALLBACK_SECRET: string;
+  /** webhook 콜백 서명(HMAC) 검증 키 — tracker.delivery 제공 시 (ADR-029, 선택) */
+  WEBHOOK_SIGNING_SECRET?: string;
+  /**
+   * cron webhook (재)등록 sweep 의 콜백 베이스 URL (공개 workers.dev/커스텀 도메인, var·비밀 아님).
+   * scheduled 핸들러엔 request origin 이 없어 callbackUrl=`${base}/webhooks/track/<secret>` 를 이 값으로 만든다(ADR-028 cron 등록).
+   * 미설정이면 cron 등록 sweep 보류(폴백 폴링이 흡수). POST /shipments 즉시 등록은 request origin 을 쓰므로 무관.
+   */
+  WEBHOOK_CALLBACK_BASE_URL?: string;
 }
 
 /** 디바이스당 활성 구독 상한 (ADR-008 남용 방어). 초과 시 429. */
@@ -192,24 +211,154 @@ function serializeNotification(row: NotificationRow) {
 }
 
 /**
+ * tracker deps 구성(자격증명 가드 — 없으면 null). 즉시 1회 track 과 registerTrackWebhook 가
+ * **같은 단일 경로**로 deps 를 만든다 → fetch 바인딩 누락을 한 곳에서 차단한다.
+ * CRITICAL(P-1·T1): fetch 는 반드시 fetch.bind(globalThis) — 맨 fetch 를 deps 로 넘기면 호출 시 this 유실로
+ * "Illegal invocation" throw(mock 테스트는 못 잡음). track·webhook 등록이 이 구성을 공유한다.
+ */
+function makeTrackerDeps(env: Env): (TrackerDeps & { demoTrackingNumber?: string }) | null {
+  if (!env.DELIVERY_TRACKER_CLIENT_ID || !env.DELIVERY_TRACKER_CLIENT_SECRET) return null;
+  return {
+    fetch: fetch.bind(globalThis),
+    now: Date.now(),
+    store: d1TokenStore(env.DB),
+    clientId: env.DELIVERY_TRACKER_CLIENT_ID,
+    clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
+    demoTrackingNumber: env.DEMO_TRACKING_NUMBER,
+  };
+}
+
+/**
  * 즉시 1회 track / 상세 타임라인용 best-effort 조회.
  * 자격증명이 없거나 외부 호출이 실패하면 throw 하지 않고 null 을 반환한다(등록을 막지 않는다).
  */
 async function tryTrack(env: Env, carrier: string, trackingNo: string): Promise<TrackResult | null> {
-  if (!env.DELIVERY_TRACKER_CLIENT_ID || !env.DELIVERY_TRACKER_CLIENT_SECRET) return null;
+  const deps = makeTrackerDeps(env);
+  if (!deps) return null;
   try {
-    return await track(carrier, trackingNo, {
-      // globalThis 바인딩 필수 — 전역 fetch 를 deps 로 넘기면 this 를 잃어 호출 시 "Illegal invocation" 으로 throw.
-      fetch: fetch.bind(globalThis),
-      now: Date.now(),
-      store: d1TokenStore(env.DB),
-      clientId: env.DELIVERY_TRACKER_CLIENT_ID,
-      clientSecret: env.DELIVERY_TRACKER_CLIENT_SECRET,
-      demoTrackingNumber: env.DEMO_TRACKING_NUMBER,
-    });
+    return await track(carrier, trackingNo, deps);
   } catch {
     return null;
   }
+}
+
+/**
+ * webhook 등록(ADR-028) — **비차단(ctx.waitUntil)·실패허용**. 사용자 등록 응답을 절대 막지 않는다.
+ * 현재 행 상태(단계·active·기존 만료)를 권위 있게 읽어 멱등 판정한다: 등록 가능 단계(비종료·미등록 아님)·active 이고
+ * 미등록(NULL)/만료임박일 때만 송장당 1개 등록(dedupe-hit·이미 등록·여유면 skip → 중복 없음).
+ * 성공 → webhook_expires_at set. 실패(네트워크·쿼터·1000 동시 초과·GraphQL)는 삼켜 NULL 유지 → 폴백 폴링이
+ * 적응형 간격으로 흡수(W3·W4). 콜백 시크릿 경로(ADR-029 ①): callbackUrl=/webhooks/track/<secret>. 시크릿·번호는 로그 금지.
+ */
+function scheduleWebhookRegistration(
+  env: Env,
+  ctx: ExecutionContext,
+  origin: string,
+  shipmentId: string,
+): void {
+  if (!env.WEBHOOK_CALLBACK_SECRET) return; // 콜백 게이트 시크릿 없으면 등록 보류(폴백 폴링)
+  const deps = makeTrackerDeps(env);
+  if (!deps) return; // 자격증명 없음 → 등록 불가(폴백 폴링)
+  ctx.waitUntil(
+    (async () => {
+      const row = await env.DB.prepare(
+        "SELECT carrier, tracking_no, last_normalized_status, active, webhook_expires_at FROM shipments WHERE id = ?",
+      )
+        .bind(shipmentId)
+        .first<{
+          carrier: string;
+          tracking_no: string;
+          last_normalized_status: string | null;
+          active: number;
+          webhook_expires_at: number | null;
+        }>();
+      if (!row) return;
+      const stage = (row.last_normalized_status ?? "미등록") as Stage;
+      if (!shouldRegisterWebhook(stage, row.active === 1, row.webhook_expires_at, deps.now)) return;
+      const callbackUrl = `${origin}/webhooks/track/${env.WEBHOOK_CALLBACK_SECRET}`;
+      try {
+        const res = await registerTrackWebhook(
+          row.carrier,
+          row.tracking_no,
+          callbackUrl,
+          webhookExpiration(deps.now),
+          deps,
+        );
+        if (res.ok) {
+          await env.DB.prepare("UPDATE shipments SET webhook_expires_at = ? WHERE id = ?")
+            .bind(deps.now + WEBHOOK_TTL_MS, shipmentId)
+            .run();
+        }
+      } catch {
+        // 실패 삼킴 — webhook_expires_at NULL 유지 → 폴백 폴링이 흡수(W3·W4). 콜백 시크릿·운송장번호는 로그 금지.
+      }
+    })(),
+  );
+}
+
+/**
+ * POST /webhooks/track/<secret> — tracker.delivery 콜백 수신(1차 신선도, ADR-028·029).
+ * **Bearer 인증 없음** — 콜백엔 device 토큰이 없다. 게이트는 추측 불가 **시크릿 경로**다.
+ * 동기 게이트(빠른 D1 읽기)로 **1초 내 202** 를 보장하고, 실제 track 재조회·CAS·푸시는 ctx.waitUntil 비동기로
+ * **폴링과 동일한 다운스트림(processShipmentUpdate) 을 재사용**한다(복제 금지 → 멱등·중복 푸시 0 보장).
+ *
+ * 3중 방어(ADR-029): ① 시크릿 경로(불일치 조용히 401·시크릿/URL 로그 금지 T6) ② 페이로드 불신(D1 active 송장으로
+ * 존재할 때만 재조회 — 위조 콜백의 quota 남용 차단 W1·W12) ③ 송장별 신선도 throttle(직전 폴링 <60s skip +
+ * last_polled_at 선점으로 동시·연속 콜백 dedupe W6). **IP rate limit 은 쓰지 않는다**(콜백은 tracker 고정 IP →
+ * 거짓양성, T2). 응답: 시크릿 불일치 401 / 미존재·비active·본문오류·신선 skip 202(무시) / 수락 202 + waitUntil track.
+ */
+async function handleWebhookCallback(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  secret: string,
+): Promise<Response> {
+  // ① 시크릿 경로 게이트(상수시간 비교). 불일치/미설정 → 401(본문 없음·조용히). 시크릿·URL 은 로그 금지(T6).
+  if (!env.WEBHOOK_CALLBACK_SECRET || !verifyCallbackSecret(secret, env.WEBHOOK_CALLBACK_SECRET)) {
+    return new Response(null, { status: 401 });
+  }
+
+  // ② 본문 파싱 → carrierId·trackingNumber 만(여분 무시). 손상/누락/형식오류 → 202(무시, 처리 안 함).
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(null, { status: 202 });
+  }
+  const parsed = parseCallback(body);
+  if (!parsed) return new Response(null, { status: 202 });
+
+  // ③ 페이로드 불신 — D1 에 active 송장으로 존재할 때만 처리. 없거나 비active(배송완료·만료) → 202·track 미호출
+  //    (위조·임의 번호 콜백이 quota 를 태우는 것을 차단, W1·W12). (carrier, tracking_no) 는 UNIQUE 라 단일 행.
+  const row = await env.DB.prepare(
+    "SELECT id, carrier, tracking_no, last_normalized_status, last_polled_at FROM shipments " +
+      "WHERE carrier = ? AND tracking_no = ? AND active = 1",
+  )
+    .bind(parsed.carrierId, parsed.trackingNumber)
+    .first<{
+      id: string;
+      carrier: string;
+      tracking_no: string;
+      last_normalized_status: string | null;
+      last_polled_at: number | null;
+    }>();
+  if (!row) return new Response(null, { status: 202 });
+
+  // ④ 신선도 throttle — 직전 폴링이 60s 이내면 연속·중복 콜백으로 보고 재조회 skip(202, W6).
+  const now = Date.now();
+  if (!shouldRefetchOnCallback(row.last_polled_at, now)) {
+    return new Response(null, { status: 202 });
+  }
+
+  // ⑤ last_polled_at 선점 갱신(ADR-012 — 동시 콜백 dedupe) 후 비동기 재조회 → 1초 내 202.
+  //    track 실패는 202 이후라 tracker 재시도에 의존하지 않고 다음 폴백 due 가 흡수한다(W5).
+  //    fetch.bind(globalThis): 전역 fetch this 유실("Illegal invocation") 방지(P-1·T1, 폴링과 동일).
+  await env.DB.prepare("UPDATE shipments SET last_polled_at = ? WHERE id = ?").bind(now, row.id).run();
+  ctx.waitUntil(
+    processShipmentUpdate(env, { now, fetch: fetch.bind(globalThis) }, row).catch(() => {
+      // track 실패·다운스트림 오류는 삼킨다 — 폴백 폴링이 다음 due 에 흡수(W5). 시크릿·운송장번호는 로그 금지.
+    }),
+  );
+  return new Response(null, { status: 202 });
 }
 
 /**
@@ -271,8 +420,13 @@ async function handleRegisterDevice(request: Request, env: Env, deviceId: string
   return Response.json({ device_id: deviceId });
 }
 
-/** POST /shipments — dedupe + 구독 + 즉시 1회 track(best-effort). 신규 201 / 기존 구독 200(멱등). */
-async function handleCreateShipment(request: Request, env: Env, deviceId: string): Promise<Response> {
+/** POST /shipments — dedupe + 구독 + 즉시 1회 track(best-effort) + webhook 등록(비차단). 신규 201 / 기존 구독 200(멱등). */
+async function handleCreateShipment(
+  request: Request,
+  env: Env,
+  deviceId: string,
+  ctx: ExecutionContext,
+): Promise<Response> {
   await enforceIpRateLimit(env, request);
   // 구독은 등록된 device 만(subscriptions FK). 미등록 device_id 는 인증 실패로 본다.
   const dev = await env.DB.prepare("SELECT 1 FROM devices WHERE id = ?").bind(deviceId).first();
@@ -379,6 +533,9 @@ async function handleCreateShipment(request: Request, env: Env, deviceId: string
   )
     .bind(deviceId, shipment.id, now)
     .run();
+
+  // webhook 등록(ADR-028) — 비차단·실패허용·송장당 1개(멱등). 등록 가능 단계가 아니면 no-op, 실패해도 폴백 폴링.
+  scheduleWebhookRegistration(env, ctx, new URL(request.url).origin, shipment.id);
 
   return Response.json({ shipment: serializeShipment(shipment) }, { status: 201 });
 }
@@ -622,10 +779,11 @@ ${sections}
 
 export default {
   // 앱 → Worker HTTP API
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method;
+    const segments = pathname.split("/").filter(Boolean);
 
     try {
       if (pathname === "/health" && method === "GET") {
@@ -642,11 +800,16 @@ export default {
         });
       }
 
+      // tracker.delivery webhook 콜백(ADR-028·029) — **Bearer 인증 앞**·시크릿 경로로만 게이트(콜백엔 device 토큰 없음).
+      if (method === "POST" && segments.length === 3 && segments[0] === "webhooks" && segments[1] === "track") {
+        return await handleWebhookCallback(request, env, ctx, segments[2]);
+      }
+
       if (pathname === "/devices" && method === "POST") {
         return await handleRegisterDevice(request, env, requireDeviceId(request));
       }
       if (pathname === "/shipments" && method === "POST") {
-        return await handleCreateShipment(request, env, requireDeviceId(request));
+        return await handleCreateShipment(request, env, requireDeviceId(request), ctx);
       }
       if (pathname === "/shipments" && method === "GET") {
         return await handleListShipments(env, requireDeviceId(request));
@@ -655,7 +818,6 @@ export default {
         return await handleListNotifications(env, requireDeviceId(request), url);
       }
 
-      const segments = pathname.split("/").filter(Boolean);
       if (segments.length === 2 && segments[0] === "shipments") {
         const id = segments[1];
         if (method === "GET") return await handleGetShipment(env, requireDeviceId(request), id);
