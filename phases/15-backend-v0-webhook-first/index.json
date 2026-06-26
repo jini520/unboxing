@@ -53,9 +53,10 @@
     {
       "step": 6,
       "name": "smoke-config",
-      "status": "blocked",
+      "status": "completed",
       "started_at": "2026-06-26T22:35:04+0900",
-      "blocked_reason": "npm run verify green(머지 게이트 통과: app+worker 279/2todo·harness 51). 그러나 이 step 의 핵심 산출물 = F-4 실호출 스모크(mock green ≠ 런타임)는 단일 세션·인프라 권한만으로 불가 → 사용자 개입 필요. wrangler 는 인증됨(dev.jinni520@gmail.com·d1/workers write)이라 인프라 명령(아래)은 실행 가능하나, 운영을 임의로 webhook-first 로 전환하지 않음(outward-facing·스모크 선행 규칙). 사용자가 제공/승인해야 풀리는 항목: (1) 운영 webhook-first 활성화 승인 — 배포 시 라이브 워커의 폴링/알림 동작이 실제 사용자에게 바뀜. (2) WEBHOOK_CALLBACK_SECRET 값 — `cd worker && npx wrangler secret put WEBHOOK_CALLBACK_SECRET`(고엔트로피·로그/커밋 금지). tracker.delivery 가 HMAC 서명 제공 시에만 WEBHOOK_SIGNING_SECRET 도. (3) WEBHOOK_CALLBACK_BASE_URL var(wrangler.toml[vars]) 가 운영 워커 origin 으로 채워졌는지 확인(미설정 시 등록 sweep 보류·폴백). (4) 실 운송장(active·상태 변화 중) — F-4 스모크 관찰 대상: registerTrackWebhook 반환 스키마·expirationTime 48h 수락·최대 TTL·재등록 멱등(W9·T4), 미등록(이벤트 0) 번호 등록 가부(W7·T5). (5) 실 상태 변화 콜백 수신(수 시간~수일 대기) — /webhooks/track/<secret> POST 도착·페이로드 형태·서명 헤더 유무(ADR-029 ①). (6) tracker.delivery 콘솔/API 탐색 — deregister API 존재 여부(슬롯 즉시 회수). 적용 순서(사용자 수행): ①운영 D1 델타 1회 `cd worker && npx wrangler d1 execute unboxing --remote --command \"ALTER TABLE shipments ADD COLUMN webhook_expires_at INTEGER\"`(통째 schema.sql 재실행 금지·T8·P-3, 이미 있으면 duplicate column=적용됨) → `PRAGMA table_info(shipments)` 로 확인 ②위 (2)(3) 시크릿/var ③`npm --prefix worker run deploy` ④cron 1회 또는 ≤15분 후 기존 active 추적분 일괄 webhook 등록 확인(NULL·active·등록가능 count → 0 수렴) ⑤F-4 스모크 후 ENGINEERING(외부경계)·ADR-028/029·QA F-4 에 확정 사실 반영 + ROADMAP 1줄 추가. 위조 콜백 차단(잘못된 시크릿 401·임의 번호 202 무처리)은 배포 후 curl 로 확인 가능. fetch 바인딩(T1·P-1)은 registerTrackWebhook 실호출이 Illegal invocation 없이 되는지로 확인."
+      "summary": "운영 배포 + F-4 실호출 스모크 완료(핵심 경계 green). 적용: D1 델타(webhook_expires_at, T8 ALTER만)·WEBHOOK_CALLBACK_SECRET(256bit, 로그 미노출)·BASE_URL 확인·배포(ver bcbee378). 스모크가 실버그 발견 → fix e8bcd1a: registerTrackWebhook 실 스키마는 단일 input:RegisterTrackWebhookInput! 래핑(flat 인자는 Unknown argument→등록0·폴백에 가려짐), 반환 Boolean(introspection 확정). end-to-end 확인: cron 등록 sweep 으로 운영 배송출발 송장 webhook_expires_at=now+48h set. 콜백 보안 라이브 green(잘못된시크릿401·미존재번호202·손상본문202). W7 해소(미등록 번호도 등록 받아줌·true). deregister API 없음(슬롯 회수=48h 자연만료, 설계대로). 미해소(머지 차단 아님·폴백 흡수): 실 상태변화 콜백 수신(수시간~수일 관찰)·서명 헤더 유무·W9 재등록 멱등(목록 API 부재로 API 검증 불가, expires-skip 방어). 문서 반영: ENGINEERING 스모크 확정 사실·QA F-4 결과.",
+      "completed_at": "2026-06-26T23:18:00+0900"
     }
   ],
   "created_at": "2026-06-26T21:37:21+0900"

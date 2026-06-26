@@ -106,6 +106,13 @@
 
 > 아직 미구현이라 "발생한 버그"는 아니나, ADR-028/029 설계가 **선제로 피한 함정**을 박아 둔다(재발 방지 == 구현 전 차단). 전부 **mock `verify` 가 못 잡고**(외부 경계) 실호출/런타임에서만 드러난다 → `docs/QA.md` §F-4 스모크로 확인.
 
+### 스모크 확정 사실 (2026-06-26 운영 실호출 — phase 15)
+> mock green 으로 통과했으나 **실호출에서 깨진** 외부 경계. T1 가 예방한 `fetch.bind` 와 **별개로 mutation 스키마가 틀렸다**(설계 단계의 미검증 가정). 재발 방지로 박아 둠.
+- **T0(실발생 버그). `registerTrackWebhook` mutation 스키마** — 실제는 **단일 `input: RegisterTrackWebhookInput!`** 을 받는다(flat 인자 `carrierId/...` 는 `Unknown argument` BAD_REQUEST). `graphqlRequest` throw → `registerWebhook` catch 삼킴 → `webhook_expires_at` NULL 유지 → **cron 은 "Ok" 인데 등록 0**(폴백 폴링에 완전히 가려짐). introspection 으로 확정: `registerTrackWebhook(input: RegisterTrackWebhookInput!): Boolean`, `input{ carrierId:ID!, trackingNumber:String!, callbackUrl:String!, expirationTime:DateTime! }`. → `fix(backend) e8bcd1a`. **교훈**: GraphQL mutation/입력타입은 mock 이 자유롭게 통과시키므로 **introspection 또는 실호출로 shape 확정 필수**(쿼리 1개라도).
+- **W7(해소). 미등록(이벤트 0) 번호 등록 가부** — tracker.delivery 는 **존재하지 않는 번호의 webhook 등록도 받아준다**(`registerTrackWebhook(input)` → `true`). 따라서 T5 의 "안 받아주면 폴링 승급" 전제는 불필요(받아줌). 우리 설계는 그대로 `미등록` 단계엔 등록 안 함(이벤트 0 번호에 슬롯 낭비 회피)이라 무관하게 안전.
+- **콜백 보안(해소).** 라이브 검증: 잘못된 시크릿 `401` · 유효 시크릿+미존재 번호 `202`(페이로드 불신·track 미호출) · 손상 본문 `202`. ADR-029 ①②③ 동작.
+- **미해소(관찰/탐색 대기)**: 재등록 멱등(W9·T4 — 같은 송장 재등록이 중복 생성인지) · deregister API 유무(슬롯 즉시 회수) · **실 상태 변화 콜백 실제 수신**(수 시간~수일) · 서명 헤더 유무(ADR-029 ① HMAC).
+
 - **T1. `fetch.bind(globalThis)`** — `registerTrackWebhook` 도 `deps.fetch` 주입 경로라 **P-1과 동일 함정**. 맨 `fetch` 주입 시 등록이 `Illegal invocation` 으로 조용히 실패(폴백으로 가려져 더 안 보임). 주입 뿌리에서 바인딩.
 - **T2. 콜백에 IP rate limit 금지** — 콜백은 tracker.delivery **소수 고정 IP**에서 온다 → IP throttle 은 정상 콜백을 한꺼번에 막는 **거짓양성**. 송장별 `last_polled_at` 신선도 throttle 사용(ADR-029 ③).
 - **T3. 202=비동기 → tracker 재시도 의존 ❌** — 1초 내 `202` 반환 + track 은 `ctx.waitUntil` 이라 track 실패에 non-2xx 를 낼 수 없다. **폴백 폴링이 유일한 안전망**(202 후 tracker 는 재시도 안 함).
