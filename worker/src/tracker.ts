@@ -131,12 +131,14 @@ const CARRIERS_QUERY = `query Carriers {
  * track 쿼리와 동일하게 carrierId/trackingNumber 를 flat arg 로 둔다. 정확한 input 스키마(input 래퍼 여부)·
  * expirationTime 스칼라명·반환 타입·최대 TTL·재등록 멱등(갱신 vs 중복 생성)은 **실호출 스모크로 확정**(docs/QA.md F-4 W9).
  */
-const REGISTER_WEBHOOK_MUTATION = `mutation RegisterTrackWebhook($carrierId: ID!, $trackingNumber: String!, $callbackUrl: String!, $expirationTime: DateTime!) {
-  registerTrackWebhook(carrierId: $carrierId, trackingNumber: $trackingNumber, callbackUrl: $callbackUrl, expirationTime: $expirationTime)
+// 실호출 스모크(2026-06-26)로 확정: registerTrackWebhook 은 단일 input: RegisterTrackWebhookInput! 을 받는다
+// (flat 인자는 "Unknown argument" BAD_REQUEST). 반환은 Boolean. RegisterTrackWebhookInput 필드 = carrierId·trackingNumber·callbackUrl·expirationTime.
+const REGISTER_WEBHOOK_MUTATION = `mutation RegisterTrackWebhook($input: RegisterTrackWebhookInput!) {
+  registerTrackWebhook(input: $input)
 }`;
 
 interface RegisterWebhookData {
-  registerTrackWebhook: unknown;
+  registerTrackWebhook: boolean;
 }
 
 /** 주입 fetch로 timeout(AbortController)을 적용해 호출. */
@@ -315,10 +317,7 @@ export async function registerTrackWebhook(
   deps: TrackerDeps,
 ): Promise<{ ok: boolean }> {
   await graphqlRequest<RegisterWebhookData>(deps, REGISTER_WEBHOOK_MUTATION, {
-    carrierId,
-    trackingNumber,
-    callbackUrl,
-    expirationTime,
+    input: { carrierId, trackingNumber, callbackUrl, expirationTime },
   });
   return { ok: true };
 }

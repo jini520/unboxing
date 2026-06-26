@@ -76,11 +76,13 @@ function stubFetch(opts: StubOpts): StubCalls {
       };
       if (body.query.includes("registerTrackWebhook")) {
         calls.register += 1;
-        calls.callbackUrls.push(String(body.variables.callbackUrl));
+        // 실 스키마: 단일 input 래핑(2026-06-26 스모크). callbackUrl 은 input 안에 있다.
+        const input = (body.variables.input ?? {}) as Record<string, unknown>;
+        calls.callbackUrls.push(String(input.callbackUrl));
         if (opts.registerFails) {
           return Response.json({ errors: [{ message: "quota", extensions: { code: "RESOURCE_EXHAUSTED" } }] });
         }
-        return Response.json({ data: { registerTrackWebhook: { id: "wh-1" } } });
+        return Response.json({ data: { registerTrackWebhook: true } });
       }
       // track 쿼리
       calls.track += 1;

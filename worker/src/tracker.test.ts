@@ -267,7 +267,8 @@ describe("registerTrackWebhook (등록 mutation)", () => {
   }
 
   it("성공 응답 → { ok:true }, 변수(carrierId·trackingNumber·callbackUrl·expirationTime) 전송", async () => {
-    const cap = capturingFetch({ data: { registerTrackWebhook: { id: "wh-1" } } });
+    // 반환은 Boolean(실 스키마, 2026-06-26 스모크). data 비-null 이면 graphqlRequest 통과.
+    const cap = capturingFetch({ data: { registerTrackWebhook: true } });
     const deps = baseDeps(memStore({ token: "cached", expiresAt: NOW + 3_600_000 }), cap.fetch);
 
     const res = await registerTrackWebhook(
@@ -281,11 +282,14 @@ describe("registerTrackWebhook (등록 mutation)", () => {
     expect(res).toEqual({ ok: true });
     expect(cap.bodies).toHaveLength(1);
     expect(cap.bodies[0].query).toContain("registerTrackWebhook");
+    // 실 스키마: 단일 input 래핑(flat 인자는 Unknown argument 오류).
     expect(cap.bodies[0].variables).toEqual({
-      carrierId: "kr.cjlogistics",
-      trackingNumber: "123456789012",
-      callbackUrl: "https://x.example/webhooks/track/s3cr3t",
-      expirationTime: "2026-06-28T00:00:00.000Z",
+      input: {
+        carrierId: "kr.cjlogistics",
+        trackingNumber: "123456789012",
+        callbackUrl: "https://x.example/webhooks/track/s3cr3t",
+        expirationTime: "2026-06-28T00:00:00.000Z",
+      },
     });
   });
 
