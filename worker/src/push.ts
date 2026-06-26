@@ -89,7 +89,7 @@ function bodyFor(stage: Stage, ctx: { eventTimeMs?: number; nowMs?: number }): s
 /**
  * 알림 대상 단계 → PushMessage 생성.
  * title 은 어떤 택배인지(택배사·끝4자리), body 는 무슨 일인지(단계 문구).
- * 비알림 단계(이동중·기타·미등록)는 null(step2 알림 규칙과 일관).
+ * 비알림 단계(기타·미등록)는 null(이동중은 ADR-030으로 알림 대상이 됨).
  * 배송출발 '오늘 도착' 단정은 eventTimeMs/nowMs 로 KST 당일 여부를 확인한다(ARCHITECTURE 날짜=KST).
  */
 export function buildMessage(
