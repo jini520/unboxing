@@ -69,6 +69,10 @@
       "dir": "14-qa-v0-v11-detail-edit",
       "status": "completed",
       "completed_at": "2026-06-23T19:39:35+0900"
+    },
+    {
+      "dir": "15-backend-v0-webhook-first",
+      "status": "pending"
     }
   ]
 }

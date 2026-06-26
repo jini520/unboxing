@@ -1,0 +1,13 @@
+{
+  "project": "unboxing",
+  "phase": "backend",
+  "steps": [
+    { "step": 0, "name": "schema-migration", "status": "pending" },
+    { "step": 1, "name": "decision-logic", "status": "pending" },
+    { "step": 2, "name": "callback-lifecycle-logic", "status": "pending" },
+    { "step": 3, "name": "registration", "status": "pending" },
+    { "step": 4, "name": "callback-endpoint", "status": "pending" },
+    { "step": 5, "name": "cron-sweeps", "status": "pending" },
+    { "step": 6, "name": "smoke-config", "status": "pending" }
+  ]
+}
