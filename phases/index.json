@@ -74,6 +74,10 @@
       "dir": "15-backend-v0-webhook-first",
       "status": "completed",
       "completed_at": "2026-06-26T23:18:00+0900"
+    },
+    {
+      "dir": "16-backend-v0-notif-immediate",
+      "status": "pending"
     }
   ]
 }

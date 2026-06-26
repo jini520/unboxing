@@ -1,0 +1,8 @@
+{
+  "project": "unboxing",
+  "phase": "backend",
+  "steps": [
+    { "step": 0, "name": "inmotion-notify", "status": "pending" },
+    { "step": 1, "name": "immediate-delivery", "status": "pending" }
+  ]
+}
