@@ -253,7 +253,7 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
   npx wrangler d1 execute unboxing --remote --command "ALTER TABLE shipments ADD COLUMN webhook_expires_at INTEGER"
   ```
 
-- **backfill 불필요**: 기존 행은 NULL → 폴백 폴링(적응형)이 커버하고, 다음 등록/승급/재등록 시 set. due 쿼리는 `interval(stage, webhook_expires_at)` 로 NULL 분기.
+- **즉시 마이그레이션 (백필 잡 불필요)**: ALTER 직후 기존 행은 NULL → 폴백 폴링이 오늘과 동일하게 즉시 커버. 동시에 **cron webhook 등록 sweep** 이 NULL·active·등록 가능 송장을 **due 무관 매 fire 등록**하므로, 운영 송장이 소수면 **첫 cron fire(≤15분)에 일괄 webhook 등록**(true 즉시 전환을 원하면 배포 후 cron 1회 수동 트리거). 등록 sweep 은 등록 실패 재시도도 겸함(NULL 이 set 될 때까지). 예산 초과분만 다음 fire 이월(≤50·10 req/s)이라 풀이 커도 안전. 등록되면 ~12h 간격으로 낙하. due 쿼리는 `interval(stage, webhook_expires_at)` 로 NULL 분기.
 - **신규 배포(아직 `shipments` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼 생성. `src/schema.ts SCHEMA_STATEMENTS` 1:1 동기화.
 
 ## 적용 후 확인
