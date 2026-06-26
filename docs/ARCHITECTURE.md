@@ -14,7 +14,7 @@ unboxing/
 │   ├── src/lib/            # 순수 로직 (예: polling.ts — 적응형 폴링 due 계산)
 │   ├── test/               # Worker HTTP/D1 통합 테스트 (cloudflare:test)
 │   ├── schema.sql          # D1 스키마
-│   └── wrangler.toml       # 15분 cron + D1 바인딩 + 시크릿
+│   └── wrangler.toml       # cron(15~30분 — 유지보수·폴백) + D1 바인딩 + 시크릿
 ├── docs/                   # PRD · ARCHITECTURE · ADR · UI_GUIDE (가드레일)
 ├── phases/                 # Harness 실행 단위 (index.json + step*.md)
 └── scripts/                # execute.py — Harness 실행 엔진
@@ -24,25 +24,28 @@ unboxing/
 
 ```
 [Expo 앱] ─등록/조회→ [Cloudflare D1] ←읽기─ [Cloudflare Workers Cron]
-   ▲                   (송장·푸시토큰)         │ 주기 배치 폴링 (+webhook 수신)
+   ▲                   (송장·푸시토큰)         │ webhook 콜백 수신 + 유지보수/폴백 폴링
    └── Expo Push ← 상태변화 푸시 ──────── [tracker.delivery API]
 ```
 
-- **서버리스 cron 단일 배치** — 사용자별 타이머 ❌. cron(15분)이 떠서 due된 송장만 한 번에 폴링. (→ ADR-001)
-- **due 기반 폴링** — `활성 AND now >= last_polled_at + interval(단계)` 인 송장만 외부 호출.
+- **webhook-first (1차 신선도)** — 등록 시 `registerTrackWebhook`로 송장당 1개 등록, 변화 시 콜백 수신 → 재조회. (→ ADR-028)
+- **cron 유지보수/폴백** — 사용자별 타이머 ❌. cron(15~30분)이 떠서 24h 재등록 sweep·lifecycle sweep·저빈도(~12h) 폴백 폴링·정리. (→ ADR-001·028)
+- **due 기반 폴링(폴백)** — `활성 AND now >= last_polled_at + interval(단계)` 인 송장만 외부 호출(폴백 cadence로 완화).
 - **상태 정규화 매핑 (코드)** — 택배사 원문 상태 → 표준 단계 매핑을 Phase 1엔 코드 상수 맵으로. (→ ADR-009)
-- **dedupe** — 동일 `(carrier, tracking_no)`는 shipments 1행. 월 고유-운송장 과금을 줄이는 핵심 레버.
+- **dedupe** — 동일 `(carrier, tracking_no)`는 shipments 1행·webhook 1개. 월 고유-운송장 과금 + 1000 동시 webhook 한도를 줄이는 핵심 레버.
 
 ## 데이터 흐름
 
 ```
 [등록] 앱 → POST /shipments (Bearer device_id) → device upsert + shipment dedupe(INSERT ON CONFLICT)
-        + subscription 연결 → 즉시 1회 track 조회 → 응답
-[폴링] cron(15분) → due 조회(정렬·청크 ≤50) → track → 원문 상태 → 표준 단계 정규화
-        → last_normalized_status 변경 시에만 Expo Push send(ticket) (멱등)
+        + subscription 연결 → 즉시 1회 track 조회 → registerTrackWebhook(송장당 1개·멱등) → 응답
+[웹훅 1차] tracker.delivery → POST /webhooks/track/<secret> {carrierId,trackingNumber} → 202(1초 내)
+        → 페이로드 불신: D1 active 송장만 → track 재조회 → 표준 단계 정규화
+        → last_normalized_status CAS 변경 시에만 Expo Push send(ticket) (멱등)
+[폴백 폴링] cron(15~30분) → due 조회(webhook분 ~12h·미등록분 적응형·청크 ≤50) → 위 정규화·푸시 경로 재사용(놓친 콜백·등록 실패 흡수)
+[재등록] cron(24h sweep) → webhook_expires_at 임박분 registerTrackWebhook 재등록(TTL 48h)
+[lifecycle] cron(독립 sweep) → 미등록7일·분실30일 판정(폴링과 분리 — webhook은 무변화 미감지)
 [수신] cron(별도) → getReceipts → DeviceNotRegistered면 토큰 삭제
-[웹훅(최적화)] tracker.delivery → POST /webhooks/track {carrierId,trackingNumber} → 202
-        → 큐/즉시 track → 위 정규화·푸시 경로 재사용
 ```
 
 ## 데이터 모델 (Phase 1, D1)
@@ -50,7 +53,7 @@ unboxing/
 원본 스키마: `worker/schema.sql`.
 
 - `devices`: `id`(=secret device_id, PK), `push_token`(UNIQUE, **nullable** — 푸시 거부/미허용도 기기 등록, QA-001), `platform`(ios|android), `created_at`.
-- `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`, `status_changed_at`(현재 단계가 시작된 시각 — **단계 전환 시에만** 갱신, 폴링마다 ❌). `UNIQUE(carrier, tracking_no)` = dedupe 키.
+- `shipments`: `id`(PK), `carrier`, `tracking_no`, `last_normalized_status`, `last_polled_at`(due 계산 기준), `active`(1/0), `created_at`, `status_changed_at`(현재 단계가 시작된 시각 — **단계 전환 시에만** 갱신, 폴링마다 ❌), **(ADR-028)** `webhook_expires_at`(webhook 만료·재등록 sweep 기준, nullable — 등록 성공분만 set). `UNIQUE(carrier, tracking_no)` = dedupe 키.
 - `subscriptions`: `device_id`↔`shipment_id` 다대다(PK 복합, FK ON DELETE CASCADE). dedupe 폴링 + 소유권 근거. `muted`(1/0, DEFAULT 0): per-구독 알림 음소거 — 이 구독만 모든 푸시 제외(타 구독자 무영향, → ADR-020).
 - 인덱스 `idx_shipments_due (active, last_polled_at)` — due 조회용.
 - `notifications`(**v1.1 신규**, → ADR-023): 서버가 발송한 알림 기록. `id`(PK), `device_id`(수신 기기 — 이 키로 `GET /notifications` 조회·`DELETE /me` 정리. token 양도 누설 회피), `shipment_id`(nullable, `REFERENCES shipments(id) ON DELETE SET NULL` — 송장 정리돼도 기록 유지·딥링크만 무효), `carrier`·`last4`·`body`·`stage`(표시용 denormalize — 비-PII, 행 자족), `sent_at`(epoch ms). 인덱스 `(device_id, sent_at)`. **읽음 여부는 비저장**(로컬 `lastSeenNotificationAt`). 보존: cron sweep(예: 90일)+디바이스당 상한.
@@ -63,7 +66,7 @@ unboxing/
 | shipments | `last_event_time` | 동일 단계 내 새 이벤트 판별/타임라인 신선도 (**현재 미사용** — 기록 안 함) |
 | shipments | `status_changed_at` | **현재 단계가 시작된 시각**(단계 전환 시에만 갱신) — 앱 목록 "업데이트" 표시용. `last_event_time`(신선도용·미사용)과 의미가 다름 |
 | shipments | `fail_count` / `next_retry_at` | 외부 오류 백오프 |
-| shipments | `webhook_expires_at` | webhook 재등록 sweep 기준 (webhook 도입 시) |
+| shipments | `webhook_expires_at` | webhook 재등록 sweep 기준(임박분만 갱신) — ADR-028로 **활성화**. `ALTER TABLE ADD COLUMN`(nullable) 델타로 추가(운영 D1 드리프트 주의 — 통째 재실행 ❌) |
 | (신규) `tracker_token` | `access_token`, `expires_at` | tracker.delivery 토큰 캐시 (→ ADR-013) |
 | (신규) `push_tickets` | `ticket_id`, `created_at` | receipt 확인 대기 (→ ADR-010, 확인 후 삭제) |
 
@@ -86,7 +89,7 @@ unboxing/
 | `DELETE /shipments/:id` | 구독 해제(마지막 구독이면 shipment도 정리) | — | `204` | `401`, `403 NOT_OWNER`, `404` |
 | `DELETE /me` | **모든 데이터 삭제** — device + 구독 + orphan 송장 + 푸시 토큰 + **알림 기록** 폐기 (→ ADR-017, 스토어 정책) | — | `204` | `401` |
 | `GET /notifications` | **(v1.1)** 이 기기가 받은 알림 기록(시간 역순, limit). 서버 SOT·로컬 캐시(ADR-023) | `?limit=` (기본 100·상한) | `200 {notifications:[{id,shipmentId?,carrier,last4,body,stage,sentAt}]}` | `401` |
-| `POST /webhooks/track` | tracker.delivery 콜백 수신(웹훅 도입 시) | `{carrierId, trackingNumber}` (+서명) | `202` (1초 내) | 서명 불일치 `401`(조용히), 본문 오류 무시 |
+| `POST /webhooks/track/<secret>` | tracker.delivery 콜백 수신(1차 신선도, → ADR-028·029) | `{carrierId, trackingNumber}` (+서명 가능 시) | `202` (1초 내, 재조회는 비동기) | 시크릿 경로 불일치 `401`(조용히), D1 미존재/비active 송장 무시, 본문 오류 무시 |
 
 - **멱등성**: 같은 `(device_id, carrier, tracking_no)` 재등록은 새 행 생성 없이 기존 구독 반환(`200`).
 - **인가**: `:id` 접근은 호출 device가 해당 shipment를 구독 중일 때만(`subscriptions` 확인). 아니면 `403 NOT_OWNER` (404와 구분하되 존재 여부 누설 최소화하려면 둘 다 404로 통일하는 옵션도 가능 — 보안 섹션 참조).
@@ -155,6 +158,7 @@ unboxing/
 ## 적응형 폴링 + cron 실행 모델
 
 ### 단계별 간격 (`worker/src/lib/polling.ts`: `pollIntervalMs`, `isDue`)
+> **(ADR-028) 조건부 폴백 cadence** — 폴백 간격은 webhook 등록 여부로 갈린다: **`webhook_expires_at IS NOT NULL`(등록됨) → ~12h 안전망**(신선도는 콜백, 거의 due 안 됨); **`webhook_expires_at IS NULL`(미등록: 등록 실패·미등록 단계·1000 초과) → 아래 표의 적응형 간격 그대로**(이 송장은 폴링이 1차). 즉 표는 **미등록·폴백 송장**의 실제 간격이고, webhook 송장엔 12h 안전망이 덮인다.
 
 | 단계 | 폴링 간격 |
 |---|---|
@@ -164,15 +168,18 @@ unboxing/
 | `배송완료` | 중단 |
 | `예외` | 12h |
 
-### cron 실행 모델 (→ ADR-012)
-- **due 조회·정렬**: `active=1 AND now >= last_polled_at + interval(stage)`, 정렬 `배송출발` 우선 → `last_polled_at ASC`.
-- **청크/이월**: 1회 실행당 외부 subrequest **≤50**. 초과분은 다음 fire(15분 뒤)로 자연 이월.
+### cron 실행 모델 (→ ADR-012·028)
+> webhook-first 전환(ADR-028)으로 cron은 **신선도 1차에서 유지보수 + 저빈도 폴백**으로 역할 전환. cron *fire*(15~30분)는 무료라 유지하되, 폴백 재폴링 간격을 늘려 fire당 subrequest를 줄인다.
+- **cron 1회 작업**: ① webhook 24h 재등록 sweep ② lifecycle 독립 sweep(아래) ③ 폴백 due 재폴링 ④ receipt sweep ⑤ 아침 flush ⑥ 보존·rate_limits 정리.
+- **폴백 due 조회·정렬**: `active=1 AND now >= last_polled_at + interval(stage, webhook_expires_at)`, 정렬 `배송출발` 우선 → `last_polled_at ASC`. **interval = webhook 등록분이면 ~12h 안전망, 미등록분(`webhook_expires_at IS NULL`)이면 적응형(표)** — webhook 송장은 거의 due 안 되고, 미등록 송장만 자주 폴링된다.
+- **청크/이월**: 1회 실행당 외부 subrequest **≤50**, 합산 **10 req/s** 준수. 초과분은 다음 fire로 자연 이월.
 - **중첩 방지**: 처리 시작 시 `last_polled_at` 선점 갱신(성공·실패 무관 재선택 방지). 단 외부 오류 시 백오프와 결합(아래).
 - **시간대**: "배송출발=오늘 도착" 등 날짜 판정은 **KST(UTC+9)**.
 - `ctx.waitUntil`로 푸시/정리 비동기 작업이 응답 이후에도 완료되도록.
 
-### 만료/좀비 (데이터 수명주기와 통합)
-- 미등록 7일·예외 7일 자동 비활성. 등록 후 30일 지나도 완료/예외 아니면 강제 비활성(분실 의심)+알림.
+### lifecycle 독립 sweep (폴링에서 분리 — → ADR-028)
+> **분리 필수**: 미등록7일·분실30일 판정이 폴링 루프 안에 있으면, webhook이 "변화 없음"을 감지 못해 **재폴링이 거의 없는 webhook 송장은 만료 판정이 누락**된다. 따라서 폴링과 **독립된 cron sweep**으로 active 송장의 수명을 직접 판정한다.
+- 미등록 7일·예외 7일 자동 비활성. 등록 후 30일 지나도 완료/예외 아니면 강제 비활성(분실 의심)+알림. 비활성(`active=0`) 시 재등록 sweep 대상에서도 빠져 webhook이 자연 만료된다.
 
 ## 푸시 발송 파이프라인 (→ ADR-010)
 
@@ -190,13 +197,16 @@ unboxing/
 | `MismatchSenderId` / `InvalidCredentials` | 자격증명/`google-services` 점검 — 운영 경고(전체 발송 실패) |
 | 요청단 `PUSH_TOO_MANY_NOTIFICATIONS`/`_RECEIPTS` | 배치 크기 위반 → 100/1000으로 분할 |
 
-## Webhook 최적화 (검증된 권장 — Phase 1엔 폴백 보유, → ADR-015)
+## Webhook (1차 신선도 메커니즘 — → ADR-028 supersedes ADR-015)
 
-- `Mutation.registerTrackWebhook(carrierId, trackingNumber, callbackUrl, expirationTime)`로 등록. `callbackUrl=/webhooks/track`.
-- 변화 시 tracker.delivery가 `{carrierId, trackingNumber}` POST → **1초 내 202** 반환, 실제 `track` 조회는 비동기(큐 패턴 권장).
-- **24h마다 재등록 sweep**(만료 `expirationTime`을 48h 앞으로) — cron의 별도 due 작업. `webhook_expires_at` 컬럼 기준.
-- **콜백 보안**: 추측 불가한 시크릿 경로 + (가능 시) 서명 검증. 미인증 콜백은 조용히 `401`/무시.
-- **폴백**: webhook 미수신/실패/Free 미지원 시 폴링이 그대로 안전망. webhook은 **월 쿼터 절감 아님**(고유-번호 과금) — 이득은 신선도·subrequest.
+- **등록(2곳)**: ① `POST /shipments`에서 즉시 1회 track이 **비미등록·active**를 반환할 때 ② 폴백 폴링이 **미등록→첫 이벤트 전환**을 감지할 때(폴링→webhook 승급). 둘 다 `Mutation.registerTrackWebhook(carrierId, trackingNumber, callbackUrl, expirationTime)`, `callbackUrl=/webhooks/track/<secret>`, `expirationTime=now+48h`(ISO8601 UTC). **active·비종료 송장당 1개**(dedupe — 여러 device 구독이어도 1개; **dedupe-hit·`webhook_expires_at` 존재 시 재등록 안 함**, 만료 임박만 연장 → 멱등; **배송완료는 등록 안 함**; 등록은 `ctx.waitUntil` 비동기라 등록 응답을 막지 않고 실패해도 등록 자체는 성공). 등록 실패/보류는 **`webhook_expires_at` NULL → 폴백 폴링이 적응형 간격으로 자동 커버**. *반환값·최대 TTL·재등록이 중복 생성인지 갱신인지·미등록 송장 등록 가부는 실호출 스모크로 확정(→ ENGINEERING).*
+- **수신**: 변화 시 tracker.delivery가 `{carrierId, trackingNumber}` POST → **1초 내 202**. 실제 `track` 재조회는 `ctx.waitUntil` 비동기(콜백 응답을 막지 않음). 재조회 결과는 **폴링과 동일한 정규화·CAS·푸시 다운스트림** 재사용.
+- **콜백 보안 (인증 없는 콜백 보완, → ADR-029)**: ① 추측 불가 **시크릿 경로 세그먼트**(`/webhooks/track/<secret>`, 쿼리 ❌) — 불일치 조용히 `401`. ② **페이로드 불신** — `{carrierId, trackingNumber}`를 믿지 않고 **D1 active 송장으로 존재할 때만** 재조회·처리(위조 콜백의 quota 남용 차단). ③ **송장별 신선도 throttle** — `last_polled_at` 선점 갱신(ADR-012)으로 동시·연속 콜백 dedupe + 직전 폴링이 최근(<60s)이면 재조회 skip. **IP rate limit ❌**(콜백은 tracker 고정 IP라 정상 콜백을 한꺼번에 막는 거짓양성). 서명(HMAC) 제공 시 `WEBHOOK_SIGNING_SECRET` 검증 추가. **응답**: 시크릿·active 확인은 동기 → 불일치 `401` / 미존재·비active `202`(무시) / 수락 `202` + `ctx.waitUntil` track. track 실패는 202 이후라 **폴백이 흡수**(tracker 재시도 의존 ❌).
+- **재등록 sweep(24h)**: `webhook_expires_at`가 임박(예 <24h)한 active 송장만 `registerTrackWebhook` 재등록(만료 48h 앞으로). cron 독립 작업.
+- **용량(1000 동시)**: Free 활성 webhook 1000 동시(무료 확장). 초과분은 등록 실패 → **폴백 폴링이 흡수**(확장 요청 전까지 안전). dedupe로 송장당 1개라 1000≈동시 추적 송장 1000개.
+- **수명주기 연동(슬롯 위생)**: DELETE(마지막 구독)·비활성(`active=0`: 배송완료·분실·예외 만료) 시 재등록 sweep 대상에서 빠져 **webhook이 ≤48h 자연 만료로 슬롯 회수**(deregister API 있으면 즉시 — 스모크). 만료 전 도착하는 잔여/위조 콜백은 페이로드 불신(D1 active 아님)으로 무시 → 안전.
+- **subrequest 예산 공유**: 재등록 sweep·폴백 폴링·receipt sweep이 같은 cron fire의 **≤50 subrequest·10 req/s**를 나눠 쓴다 → **재등록 우선**(webhook 생존이 신선도 핵심), 남는 예산으로 폴백 폴링. 초과분은 다음 fire 이월.
+- **폴백·멱등**: webhook 미수신/실패/초과/Free 변동 시 폴링이 안전망. 중복 콜백은 CAS로 멱등(중복 푸시 없음). webhook은 **월 쿼터 절감 아님**(고유-번호 과금) — 이득은 신선도·subrequest.
 
 ## 동시성 & 원자성
 
@@ -358,6 +368,7 @@ unboxing/
 - **입력 검증 + prepared statements**: 모든 D1 쿼리 파라미터 바인딩(SQLi 차단). 운송장/택배사 형식 검증(`app/src/lib/tracking.ts` 규칙과 서버 재검증).
 - **device_id**: 로그 금지, 충분한 엔트로피.
 - **남용 방어 (→ ADR-008)**: 서버측 **silent throttle**(디바이스/IP별 등록 레이트) + **디바이스당 활성 송장 상한**(예 100) → 초과 `429`. CAPTCHA 없음(마찰 최소). 지속 공격 시 Cloudflare WAF/Turnstile를 Phase 2 에스컬레이션.
+- **webhook 콜백 보안 (→ ADR-029)**: 인증 없는 외부 콜백이라 **시크릿 경로(`/webhooks/track/<secret>`) + 페이로드 불신(D1 active 송장만 재조회) + rate limit** 3중 방어. 시크릿 경로는 **로그 금지**(device_id 동급). 서명(HMAC) 제공 시 검증 추가.
 - **존재 누설 최소화**: `:id` 미소유 접근은 정책에 따라 `403` 또는 `404`로 통일(택1, 일관 적용).
 
 ## 환경변수 & 시크릿 (단일 출처)
@@ -372,7 +383,8 @@ unboxing/
 | `DELIVERY_TRACKER_CLIENT_ID` | secret | `wrangler secret put`(prod) · `.dev.vars`(local) | tracker.delivery client_credentials | 필수 |
 | `DELIVERY_TRACKER_CLIENT_SECRET` | secret | 〃 | 〃 | 필수 |
 | `EXPO_ACCESS_TOKEN` | secret | `wrangler secret put` | Expo Push 서버 발송 인증 — Enhanced Security 활성화 시 **필수**(권장, → ADR-010) | 선택(권장) |
-| `WEBHOOK_SIGNING_SECRET` | secret | `wrangler secret put` | `/webhooks/track` 콜백 서명 검증(+추측불가 경로, → ADR-015) | Phase1 선택(webhook 도입 시) |
+| `WEBHOOK_CALLBACK_SECRET` | secret | `wrangler secret put`(prod) · `.dev.vars`(local) | `/webhooks/track/<secret>` 콜백 경로 시크릿(추측불가 게이트, → ADR-029). **로그 금지** | 필수(webhook) |
+| `WEBHOOK_SIGNING_SECRET` | secret | `wrangler secret put` | `/webhooks/track` 콜백 **서명(HMAC) 검증** — tracker.delivery 제공 시(→ ADR-029) | 선택(제공 시) |
 | `DEMO_TRACKING_NUMBER` | var (비밀 아님) | `wrangler.toml [vars]` 또는 코드 상수 | 심사용 데모 분기(실폴링 우회, → ADR-019) | 선택 |
 
 - **로컬 dev**: `worker/.dev.vars`(KEY=VALUE)에 위 secret을 둔다. **gitignore됨 — 커밋 금지.** Vitest(`@cloudflare/vitest-pool-workers`)도 `.dev.vars`를 읽는다.
@@ -426,12 +438,15 @@ unboxing/
 ### 푸시 (Expo)
 → 위 "푸시 에러 처리" 표 참조.
 
-### Webhook
+### Webhook (→ ADR-028·029)
 | 상황 | 처리 |
 |---|---|
-| 콜백 서명/시크릿 불일치 | 조용히 `401`, 처리 안 함 |
-| 동일 콜백 중복 수신 | 멱등(같은 정규화 경로, compare-and-set) |
-| 콜백 후 track 실패 | 폴링 폴백이 다음 due에 흡수 |
+| 시크릿 경로 불일치 / (서명 제공 시) 서명 불일치 | 조용히 `401`, 처리 안 함 |
+| 위조·임의 번호 콜백(D1에 없거나 비active) | 페이로드 불신 — 무시(`202`만, 재조회 안 함) → quota 남용 차단 |
+| 콜백 폭주(같은 송장 연속) | `last_polled_at` 선점·신선도 throttle로 재조회 dedupe(IP limit ❌ — tracker 고정 IP 거짓양성). 비동기 track은 10 req/s 준수 |
+| 동일 콜백 중복 수신 | 멱등(같은 정규화 경로, compare-and-set → 중복 푸시 없음) |
+| 콜백 후 track 실패 | `202`는 반환됨 → 폴백 폴링이 다음 due에 흡수 |
+| webhook 등록 실패 / 1000 동시 초과 | 폴백 폴링이 흡수(due 대상 유지), 용량은 무료 확장 요청 |
 | webhook 만료 | 24h sweep이 재등록; 누락돼도 폴링이 폴백 |
 
 ## 관측성 & 로깅

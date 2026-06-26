@@ -102,6 +102,19 @@
 - **왜 `verify` 가 못 잡나**: `.gitignore`·빌드 아카이브 구성은 typecheck/jest와 무관(P-6·P-7과 같은 "빌드 타임 네이티브 에셋" 부류). EAS 빌드 또는 `build:inspect` 클린 복사에서만 드러난다.
 - **재발 방지**: 루트 디렉터리명 무시 패턴(`assets/`·`build/`·`dist/` 등)은 **반드시 앵커(`/`)** 를 붙여 하위 워크스페이스(`app/`)의 동명 폴더를 안 잡게 한다. 빌드가 원인 불명으로 prebuild에서 죽으면 **`eas build:inspect ... --stage pre-build --verbose` 로컬 재현이 1순위 도구**.
 
+## webhook 구현 함정 (설계로 선제 차단 — 구현 시 스모크 검증)
+
+> 아직 미구현이라 "발생한 버그"는 아니나, ADR-028/029 설계가 **선제로 피한 함정**을 박아 둔다(재발 방지 == 구현 전 차단). 전부 **mock `verify` 가 못 잡고**(외부 경계) 실호출/런타임에서만 드러난다 → `docs/QA.md` §F-4 스모크로 확인.
+
+- **T1. `fetch.bind(globalThis)`** — `registerTrackWebhook` 도 `deps.fetch` 주입 경로라 **P-1과 동일 함정**. 맨 `fetch` 주입 시 등록이 `Illegal invocation` 으로 조용히 실패(폴백으로 가려져 더 안 보임). 주입 뿌리에서 바인딩.
+- **T2. 콜백에 IP rate limit 금지** — 콜백은 tracker.delivery **소수 고정 IP**에서 온다 → IP throttle 은 정상 콜백을 한꺼번에 막는 **거짓양성**. 송장별 `last_polled_at` 신선도 throttle 사용(ADR-029 ③).
+- **T3. 202=비동기 → tracker 재시도 의존 ❌** — 1초 내 `202` 반환 + track 은 `ctx.waitUntil` 이라 track 실패에 non-2xx 를 낼 수 없다. **폴백 폴링이 유일한 안전망**(202 후 tracker 는 재시도 안 함).
+- **T4. registerTrackWebhook 멱등성 미확인** — 재등록(만료 연장)이 **중복 생성**이면 슬롯 2배·중복 콜백. 갱신인지 스모크로 확인(W9). 우리 측은 `webhook_expires_at` 존재 시 재등록 skip 으로 1차 방어.
+- **T5. 미등록(이벤트 0) 등록 가부 미확인** — tracker 가 아직 모르는 번호의 webhook 을 받아주는지 불명. 안 받으면 **폴링으로 첫 이벤트 후 승급**이 정답(설계 반영). 스모크(W7).
+- **T6. 시크릿 경로 엣지 로그** — `/webhooks/track/<secret>` 의 시크릿이 **Cloudflare 엣지 로그·`wrangler tail` 에 URL로 남을 수 있다**(우리 코드 로그만 통제). → **페이로드 불신이 실질 1차 방어**, 경로는 보조. 시크릿 비교는 **상수시간**.
+- **T7. lifecycle 폴링 분리** — 미등록7일·분실30일을 폴링 루프 안에서 판정하면 **재폴링이 거의 없는 webhook 송장의 만료가 누락**된다(webhook 은 무변화 미감지). 독립 sweep 필수(ADR-028).
+- **T8. `webhook_expires_at` 마이그레이션** — 운영 D1 에 통째 `schema.sql` 재실행 ❌(ALTER 중복 throw·P-3). **ADD COLUMN 델타만**(본 문서 B절 §6).
+
 ---
 
 ## 외부 경계 검증 체크리스트 (머지·배포 전 필수)
@@ -113,6 +126,7 @@
 2. **cron 폴링**: `curl "http://localhost:8787/cdn-cgi/handler/scheduled"` 트리거 후 목록 status 가 저장·갱신되는지. (로컬 cron 은 자동 실행 안 됨.)
 3. **Expo Push**(가능 시): 실제 토큰 1건으로 발송/리시트 경로 확인.
 4. **로컬 D1**: `schema.sql` 과 로컬 스키마 일치(P-3).
+5. **webhook(도입 시 — ADR-028/029, → `docs/QA.md` §F-4)**: ① `registerTrackWebhook` 실호출 — 반환값·`expirationTime` 48h 수락·**최대 TTL**·**재등록이 중복 생성인지 갱신인지**(T4) ② **미등록(이벤트 0) 번호 등록 가부**(T5) ③ 실 상태 변화 시 `/webhooks/track/<secret>` 콜백 **실제 수신**·페이로드 형태·**서명 헤더 유무** ④ **위조 콜백 차단**(잘못된 시크릿/임의 번호 무시) ⑤ **deregister API 존재 여부**(슬롯 회수). `registerTrackWebhook` 도 `fetch.bind(globalThis)`(T1·P-1).
 
 ## 설계(step) 단계 규칙
 
@@ -227,6 +241,21 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 - `shipment_id` 는 `shipments(id) ON DELETE SET NULL` 참조 — 송장 정리돼도 기록 보존(딥링크만 무효). `src/schema.ts SCHEMA_STATEMENTS` 도 1:1 동기화(두 문장).
 - **앱 로컬(AsyncStorage) 마이그레이션**: 구 `unboxing.memos`(메모 문자열) → `unboxing.shipment_info`(`{memo,category,amount}`) 변환은 D1 이 아니라 **앱 bootstrap 에서 1회·멱등** 수행된다(`migrateMemosToInfo`). 별도 적용 명령 없음 — 구 키 보유 상태로 v1.1 첫 실행 시 메모가 보존되는지 **E-5 스모크**(A절 외부 경계 체크리스트 연계)로 확인한다.
 
+## webhook-first phase 스키마 변경 (ADR-028)
+
+### 6. `shipments.webhook_expires_at` 신규 컬럼 (webhook 만료·재등록 sweep 기준)
+
+- **변경**: `ALTER TABLE shipments ADD COLUMN webhook_expires_at INTEGER` 추가(webhook 만료 epoch ms, nullable — 등록 성공분만 set; **NULL=미등록 → 폴백 폴링 적응형 간격 대상**).
+- **주의**: §3·4와 동일 — `ADD COLUMN` 은 컬럼이 이미 있으면 `duplicate column` throw → `schema.sql` 통째 재실행으로 자동 반영 **안 됨**(운영 D1 드리프트·P-3·A절 T8). 기존 원격 `shipments` 에 아래를 **최초 1회만**. 단순 ADD COLUMN 이라 RENAME 전파(P-2) 이슈 없음.
+
+  ```bash
+  # worker/ 에서. 최초 1회만(재실행 시 duplicate column 에러).
+  npx wrangler d1 execute unboxing --remote --command "ALTER TABLE shipments ADD COLUMN webhook_expires_at INTEGER"
+  ```
+
+- **backfill 불필요**: 기존 행은 NULL → 폴백 폴링(적응형)이 커버하고, 다음 등록/승급/재등록 시 set. due 쿼리는 `interval(stage, webhook_expires_at)` 로 NULL 분기.
+- **신규 배포(아직 `shipments` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼 생성. `src/schema.ts SCHEMA_STATEMENTS` 1:1 동기화.
+
 ## 적용 후 확인
 
 ```bash
@@ -242,7 +271,7 @@ npx wrangler d1 execute unboxing --command="PRAGMA table_info(subscriptions)" --
 npx wrangler d1 execute unboxing --command="PRAGMA table_info(notifications)" --remote
 ```
 
-`devices.push_token` 의 `notnull` 이 `0`, `notification_queue`·`notifications` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at`·`subscriptions` 에 `muted` 컬럼이 보이면 적용 완료.
+`devices.push_token` 의 `notnull` 이 `0`, `notification_queue`·`notifications` 가 테이블 목록에 보이고, `shipments` 에 `status_changed_at`·**`webhook_expires_at`**·`subscriptions` 에 `muted` 컬럼이 보이면 적용 완료.
 
 ## 관련 문서
 
