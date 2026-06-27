@@ -111,7 +111,8 @@
 - **T0(실발생 버그). `registerTrackWebhook` mutation 스키마** — 실제는 **단일 `input: RegisterTrackWebhookInput!`** 을 받는다(flat 인자 `carrierId/...` 는 `Unknown argument` BAD_REQUEST). `graphqlRequest` throw → `registerWebhook` catch 삼킴 → `webhook_expires_at` NULL 유지 → **cron 은 "Ok" 인데 등록 0**(폴백 폴링에 완전히 가려짐). introspection 으로 확정: `registerTrackWebhook(input: RegisterTrackWebhookInput!): Boolean`, `input{ carrierId:ID!, trackingNumber:String!, callbackUrl:String!, expirationTime:DateTime! }`. → `fix(backend) e8bcd1a`. **교훈**: GraphQL mutation/입력타입은 mock 이 자유롭게 통과시키므로 **introspection 또는 실호출로 shape 확정 필수**(쿼리 1개라도).
 - **W7(해소). 미등록(이벤트 0) 번호 등록 가부** — tracker.delivery 는 **존재하지 않는 번호의 webhook 등록도 받아준다**(`registerTrackWebhook(input)` → `true`). 따라서 T5 의 "안 받아주면 폴링 승급" 전제는 불필요(받아줌). 우리 설계는 그대로 `미등록` 단계엔 등록 안 함(이벤트 0 번호에 슬롯 낭비 회피)이라 무관하게 안전.
 - **콜백 보안(해소).** 라이브 검증: 잘못된 시크릿 `401` · 유효 시크릿+미존재 번호 `202`(페이로드 불신·track 미호출) · 손상 본문 `202`. ADR-029 ①②③ 동작.
-- **미해소(관찰/탐색 대기)**: 재등록 멱등(W9·T4 — 같은 송장 재등록이 중복 생성인지) · deregister API 유무(슬롯 즉시 회수) · **실 상태 변화 콜백 실제 수신**(수 시간~수일) · 서명 헤더 유무(ADR-029 ① HMAC).
+- **콜백 실수신 확인(2026-06-27)**: tracker 가 실제로 `/webhooks/track` 콜백을 쏜다 — 446(webhook분)에 02:38 콜백 도착·올바른 시크릿 통과·track 재조회·**CAS 멱등(같은 단계 중복 푸시 0)** 라이브 확인. 잔여 PLACEHOLDER webhook 콜백은 시크릿 401. webhook-first 베팅(콜백이 온다)이 운영에서 성립. `wrangler tail` 로 관찰.
+- **미해소(관찰/탐색 대기)**: 콜백→**실제 전환→푸시**(다운스트림은 폴링과 동일·검증됨, 자연 확인 대기) · 재등록 멱등(W9·T4 — 목록 API 부재로 API 검증 불가, `webhook_expires_at`-skip 방어) · 서명(HMAC) 헤더 유무(ADR-029 ①). (deregister API 는 부재 확정 — 48h 만료 회수.)
 
 - **T1. `fetch.bind(globalThis)`** — `registerTrackWebhook` 도 `deps.fetch` 주입 경로라 **P-1과 동일 함정**. 맨 `fetch` 주입 시 등록이 `Illegal invocation` 으로 조용히 실패(폴백으로 가려져 더 안 보임). 주입 뿌리에서 바인딩.
 - **T2. 콜백에 IP rate limit 금지** — 콜백은 tracker.delivery **소수 고정 IP**에서 온다 → IP throttle 은 정상 콜백을 한꺼번에 막는 **거짓양성**. 송장별 `last_polled_at` 신선도 throttle 사용(ADR-029 ③).
