@@ -304,3 +304,14 @@ export function MapPin({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconPro
     </Svg>
   );
 }
+
+/** 이동중(경로 — 양 끝 점을 S자 경로로 연결). 배송출발 Truck 과 구분(UI_GUIDE 단계 배지). */
+export function Route({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Circle cx="6" cy="19" r="3" />
+      <Path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+      <Circle cx="18" cy="5" r="3" />
+    </Svg>
+  );
+}

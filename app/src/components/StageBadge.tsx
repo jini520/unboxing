@@ -14,8 +14,8 @@ import {
   CheckCircle,
   Clock,
   DotSmall,
-  MapPin,
   Package,
+  Route,
   Truck,
   type IconProps,
 } from "./icons";
@@ -27,7 +27,7 @@ export const STAGE_META: Record<Stage, { color: StageColorKey; icon: ComponentTy
   미등록: { color: "unregistered", icon: Clock },
   등록: { color: "neutral", icon: DotSmall },
   집화: { color: "neutral", icon: Package }, // 아이콘만 차별화(상자), 색은 중립 유지
-  이동중: { color: "inTransit", icon: MapPin }, // 노란색 + 경로(MapPin) — 배송출발 Truck 과 구분
+  이동중: { color: "inTransit", icon: Route }, // 노란색 + 경로(Route) — 배송출발 Truck 과 구분
   배송출발: { color: "outForDelivery", icon: Truck },
   배송완료: { color: "delivered", icon: CheckCircle },
   예외: { color: "exception", icon: AlertTriangle },

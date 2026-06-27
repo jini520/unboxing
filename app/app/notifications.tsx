@@ -238,7 +238,7 @@ function NotifRow({
       />
       <View style={styles.rowBody}>
         <Text style={[styles.meta, { color: tokens.text.secondary }]} numberOfLines={1}>
-          {carrierName(item.carrier)} · …{item.last4}
+          {carrierName(item.carrier)}({item.last4})
         </Text>
         <Text
           style={[
