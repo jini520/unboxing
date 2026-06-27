@@ -306,6 +306,27 @@ function scheduleWebhookRegistration(
  * last_polled_at 선점으로 동시·연속 콜백 dedupe W6). **IP rate limit 은 쓰지 않는다**(콜백은 tracker 고정 IP →
  * 거짓양성, T2). 응답: 시크릿 불일치 401 / 미존재·비active·본문오류·신선 skip 202(무시) / 수락 202 + waitUntil track.
  */
+/**
+ * 영구 webhook 수신 로그(관측성·PII-안전) — 콜백 도착/지연/신뢰성 모니터링용(`wrangler tail`·Workers Logs).
+ * carrier·끝4·결과·헤더키(서명 헤더 발견용)만 기록 — **운송장 전체번호·시크릿·본문값은 미기록**(ADR-005·T6).
+ */
+function logWebhookReceipt(
+  request: Request,
+  result: string,
+  carrier?: string,
+  trackingNumber?: string,
+): void {
+  console.log(
+    "webhook",
+    JSON.stringify({
+      carrier: carrier ?? null,
+      last4: trackingNumber ? trackingNumber.slice(-4) : null,
+      result,
+      headerKeys: [...request.headers.keys()],
+    }),
+  );
+}
+
 async function handleWebhookCallback(
   request: Request,
   env: Env,
@@ -322,10 +343,14 @@ async function handleWebhookCallback(
   try {
     body = await request.json();
   } catch {
+    logWebhookReceipt(request, "ignored:badbody");
     return new Response(null, { status: 202 });
   }
   const parsed = parseCallback(body);
-  if (!parsed) return new Response(null, { status: 202 });
+  if (!parsed) {
+    logWebhookReceipt(request, "ignored:badbody");
+    return new Response(null, { status: 202 });
+  }
 
   // ③ 페이로드 불신 — D1 에 active 송장으로 존재할 때만 처리. 없거나 비active(배송완료·만료) → 202·track 미호출
   //    (위조·임의 번호 콜백이 quota 를 태우는 것을 차단, W1·W12). (carrier, tracking_no) 는 UNIQUE 라 단일 행.
@@ -341,17 +366,22 @@ async function handleWebhookCallback(
       last_normalized_status: string | null;
       last_polled_at: number | null;
     }>();
-  if (!row) return new Response(null, { status: 202 });
+  if (!row) {
+    logWebhookReceipt(request, "ignored:inactive", parsed.carrierId, parsed.trackingNumber);
+    return new Response(null, { status: 202 });
+  }
 
   // ④ 신선도 throttle — 직전 폴링이 60s 이내면 연속·중복 콜백으로 보고 재조회 skip(202, W6).
   const now = Date.now();
   if (!shouldRefetchOnCallback(row.last_polled_at, now)) {
+    logWebhookReceipt(request, "ignored:throttled", parsed.carrierId, parsed.trackingNumber);
     return new Response(null, { status: 202 });
   }
 
   // ⑤ last_polled_at 선점 갱신(ADR-012 — 동시 콜백 dedupe) 후 비동기 재조회 → 1초 내 202.
   //    track 실패는 202 이후라 tracker 재시도에 의존하지 않고 다음 폴백 due 가 흡수한다(W5).
   //    fetch.bind(globalThis): 전역 fetch this 유실("Illegal invocation") 방지(P-1·T1, 폴링과 동일).
+  logWebhookReceipt(request, "accepted", parsed.carrierId, parsed.trackingNumber);
   await env.DB.prepare("UPDATE shipments SET last_polled_at = ? WHERE id = ?").bind(now, row.id).run();
   ctx.waitUntil(
     processShipmentUpdate(env, { now, fetch: fetch.bind(globalThis) }, row).catch(() => {
