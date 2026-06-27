@@ -14,19 +14,19 @@ import {
   AlertTriangle,
   CheckCircle,
   ClipboardCheck,
-  MapPin,
   Package,
+  Route,
   Truck,
   type IconProps,
 } from "./icons";
 import { STAGE_META } from "./StageBadge";
 
-/** 진행 5단계 각각의 아이콘(점 위에 표시) — STAGE_PROGRESS_STEPS 와 1:1 순서. */
+/** 진행 5단계 각각의 아이콘(점 위에 표시) — STAGE_PROGRESS_STEPS 와 1:1 순서. STAGE_META 와 이동중·배송출발 동일(통일). */
 const STEP_ICONS: ComponentType<IconProps>[] = [
   ClipboardCheck, // 등록
   Package, // 집화
-  Truck, // 이동중
-  MapPin, // 배송출발
+  Route, // 이동중
+  Truck, // 배송출발
   CheckCircle, // 배송완료
 ];
 
