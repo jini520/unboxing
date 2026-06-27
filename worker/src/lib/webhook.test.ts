@@ -138,17 +138,17 @@ describe("reregisterDue", () => {
 
 describe("fallbackInterval (단일 출처 — isDue 가 소비)", () => {
   it("배송완료 → null (폴링 안 함, webhook 무관)", () => {
-    expect(fallbackInterval("배송완료", null)).toBeNull();
-    expect(fallbackInterval("배송완료", NOW)).toBeNull();
+    expect(fallbackInterval("배송완료", null, NOW)).toBeNull();
+    expect(fallbackInterval("배송완료", NOW, NOW)).toBeNull();
   });
   it("webhook 등록분(expiresAt 있음) → ~12h 안전망", () => {
-    expect(fallbackInterval("배송출발", NOW)).toBe(WEBHOOK_FALLBACK_MS);
-    expect(fallbackInterval("이동중", NOW)).toBe(WEBHOOK_FALLBACK_MS);
-    expect(fallbackInterval("미등록", NOW)).toBe(WEBHOOK_FALLBACK_MS);
+    expect(fallbackInterval("배송출발", NOW, NOW)).toBe(WEBHOOK_FALLBACK_MS);
+    expect(fallbackInterval("이동중", NOW, NOW)).toBe(WEBHOOK_FALLBACK_MS);
   });
-  it("미등록·폴백분(expiresAt null) → 기존 적응형 pollIntervalMs", () => {
+  it("폴백분(expiresAt null·미등록 제외) → 적응형 pollIntervalMs", () => {
     for (const stage of ALL_STAGES) {
-      expect(fallbackInterval(stage, null)).toBe(pollIntervalMs(stage));
+      if (stage === "미등록") continue; // 미등록은 시간대 윈도(ADR-031) — polling.test.ts 별도
+      expect(fallbackInterval(stage, null, NOW)).toBe(pollIntervalMs(stage));
     }
   });
 });

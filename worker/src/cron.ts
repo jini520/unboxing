@@ -32,8 +32,8 @@ import { buildMessage, sendPush, getReceipts, classifyPushError, DELIVERY_CHANNE
 
 /** 1회 실행당 외부 track subrequest 상한(ADR-012 cron 한도). due 처리 건수를 이 값으로 제한. */
 const MAX_BATCH = 50;
-/** due 후보 SQL 1차 제한 — 가장 짧은 단계(배송출발=60분) 간격보다 오래 안 폴링된 행만(테이블 전체 적재 방지). */
-const MIN_POLL_INTERVAL_MS = 60 * 60_000;
+/** due 후보 SQL 1차 바닥 — 가장 짧은 간격(미등록 낮 15분, ADR-031)보다 오래 안 폴링된 행만(테이블 전체 적재 방지). 정밀 판정은 isDue. */
+const MIN_POLL_INTERVAL_MS = 15 * 60_000;
 /** SQL 스캔 상한. 정렬상 미폴링·오래된 행이 먼저라 due가 우선 포함된다(초과분은 다음 fire 이월). */
 const DUE_SCAN_LIMIT = 200;
 /** lifecycle 독립 sweep(T7) 1회 스캔 상한. active 전체를 훑되 무한 적재 방지(초과분은 다음 fire). */
