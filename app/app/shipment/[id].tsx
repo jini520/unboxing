@@ -107,6 +107,10 @@ export default function DetailScreen() {
   const [savingEdit, setSavingEdit] = useState(false); // 저장 버튼 비활성·중복탭 표시(시각)
   const saving = useRef(false); // 동기 재진입 가드(setState 전파 전 빠른 더블탭 방지 — deleting 패턴)
 
+  // 저장값 로드 — live state(memo/category/amount)만 채운다. **드래프트는 여기서 미러하지 않는다**:
+  // 자동오픈 모달에 사용자가 타이핑하는 중 늦게 resolve 된 getInfo() 결과가 입력을 덮는 레이스를 막기 위함(ADR-046 개정·P-12 F4).
+  // 드래프트는 모달을 여는 시점(openInfo·자동오픈)에만 prefillDrafts 로 채운다.
+  const [infoLoaded, setInfoLoaded] = useState(false);
   useEffect(() => {
     if (!id) return;
     let active = true;
@@ -115,33 +119,39 @@ export default function DetailScreen() {
       setMemoState(info.memo ?? "");
       setCategory(info.category);
       setAmount(info.amount);
-      // 드래프트도 같이 미러 — 로드 완료 시점에 채워져 #4 자동오픈(openInfo, setInfoModal만)도
-      // 저장값으로 열린다(비동기 타이밍 안전 — ADR-046). 헤더 openInfo 콜백은 재오픈 시 재-prefill 유지.
-      setMemoDraft(info.memo ?? "");
-      setCategoryDraft(info.category);
-      setAmountDraft(info.amount === undefined ? "" : String(info.amount));
+      setInfoLoaded(true); // 로드 완료 — 자동오픈은 이 시점 이후에만 열린다(아래 effect).
     });
     return () => {
       active = false;
     };
   }, [id]);
 
+  // 저장값(또는 live 값) → 모달 드래프트 단일 매핑(헤더·자동오픈 공유). 금액은 순수 숫자 문자열(미설정=빈 문자열).
+  const prefillDrafts = useCallback(
+    (info: { memo?: string; category?: string; amount?: number }) => {
+      setMemoDraft(info.memo ?? "");
+      setCategoryDraft(info.category);
+      setAmountDraft(info.amount === undefined ? "" : String(info.amount));
+    },
+    [],
+  );
+
   // openInfo="1" 딥링크(등록 후 정보입력 — ADR-043)면 mount 시 "택배 정보" 모달을 1회만 자동오픈한다.
-  // consumed ref 로 1회 가드(재오픈 루프 방지). param 을 다시 쓰지 않으므로 URL 정리는 불필요.
+  // **로드 완료(infoLoaded)까지 지연** 후 prefill 하고 연다 — 열린 모달의 사용자 입력을 비동기 로드가 덮지 않게(ADR-046 개정).
+  // consumed ref 로 1회 가드(재오픈 루프 방지). 신규 송장은 빈 값으로 열린다(정상 — #4 등록 직후).
   const openInfoConsumed = useRef(false);
   useEffect(() => {
-    if (openInfoConsumed.current || openInfoParam !== "1") return;
+    if (openInfoConsumed.current || openInfoParam !== "1" || !infoLoaded) return;
     openInfoConsumed.current = true;
+    prefillDrafts({ memo, category, amount });
     setInfoModal(true);
-  }, [openInfoParam]);
+  }, [openInfoParam, infoLoaded, memo, category, amount, prefillDrafts]);
 
   const openInfo = useCallback(() => {
-    setMemoDraft(memo);
-    setCategoryDraft(category);
-    // 금액 드래프트는 순수 숫자 문자열(미설정이면 빈 문자열). ₩·천단위는 표시 전용이라 입력엔 두지 않는다.
-    setAmountDraft(amount === undefined ? "" : String(amount));
+    // 헤더 진입 — 현재 live 값으로 재-prefill(재오픈 시 미저장 편집 폐기 유지 — ADR-046 회귀 락).
+    prefillDrafts({ memo, category, amount });
     setInfoModal(true);
-  }, [memo, category, amount]);
+  }, [memo, category, amount, prefillDrafts]);
 
   // 금액 입력 오류(비어있지 않은데 0 이상 정수가 아님) — 인라인 안내 + 저장 차단.
   const amountInvalid = amountDraft.trim() !== "" && parseAmount(amountDraft) === undefined;
