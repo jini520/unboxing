@@ -46,7 +46,7 @@ import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { CarrierSelect } from "../../src/components/CarrierSelect";
-import { Camera, FileText, Pencil } from "../../src/components/icons";
+import { Camera, Close, FileText, Pencil } from "../../src/components/icons";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -437,7 +437,8 @@ export default function DetailScreen() {
             style={styles.modalAvoider}
           >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
-            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>택배 정보</Text>
+            {/* 제목 + 닫기(✕) 헤더 + 구분선(ADR-040 ①②). ✕ = 취소와 동일하게 모달 닫기(바깥 탭의 Keyboard.dismiss 와 구분 — ADR-034). */}
+            <ModalHeader title="택배 정보" onClose={() => setInfoModal(false)} />
             {/* 캡처로 채우기 — 직접 입력의 보조(ADR-039). 주문 상세 스크린샷 → OCR·마스킹·분류 → 아래 필드 자동 채움(편집 가능). */}
             <Pressable
               onPress={() => void onCaptureFill()}
@@ -548,14 +549,18 @@ export default function DetailScreen() {
               </Pressable>
               <Pressable
                 onPress={saveInfo}
-                hitSlop={8}
+                disabled={amountInvalid}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: amountInvalid }}
+                style={[
+                  styles.modalSaveBtn,
+                  { backgroundColor: amountInvalid ? tokens.bg.secondary : tokens.accent },
+                ]}
               >
                 <Text
                   style={[
                     styles.modalSave,
-                    { color: amountInvalid ? tokens.text.disabled : tokens.text.primary },
+                    { color: amountInvalid ? tokens.text.disabled : tokens.onAccent },
                   ]}
                 >
                   저장
@@ -576,7 +581,8 @@ export default function DetailScreen() {
             style={styles.modalAvoider}
           >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
-            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>운송장 수정</Text>
+            {/* 제목 + 닫기(✕) 헤더 + 구분선(ADR-040 ①②). ✕ = 취소와 동일하게 모달 닫기(ADR-034 바깥 탭과 구분). */}
+            <ModalHeader title="운송장 수정" onClose={() => setEditModal(false)} />
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* 운송장 번호 — 변경 시 carrierDraft 초기화(번호 바뀌면 택배사 자동선택 정책 재적용·ADR-026). */}
               <Text style={[styles.fieldLabel, { color: tokens.text.secondary }]}>운송장 번호</Text>
@@ -628,15 +634,18 @@ export default function DetailScreen() {
               </Pressable>
               <Pressable
                 onPress={() => void saveEdit()}
-                hitSlop={8}
                 disabled={editDisabled}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: editDisabled }}
+                style={[
+                  styles.modalSaveBtn,
+                  { backgroundColor: editDisabled ? tokens.bg.secondary : tokens.accent },
+                ]}
               >
                 <Text
                   style={[
                     styles.modalSave,
-                    { color: editDisabled ? tokens.text.disabled : tokens.text.primary },
+                    { color: editDisabled ? tokens.text.disabled : tokens.onAccent },
                   ]}
                 >
                   저장
@@ -660,6 +669,22 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
         <Text style={[styles.retryLabel, { color: tokens.text.body }]}>다시 시도</Text>
       </Pressable>
     </View>
+  );
+}
+
+/** 입력 모달 공통 헤더 — 제목 + 닫기(✕) + 구분선(ADR-040 ①②). 두 모달이 modalCard 를 공유하므로 헤더도 공유. */
+function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  const { tokens } = useTheme();
+  return (
+    <>
+      <View style={styles.modalHeader}>
+        <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>{title}</Text>
+        <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="닫기">
+          <Close size={22} color={tokens.text.secondary} />
+        </Pressable>
+      </View>
+      <View style={[styles.modalDivider, { borderBottomColor: tokens.border }]} />
+    </>
   );
 }
 
@@ -690,7 +715,10 @@ const styles = StyleSheet.create({
   // 카드 래퍼 — 중앙 정렬·좌우 패딩을 여기에 두어, KeyboardAvoidingView 가 키보드 높이만큼 줄인 영역 안에서 카드가 위로 재중앙된다(P-9).
   modalAvoider: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl },
   modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
-  modalTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  // 헤더 행(제목 좌·닫기 우) + 그 아래 얇은 구분선(ADR-040 ①②). 색은 인라인 토큰 주입.
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalDivider: { borderBottomWidth: 1 },
+  modalTitle: { fontSize: fontSize.title3, fontWeight: fontWeight.semibold },
   // 캡처로 채우기 버튼 — accent 보더의 보조 액션(채움 아님·outline). 직접 입력과 병행이라 강조 과하지 않게.
   captureBtn: {
     flexDirection: "row",
@@ -713,9 +741,11 @@ const styles = StyleSheet.create({
   amountPrefix: { fontSize: fontSize.base, marginRight: spacing.sm },
   amountInput: { flex: 1, paddingVertical: 10, fontSize: fontSize.base },
   errorText: { fontSize: fontSize.footnote, marginTop: spacing.xs },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.xl },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: spacing.lg },
   modalCancel: { fontSize: fontSize.callout },
-  modalSave: { fontSize: fontSize.callout, fontWeight: fontWeight.bold },
+  // 채움형 1차 액션(저장) — accent 배경, onAccent 라벨(ADR-040 ③). 비활성 색은 호출부에서 분기.
+  modalSaveBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.md },
+  modalSave: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
   retry: { gap: spacing.sm, alignItems: "flex-start" },
   retryLabel: { fontSize: fontSize.body, fontWeight: fontWeight.semibold },
   deleteBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, alignItems: "center" },
