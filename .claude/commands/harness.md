@@ -24,23 +24,29 @@
 4. **시그니처 수준 지시** — 함수/클래스의 인터페이스만 제시하고 내부 구현은 에이전트 재량에 맡긴다. 단, 설계 의도에서 벗어나면 안 되는 핵심 규칙(멱등성, 보안, 데이터 무결성 등)은 반드시 명시한다.
 5. **AC는 실행 가능한 커맨드** — "~가 동작해야 한다" 같은 추상적 서술이 아닌 `npm run verify` 같은 실제 실행 가능한 검증 커맨드를 포함한다.
 6. **주의사항은 구체적으로** — "조심해라" 대신 "X를 하지 마라. 이유: Y" 형식으로 적는다.
-7. **네이밍 (CRITICAL — 체계적 디렉토리·넘버링)**
+7. **네이밍 (CRITICAL — 버전 단위 디렉토리)**
 
-   **Phase 디렉토리**: `NN-category-vX-descriptor` 형식으로 만든다. execute.py 가 이 규칙을 정규식으로 검증하고(어긋나면 경고), 브랜치(`feat-{디렉토리}`)·커밋 scope(`category`)를 이 이름에서 파생한다.
-   - `NN`: **2자리 글로벌 순번**. 카테고리와 무관하게 전체에서 1씩 증가(01, 02, 03 …). `phases/index.json` 의 **마지막 번호 + 1**.
-   - `category`: 아래 **정의된 카테고리** 중 하나(소문자). 모호하면 **주된 산출물/레이어** 기준으로 고른다.
-   - `vX`: **제품 버전/마일스톤**. `v0`=Phase 1 MVP(국내·익명), `v1`=Phase 2(해외·계정 동기화), 이후 증가. CLAUDE.md 의 Phase 정의를 따른다.
-   - `descriptor`: 해당 phase의 구체 작업을 1~3 단어 kebab 으로(예: `mvp-worker`, `pages`, `fixes`).
-   - 예: `01-backend-v0-mvp-worker` · `02-ui-v0-mvp-app` · `03-qa-v0-mvp-audit` · `05-ui-v1-overseas-pages`.
+   **Phase 디렉토리 = release 버전 1개**: `v{MAJOR}_{MINOR}_{PATCH}` 형식으로 만든다(예: `v1_1_0`). 카테고리·글로벌 순번·descriptor 없음. execute.py 가 이 규칙을 정규식(`^v\d+_\d+_\d+$`)으로 검증하고(어긋나면 경고), 브랜치(`feat-{디렉토리}`, 예 `feat-v1_1_0`)를 이 이름에서 파생한다.
+   - 버전은 `app/app.json` 의 `version`(=출시 버전)과 일치시킨다. 점(`.`)은 디렉토리명에 `_` 로 쓴다(`1.1.0` → `v1_1_0`).
+   - **버전당 디렉토리 1개.** 같은 버전으로 나가는 추가/수정 작업은 **새 디렉토리를 만들지 말고 이 디렉토리에 step 을 append** 한다(아래 원칙 8).
+   - 새 디렉토리는 **버전을 bump 해서 출시**할 때만 만든다(`1.1.0`→`1.2.0` 새 기능, `1.1.0`→`1.1.1` 패치 등).
+   - 예: `v1_0_0`(Phase 1 MVP) · `v1_1_0`(v1.1) · `v1_2_0`.
 
-   **카테고리 기준(확정 목록)** — 주된 산출물/레이어로 분류. 새 카테고리가 필요하면 이 목록에 **먼저 추가**하고 사용한다.
-   - `backend`: Cloudflare Worker·D1·cron·HTTP API·tracker.delivery 연동 등 서버.
-   - `ui`: Expo 앱 화면·컴포넌트·클라이언트 로직·네비게이션.
-   - `qa`: 테스트·사양 감사·버그 수정·스토어 제출 준비.
-   - `infra`: 툴링·CI·harness·빌드/배포 설정.
-   - `docs`: 문서 전용 작업.
+   **커밋 scope = step 의 layer**: 카테고리는 디렉토리에서 빠지고 **step 속성(`layer`)** 으로 내려간다. execute.py 가 step 의 `layer` 를 커밋 scope 로 쓴다(`feat(backend): …`, `feat(frontend): …`). layer 누락 시 `misc` 폴백.
 
-   **Step name**: kebab-case slug로 해당 step의 핵심 모듈/작업을 한두 단어로 표현한다 (예: `project-setup`, `api-layer`, `auth-flow`).
+   **layer(확정 목록·진행 순서)** — 한 버전 안의 step 은 아래 순서로 나열한다(원칙 8). 주된 산출물/레이어로 분류. 새 layer 가 필요하면 이 목록에 **먼저 추가**하고 사용한다.
+   1. `backend`: Cloudflare Worker·D1·cron·HTTP API·tracker.delivery 연동 등 서버.
+   2. `frontend`: Expo 앱 화면·컴포넌트·클라이언트 로직·네비게이션.
+   3. `qa`: 테스트·사양 감사·버그 수정·스토어 제출 준비.
+   4. `infra`: 툴링·CI·harness·빌드/배포 설정.
+   5. `docs`: 문서 전용 작업.
+
+   **Step name**: kebab-case slug로 해당 step의 핵심 모듈/작업을 한두 단어로 표현한다 (예: `project-setup`, `api-layer`, `auth-flow`). step 파일명에 그대로 들어간다(`step{N}_{name}.md` — 원칙 8·D-3).
+
+8. **버전 단위 분할·layer 순서 (CRITICAL)**
+   - 한 release 버전의 모든 작업은 **하나의 `v{X}_{Y}_{Z}` 디렉토리**에 step 으로 모은다(레이어별로 디렉토리를 쪼개지 않는다).
+   - step 은 **`backend` → `frontend` → `qa` → `infra` → `docs`** layer 순서로 나열한다. 같은 layer 안에서는 의존 순서대로.
+   - 이미 완료된 버전 디렉토리에 **같은 버전 출시로 추가 작업이 생기면** 새 디렉토리를 만들지 말고 **다음 step 번호로 append** 한다. 추가한 step 의 status(및 `phases/index.json` 의 해당 항목 status)를 `pending` 으로 두고 execute.py 를 재실행하면 미완 step 만 이어서 실행된다.
 
 ### D. 파일 생성
 
@@ -54,27 +60,28 @@
 {
   "phases": [
     {
-      "dir": "01-backend-v0-mvp-worker",
+      "dir": "v1_1_0",
       "status": "pending"
     }
   ]
 }
 ```
 
-- `dir`: phase 디렉토리명 — **`NN-category-vX-descriptor` 규칙(위 C-7)**. `NN` 은 이 배열의 마지막 번호 + 1.
+- `dir`: phase 디렉토리명 — **`v{MAJOR}_{MINOR}_{PATCH}` 규칙(위 C-7)**. 같은 버전 작업이 이미 있으면 새 항목을 추가하지 말고 기존 디렉토리에 step 을 append 한다(C-7 원칙 8).
 - `status`: `"pending"` | `"completed"` | `"error"` | `"blocked"`. execute.py가 실행 중 자동으로 업데이트한다.
 - 타임스탬프(`completed_at`, `failed_at`, `blocked_at`)는 execute.py가 상태 변경 시 자동 기록한다. 생성 시 넣지 않는다.
 
-#### D-2. `phases/{NN-category-vX-descriptor}/index.json` (task 상세)
+#### D-2. `phases/{v{MAJOR}_{MINOR}_{PATCH}}/index.json` (task 상세)
 
 ```json
 {
   "project": "unboxing",
-  "phase": "backend",
+  "version": "1.1.0",
   "steps": [
-    { "step": 0, "name": "project-setup", "status": "pending" },
-    { "step": 1, "name": "core-types", "status": "pending" },
-    { "step": 2, "name": "api-layer", "status": "pending" }
+    { "step": 0, "name": "schema-migration", "status": "pending", "layer": "backend" },
+    { "step": 1, "name": "callback-endpoint", "status": "pending", "layer": "backend" },
+    { "step": 2, "name": "detail-screen", "status": "pending", "layer": "frontend" },
+    { "step": 3, "name": "smoke-audit", "status": "pending", "layer": "qa" }
   ]
 }
 ```
@@ -82,9 +89,10 @@
 필드 규칙:
 
 - `project`: 프로젝트명 (CLAUDE.md 참조).
-- `phase`: **카테고리**(커밋 scope·표시용) — 디렉토리명의 `category` 와 일치시킨다. 브랜치는 execute.py 가 디렉토리명 전체로 만든다(`feat-{디렉토리}`). 디렉토리명이 규칙과 다르면 execute.py 가 이 값을 scope 폴백으로 쓴다.
-- `steps[].step`: 0부터 시작하는 순번.
-- `steps[].name`: kebab-case slug.
+- `version`: **출시 버전**(표시용) — `app/app.json` 의 `version` 과 일치(예 `"1.1.0"`). 디렉토리명(`v1_1_0`)과 같은 버전을 가리킨다. 브랜치는 execute.py 가 디렉토리명 전체로 만든다(`feat-v1_1_0`).
+- `steps[].step`: 0부터 시작하는 순번. **append 시 기존 마지막 번호 + 1** 로 이어 붙인다.
+- `steps[].name`: kebab-case slug. step 파일명에 들어간다(`step{N}_{name}.md`).
+- `steps[].layer`: **커밋 scope**(`backend`/`frontend`/`qa`/`infra`/`docs`). step 은 이 순서로 나열(C-7 원칙 8). execute.py 가 `feat({layer}): …` 로 커밋한다.
 - `steps[].status`: 초기값은 모두 `"pending"`.
 
 상태 전이와 자동 기록 필드:
@@ -99,7 +107,9 @@
 
 `created_at`은 execute.py가 최초 실행 시 task 레벨에 한 번만 기록한다. step 레벨의 `started_at`도 execute.py가 각 step 시작 시 자동 기록한다. 생성 시 넣지 않는다.
 
-#### D-3. `phases/{task-name}/step{N}.md` (각 step마다 1개)
+#### D-3. `phases/{버전-디렉토리}/step{N}_{name}.md` (각 step마다 1개)
+
+> 파일명은 `step{번호}_{steps[].name}.md` 형식(예: `step0_schema-migration.md`). execute.py 가 step 의 번호·`name` 으로 이 파일을 찾으므로 index.json 의 `name` 과 파일명이 **정확히 일치**해야 한다.
 
 ```markdown
 # Step {N}: {이름}

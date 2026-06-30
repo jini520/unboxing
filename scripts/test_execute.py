@@ -42,20 +42,20 @@ def tmp_project(tmp_path):
 @pytest.fixture
 def phase_dir(tmp_project):
     """step 3개를 가진 phase 디렉토리."""
-    d = tmp_project / "phases" / "00-core-v0-mvp"
+    d = tmp_project / "phases" / "v1_0_0"
     d.mkdir()
 
     index = {
         "project": "TestProject",
-        "phase": "mvp",
+        "version": "1.0.0",
         "steps": [
-            {"step": 0, "name": "setup", "status": "completed", "summary": "프로젝트 초기화 완료"},
-            {"step": 1, "name": "core", "status": "completed", "summary": "핵심 로직 구현"},
-            {"step": 2, "name": "ui", "status": "pending"},
+            {"step": 0, "name": "setup", "status": "completed", "summary": "프로젝트 초기화 완료", "layer": "backend"},
+            {"step": 1, "name": "core", "status": "completed", "summary": "핵심 로직 구현", "layer": "backend"},
+            {"step": 2, "name": "ui", "status": "pending", "layer": "frontend"},
         ],
     }
     (d / "index.json").write_text(json.dumps(index, indent=2, ensure_ascii=False))
-    (d / "step2.md").write_text("# Step 2: UI\n\nUI를 구현하세요.")
+    (d / "step2_ui.md").write_text("# Step 2: UI\n\nUI를 구현하세요.")
 
     return d
 
@@ -65,8 +65,8 @@ def top_index(tmp_project):
     """phases/index.json (top-level)."""
     top = {
         "phases": [
-            {"dir": "00-core-v0-mvp", "status": "pending"},
-            {"dir": "01-ui-v0-polish", "status": "pending"},
+            {"dir": "v1_0_0", "status": "pending"},
+            {"dir": "v1_1_0", "status": "pending"},
         ]
     }
     p = tmp_project / "phases" / "index.json"
@@ -78,12 +78,12 @@ def top_index(tmp_project):
 def executor(tmp_project, phase_dir):
     """테스트용 StepExecutor 인스턴스. git 호출은 별도 mock 필요."""
     with patch.object(ex, "ROOT", tmp_project):
-        inst = ex.StepExecutor("00-core-v0-mvp")
+        inst = ex.StepExecutor("v1_0_0")
     # 내부 경로를 tmp_project 기준으로 재설정
     inst._root = str(tmp_project)
     inst._phases_dir = tmp_project / "phases"
     inst._phase_dir = phase_dir
-    inst._phase_dir_name = "00-core-v0-mvp"
+    inst._phase_dir_name = "v1_0_0"
     inst._index_file = phase_dir / "index.json"
     inst._top_index_file = tmp_project / "phases" / "index.json"
     return inst
@@ -186,7 +186,7 @@ class TestLoadGuardrails:
             # executor가 필요 없는 static-like 동작이므로 임시 인스턴스
             phases_dir = tmp_path / "phases" / "dummy"
             phases_dir.mkdir(parents=True)
-            idx = {"project": "T", "phase": "t", "steps": []}
+            idx = {"project": "T", "version": "0.0.0", "steps": []}
             (phases_dir / "index.json").write_text(json.dumps(idx))
             inst = ex.StepExecutor.__new__(ex.StepExecutor)
             result = inst._load_guardrails()
@@ -233,43 +233,43 @@ class TestBuildStepContext:
 
 class TestBuildPreamble:
     def test_includes_project_name(self, executor):
-        result = executor._build_preamble("", "")
+        result = executor._build_preamble("", "", "backend")
         assert "TestProject" in result
 
     def test_includes_guardrails(self, executor):
-        result = executor._build_preamble("GUARD_CONTENT", "")
+        result = executor._build_preamble("GUARD_CONTENT", "", "backend")
         assert "GUARD_CONTENT" in result
 
     def test_includes_step_context(self, executor):
         ctx = "## 이전 Step 산출물\n\n- Step 0: done"
-        result = executor._build_preamble("", ctx)
+        result = executor._build_preamble("", ctx, "backend")
         assert "이전 Step 산출물" in result
 
     def test_includes_commit_example(self, executor):
-        result = executor._build_preamble("", "")
-        assert "feat(core):" in result
+        result = executor._build_preamble("", "", "backend")
+        assert "feat(backend):" in result
 
     def test_includes_rules(self, executor):
-        result = executor._build_preamble("", "")
+        result = executor._build_preamble("", "", "backend")
         assert "작업 규칙" in result
         assert "AC" in result
 
     def test_no_retry_section_by_default(self, executor):
-        result = executor._build_preamble("", "")
+        result = executor._build_preamble("", "", "backend")
         assert "이전 시도 실패" not in result
 
     def test_retry_section_with_prev_error(self, executor):
-        result = executor._build_preamble("", "", prev_error="타입 에러 발생")
+        result = executor._build_preamble("", "", "backend", prev_error="타입 에러 발생")
         assert "이전 시도 실패" in result
         assert "타입 에러 발생" in result
 
     def test_includes_max_retries(self, executor):
-        result = executor._build_preamble("", "")
+        result = executor._build_preamble("", "", "backend")
         assert str(ex.StepExecutor.MAX_RETRIES) in result
 
     def test_includes_index_path(self, executor):
-        result = executor._build_preamble("", "")
-        assert "/phases/00-core-v0-mvp/index.json" in result
+        result = executor._build_preamble("", "", "backend")
+        assert "/phases/v1_0_0/index.json" in result
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ class TestUpdateTopIndex:
         executor._top_index_file = top_index
         executor._update_top_index("completed")
         data = json.loads(top_index.read_text())
-        mvp = next(p for p in data["phases"] if p["dir"] == "00-core-v0-mvp")
+        mvp = next(p for p in data["phases"] if p["dir"] == "v1_0_0")
         assert mvp["status"] == "completed"
         assert "completed_at" in mvp
 
@@ -289,7 +289,7 @@ class TestUpdateTopIndex:
         executor._top_index_file = top_index
         executor._update_top_index("error")
         data = json.loads(top_index.read_text())
-        mvp = next(p for p in data["phases"] if p["dir"] == "00-core-v0-mvp")
+        mvp = next(p for p in data["phases"] if p["dir"] == "v1_0_0")
         assert mvp["status"] == "error"
         assert "failed_at" in mvp
 
@@ -297,7 +297,7 @@ class TestUpdateTopIndex:
         executor._top_index_file = top_index
         executor._update_top_index("blocked")
         data = json.loads(top_index.read_text())
-        mvp = next(p for p in data["phases"] if p["dir"] == "00-core-v0-mvp")
+        mvp = next(p for p in data["phases"] if p["dir"] == "v1_0_0")
         assert mvp["status"] == "blocked"
         assert "blocked_at" in mvp
 
@@ -305,7 +305,7 @@ class TestUpdateTopIndex:
         executor._top_index_file = top_index
         executor._update_top_index("completed")
         data = json.loads(top_index.read_text())
-        polish = next(p for p in data["phases"] if p["dir"] == "01-ui-v0-polish")
+        polish = next(p for p in data["phases"] if p["dir"] == "v1_1_0")
         assert polish["status"] == "pending"
 
     def test_nonexistent_dir_is_noop(self, executor, top_index):
@@ -339,7 +339,7 @@ class TestCheckoutBranch:
 
     def test_already_on_branch(self, executor):
         self._mock_git(executor, [
-            MagicMock(returncode=0, stdout="feat-00-core-v0-mvp\n", stderr=""),
+            MagicMock(returncode=0, stdout="feat-v1_0_0\n", stderr=""),
         ])
         executor._checkout_branch()  # should return without checkout
 
@@ -392,12 +392,12 @@ class TestCommitStep:
             return MagicMock(returncode=0, stdout="", stderr="")
         executor._run_git = fake_git
 
-        executor._commit_step(2, "ui")
+        executor._commit_step(2, "ui", "frontend")
 
         commit_calls = [c for c in calls if c[0] == "commit"]
         assert len(commit_calls) == 2
-        assert "feat(core):" in commit_calls[0][2]
-        assert "chore(core):" in commit_calls[1][2]
+        assert "feat(frontend):" in commit_calls[0][2]
+        assert "chore(frontend):" in commit_calls[1][2]
 
     def test_no_code_changes_skips_feat_commit(self, executor):
         call_count = {"diff": 0}
@@ -412,7 +412,7 @@ class TestCommitStep:
             return MagicMock(returncode=0, stdout="", stderr="")
         executor._run_git = fake_git
 
-        executor._commit_step(2, "ui")
+        executor._commit_step(2, "ui", "frontend")
 
         commit_msgs = [c[2] for c in calls if c[0] == "commit"]
         assert len(commit_msgs) == 1
@@ -523,7 +523,7 @@ class TestCheckBlockers:
     def _make_executor_with_steps(self, tmp_project, steps):
         d = tmp_project / "phases" / "test-phase"
         d.mkdir(exist_ok=True)
-        index = {"project": "T", "phase": "test", "steps": steps}
+        index = {"project": "T", "version": "1.0.0", "steps": steps}
         (d / "index.json").write_text(json.dumps(index))
 
         with patch.object(ex, "ROOT", tmp_project):
@@ -534,8 +534,7 @@ class TestCheckBlockers:
         inst._phase_dir_name = "test-phase"
         inst._index_file = d / "index.json"
         inst._top_index_file = tmp_project / "phases" / "index.json"
-        inst._phase_name = "test"
-        inst._scope = "test"
+        inst._version = "1.0.0"
         inst._total = len(steps)
         return inst
 

@@ -117,7 +117,7 @@ unboxing/
 - 엔드포인트: `https://apis.tracker.delivery/graphql` (GraphQL).
 - 인증: API Key(권장) 또는 OAuth2 **client_credentials → Bearer**. 현 스캐폴드는 `DELIVERY_TRACKER_CLIENT_ID/_SECRET` 시크릿(client_credentials). access token은 D1 캐시 + 만료 전 cron 재발급(→ ADR-013).
 - **에러는 GraphQL 응답 본문**(`errors[]`)에 담기며 **HTTP status는 무의미**. 예: 토큰 만료 시 `UNAUTHENTICATED`.
-- `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치), `recipient`(수취인 이름·지역명=`location.name`). 권장 timeout **15s**. **수취인은 화면 전용 패스스루(미저장, ADR-005)** — `GET /shipments/:id` 응답에만 싣고 D1 에 저장 금지. `phoneNumber` 는 받지 않는다(PII 최소화). 상품명·사진 필드는 스키마에 없다.
+- `track(carrierId, trackingNumber)` → `lastEvent`, `events[]`(시각·status.code·description·위치), `recipient`(수취인 이름·지역명=`location.name`). 권장 timeout **15s**. **수취인은 화면 전용 패스스루(미저장, ADR-005)** — `GET /shipments/:id` 응답에만 싣고 D1 에 저장 금지. 표시는 앱이 **식별 가능성으로 게이트**(ADR-032 `displayRecipientName` — `받는 분` 라벨·완전마스킹 `***` 숨김, 부분마스킹 `김**` 표시). `phoneNumber` 는 받지 않는다(PII 최소화). 상품명·사진 필드는 스키마에 없다.
 - `carriers` 쿼리 → 지원 택배사 목록(자동인식 검증·미지원 판별).
 - carrierId 형식 예: `kr.cjlogistics`, `kr.epost` 등.
 - **CRITICAL(구현)**: `TrackerDeps.fetch` 에 전역 `fetch` 를 주입할 땐 **반드시 `fetch.bind(globalThis)`**. 맨 `fetch` 를 객체로 넘기면 호출 시 `this` 유실로 `Illegal invocation` throw → 모든 조회가 null("미등록")이 된다. mock fetch 를 쓰는 테스트는 이를 못 잡으므로 실 API 스모크로 확인(→ `docs/ENGINEERING.md` P-1). 주입 뿌리: `index.ts` `tryTrack`·`scheduled`.
@@ -199,7 +199,9 @@ unboxing/
 | `MismatchSenderId` / `InvalidCredentials` | 자격증명/`google-services` 점검 — 운영 경고(전체 발송 실패) |
 | 요청단 `PUSH_TOO_MANY_NOTIFICATIONS`/`_RECEIPTS` | 배치 크기 위반 → 100/1000으로 분할 |
 
-## Webhook (1차 신선도 메커니즘 — → ADR-028 supersedes ADR-015)
+## Webhook (1차 신선도 메커니즘 · v1.1.0 후반 — → ADR-028 supersedes ADR-015)
+
+> **v1.1.0 후반 백엔드 전환**(앱 버전 불변 — 출시 후 같은 1.1.0 안에서 진행, phases `v1_1_0` step 25~31). 핵심 런타임 메커니즘이라 폴링·푸시 흐름 옆에 둔다(버전 묶음 아래로 옮기지 않음). 결정 → `ADR.md` `## v1.1.0` "webhook-first 전환" 소절(ADR-028·029).
 
 - **등록(2곳)**: ① `POST /shipments`에서 즉시 1회 track이 **비미등록·active**를 반환할 때 ② **cron webhook 등록 sweep** — active·등록 가능 단계·`webhook_expires_at` NULL 송장을 **due 무관 매 fire 등록**(`shouldRegisterWebhook` 게이트, 예산 청크 ≤50·10 req/s). `미등록`→첫 이벤트 승급 + **운영 D1 기존 추적분 즉시 마이그레이션**(소수라 첫 fire 에 일괄 등록) + **등록 실패 재시도**를 모두 덮는다. 초과분만 다음 fire 이월, 등록되면 ~12h 간격으로 낙하. 둘 다 `Mutation.registerTrackWebhook(carrierId, trackingNumber, callbackUrl, expirationTime)`, `callbackUrl=/webhooks/track/<secret>`, `expirationTime=now+48h`(ISO8601 UTC). **active·비종료 송장당 1개**(dedupe — 여러 device 구독이어도 1개; **dedupe-hit·`webhook_expires_at` 존재 시 재등록 안 함**, 만료 임박만 연장 → 멱등; **배송완료는 등록 안 함**; 등록은 `ctx.waitUntil` 비동기라 등록 응답을 막지 않고 실패해도 등록 자체는 성공). 등록 실패/보류는 **`webhook_expires_at` NULL → 폴백 폴링이 적응형 간격으로 자동 커버**. *반환값·최대 TTL·재등록이 중복 생성인지 갱신인지·미등록 송장 등록 가부는 실호출 스모크로 확정(→ ENGINEERING).*
 - **수신**: 변화 시 tracker.delivery가 `{carrierId, trackingNumber}` POST → **1초 내 202**. 실제 `track` 재조회는 `ctx.waitUntil` 비동기(콜백 응답을 막지 않음). 재조회 결과는 **폴링과 동일한 정규화·CAS·푸시 다운스트림** 재사용.
@@ -230,9 +232,10 @@ unboxing/
 | **(v1.1)** 알림 기록 보존 만료 | cron sweep — `sent_at < now-90일`(또는 디바이스당 상한 초과 오래된 행) 삭제 (→ ADR-023) |
 | **(v1.1)** 휴지통 30일 경과 | **로컬** 자동 영구 삭제(`pruneTrash`, 앱 진입·휴지통 열람 시) — 서버 무관(이미 구독 해제) (→ ADR-022) |
 
-## v1.1 마이너 업데이트 — 데이터·흐름·마이그레이션·엣지
+## v1.1.0 — 데이터·흐름·마이그레이션·엣지 (기능 아키텍처)
 
-> 기획 `PRD.md` "v1.1 …", 결정 `ADR.md` ADR-021~025, 화면 `UI_GUIDE.md`. 핵심 불변: **서버 SOT·앱은 캐시/로컬 전용 데이터**(ADR-014), **비영속·$0**. 신규 서버 표면은 `notifications` 테이블 + `GET /notifications` **단 하나**다(나머지는 전부 클라이언트).
+> v1.1.0 **기능** 아키텍처(대시보드·휴지통·알림 기록·택배 정보). 기획 `PRD.md` "v1.1 …", 결정 `ADR.md` ADR-021~027, 화면 `UI_GUIDE.md`. 핵심 불변: **서버 SOT·앱은 캐시/로컬 전용 데이터**(ADR-014), **비영속·$0**. 신규 서버 표면은 `notifications` 테이블 + `GET /notifications` **단 하나**다(나머지는 전부 클라이언트).
+> 같은 1.1.0의 **webhook-first 전환·후속 백엔드**(ADR-028~031, phases `v1_1_0` step 25~33)는 핵심 메커니즘이라 위 "## Webhook" 토픽 섹션에 둠 — 별도 버전이 아니라 v1.1.0 후반 작업.
 
 ### 네비게이션 / 화면 추가
 - 하단 탭 **3개**: **대시보드 · 택배함 · 설정**(대시보드 신규·좌측). 콜드스타트 초기 탭은 "시작 화면" 로컬 preference(기본 택배함, ADR-025).

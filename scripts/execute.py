@@ -22,9 +22,9 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# phase 디렉토리명 규칙: NN-category-vX-descriptor (글로벌 넘버링·카테고리·버전). 상세 → .claude/commands/harness.md.
-#   NN: 2자리 글로벌 순번(카테고리 무관 증가)  ·  category: 정의된 카테고리  ·  vX: 제품 버전(v0=MVP)  ·  descriptor: kebab
-PHASE_DIR_RE = re.compile(r"^\d{2}-[a-z0-9]+-v\d+-[a-z0-9][a-z0-9-]*$")
+# phase 디렉토리명 규칙: v{MAJOR}_{MINOR}_{PATCH} — release 버전당 1개(예: v1_1_0). 상세 → .claude/commands/harness.md.
+#   카테고리·글로벌 순번 없음. 같은 버전 추가작업은 이 dir 에 step 을 append. 커밋 scope 는 step 의 layer 에서 파생.
+PHASE_DIR_RE = re.compile(r"^v\d+_\d+_\d+$")
 
 
 @contextlib.contextmanager
@@ -82,18 +82,15 @@ class StepExecutor:
 
         idx = self._read_json(self._index_file)
         self._project = idx.get("project", "project")
-        self._phase_name = idx.get("phase", phase_dir_name)
+        self._version = idx.get("version", phase_dir_name)
         self._total = len(idx["steps"])
 
-        # 디렉토리명 규칙(NN-category-vX-descriptor) 검증 → 커밋 scope=category. 비표준이면 경고 후 폴백.
-        if PHASE_DIR_RE.match(phase_dir_name):
-            self._scope = phase_dir_name.split("-")[1]
-        else:
+        # 디렉토리명 규칙(v{MAJOR}_{MINOR}_{PATCH}) 검증. 커밋 scope 는 step 의 layer 에서 파생(_step_scope).
+        if not PHASE_DIR_RE.match(phase_dir_name):
             print(
-                f"  WARN: phase 디렉토리명 '{phase_dir_name}' 이 규칙 'NN-category-vX-descriptor' 과 다릅니다 "
-                f"(scope 를 '{self._phase_name}' 로 폴백). harness.md 의 네이밍 규칙을 확인하세요."
+                f"  WARN: phase 디렉토리명 '{phase_dir_name}' 이 규칙 'v{{MAJOR}}_{{MINOR}}_{{PATCH}}' (예: v1_1_0) 과 "
+                f"다릅니다. harness.md 의 네이밍 규칙을 확인하세요."
             )
-            self._scope = self._phase_name
 
     def run(self):
         self._print_header()
@@ -119,6 +116,11 @@ class StepExecutor:
     def _write_json(p: Path, data: dict):
         p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    @staticmethod
+    def _step_scope(step: dict) -> str:
+        """커밋 scope = step 의 layer(backend/frontend/qa/infra/docs). 누락 시 'misc' 폴백."""
+        return step.get("layer") or "misc"
+
     # --- git ---
 
     def _run_git(self, *args) -> subprocess.CompletedProcess:
@@ -126,7 +128,7 @@ class StepExecutor:
         return subprocess.run(cmd, cwd=self._root, capture_output=True, text=True)
 
     def _checkout_branch(self):
-        # 브랜치는 디렉토리명 전체로 — phase 증가 시 충돌 없는 유니크·추적 가능 이름(feat-01-backend-v0-mvp-worker).
+        # 브랜치는 디렉토리명 전체로 — 버전마다 충돌 없는 유니크·추적 가능 이름(feat-v1_1_0).
         branch = f"feat-{self._phase_dir_name}"
 
         r = self._run_git("rev-parse", "--abbrev-ref", "HEAD")
@@ -149,7 +151,7 @@ class StepExecutor:
 
         print(f"  Branch: {branch}")
 
-    def _commit_step(self, step_num: int, step_name: str):
+    def _commit_step(self, step_num: int, step_name: str, scope: str):
         output_rel = f"phases/{self._phase_dir_name}/step{step_num}-output.json"
         index_rel = f"phases/{self._phase_dir_name}/index.json"
 
@@ -158,7 +160,7 @@ class StepExecutor:
         self._run_git("reset", "HEAD", "--", index_rel)
 
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
-            msg = self.FEAT_MSG.format(phase=self._scope, num=step_num, name=step_name)
+            msg = self.FEAT_MSG.format(phase=scope, num=step_num, name=step_name)
             r = self._run_git("commit", "-m", msg)
             if r.returncode == 0:
                 print(f"  Commit: {msg}")
@@ -167,7 +169,7 @@ class StepExecutor:
 
         self._run_git("add", "-A")
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
-            msg = self.CHORE_MSG.format(phase=self._scope, num=step_num)
+            msg = self.CHORE_MSG.format(phase=scope, num=step_num)
             r = self._run_git("commit", "-m", msg)
             if r.returncode != 0:
                 print(f"  WARN: housekeeping 커밋 실패: {r.stderr.strip()}")
@@ -212,10 +214,10 @@ class StepExecutor:
             return ""
         return "## 이전 Step 산출물\n\n" + "\n".join(lines) + "\n\n"
 
-    def _build_preamble(self, guardrails: str, step_context: str,
+    def _build_preamble(self, guardrails: str, step_context: str, scope: str,
                         prev_error: Optional[str] = None) -> str:
         commit_example = self.FEAT_MSG.format(
-            phase=self._scope, num="N", name="<step-name>"
+            phase=scope, num="N", name="<step-name>"
         )
         retry_section = ""
         if prev_error:
@@ -244,7 +246,7 @@ class StepExecutor:
 
     def _invoke_claude(self, step: dict, preamble: str) -> dict:
         step_num, step_name = step["step"], step["name"]
-        step_file = self._phase_dir / f"step{step_num}.md"
+        step_file = self._phase_dir / f"step{step_num}_{step_name}.md"
 
         if not step_file.exists():
             print(f"  ERROR: {step_file} not found")
@@ -277,7 +279,7 @@ class StepExecutor:
     def _print_header(self):
         print(f"\n{'='*60}")
         print(f"  Harness Step Executor")
-        print(f"  Phase: {self._phase_name} | Steps: {self._total}")
+        print(f"  Phase: v{self._version} | Steps: {self._total}")
         if self._auto_push:
             print(f"  Auto-push: enabled")
         print(f"{'='*60}")
@@ -309,13 +311,14 @@ class StepExecutor:
     def _execute_single_step(self, step: dict, guardrails: str) -> bool:
         """단일 step 실행 (재시도 포함). 완료되면 True, 실패/차단이면 False."""
         step_num, step_name = step["step"], step["name"]
+        scope = self._step_scope(step)
         done = sum(1 for s in self._read_json(self._index_file)["steps"] if s["status"] == "completed")
         prev_error = None
 
         for attempt in range(1, self.MAX_RETRIES + 1):
             index = self._read_json(self._index_file)
             step_context = self._build_step_context(index)
-            preamble = self._build_preamble(guardrails, step_context, prev_error)
+            preamble = self._build_preamble(guardrails, step_context, scope, prev_error)
 
             tag = f"Step {step_num}/{self._total - 1} ({done} done): {step_name}"
             if attempt > 1:
@@ -334,7 +337,7 @@ class StepExecutor:
                     if s["step"] == step_num:
                         s["completed_at"] = ts
                 self._write_json(self._index_file, index)
-                self._commit_step(step_num, step_name)
+                self._commit_step(step_num, step_name, scope)
                 print(f"  ✓ Step {step_num}: {step_name} [{elapsed}s]")
                 return True
 
@@ -369,7 +372,7 @@ class StepExecutor:
                         s["error_message"] = f"[{self.MAX_RETRIES}회 시도 후 실패] {err_msg}"
                         s["failed_at"] = ts
                 self._write_json(self._index_file, index)
-                self._commit_step(step_num, step_name)
+                self._commit_step(step_num, step_name, scope)
                 print(f"  ✗ Step {step_num}: {step_name} failed after {self.MAX_RETRIES} attempts [{elapsed}s]")
                 print(f"    Error: {err_msg}")
                 self._update_top_index("error")
@@ -402,13 +405,13 @@ class StepExecutor:
 
         self._run_git("add", "-A")
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
-            msg = f"chore({self._phase_name}): mark phase completed"
+            msg = f"chore({self._phase_dir_name}): mark phase completed"
             r = self._run_git("commit", "-m", msg)
             if r.returncode == 0:
                 print(f"  ✓ {msg}")
 
         if self._auto_push:
-            branch = f"feat-{self._phase_name}"
+            branch = f"feat-{self._phase_dir_name}"
             r = self._run_git("push", "-u", "origin", branch)
             if r.returncode != 0:
                 print(f"\n  ERROR: git push 실패: {r.stderr.strip()}")
@@ -416,13 +419,13 @@ class StepExecutor:
             print(f"  ✓ Pushed to origin/{branch}")
 
         print(f"\n{'='*60}")
-        print(f"  Phase '{self._phase_name}' completed!")
+        print(f"  Phase 'v{self._version}' completed!")
         print(f"{'='*60}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Harness Step Executor")
-    parser.add_argument("phase_dir", help="Phase directory name (e.g. 0-mvp)")
+    parser.add_argument("phase_dir", help="Phase directory name (e.g. v1_1_0)")
     parser.add_argument("--push", action="store_true", help="Push branch after completion")
     args = parser.parse_args()
 

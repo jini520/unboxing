@@ -25,7 +25,7 @@ export interface Shipment {
   status: Stage;
   active: boolean;
   createdAt: number;
-  /** 현재 단계가 시작된 시각(전환 시에만 갱신, phase 05). 구버전 서버면 createdAt 폴백. */
+  /** 현재 단계가 시작된 시각(전환 시에만 갱신, v1_0_0 step 28~30). 구버전 서버면 createdAt 폴백. */
   statusChangedAt: number;
   /** 이 기기 구독의 알림 음소거 여부(per-구독, ADR-020). 구버전 서버면 false. */
   muted: boolean;

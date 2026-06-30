@@ -1,0 +1,314 @@
+{
+  "project": "unboxing",
+  "version": "1.1.0",
+  "created_at": "2026-06-23T03:19:08+0900",
+  "completed_at": "2026-06-27T01:06:10+0900",
+  "steps": [
+    {
+      "step": 0,
+      "name": "notifications-schema",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-23T03:19:08+0900",
+      "summary": "notifications 테이블+인덱스(device_id 키·shipment_id SET NULL·denormalize 비-PII) schema.sql/schema.ts 1:1 추가, NotificationRow 타입(index.ts), helpers DROP 순서·통합 테스트(왕복·NULL FK) 추가, ENGINEERING B절 적용 절차 기록",
+      "completed_at": "2026-06-23T03:22:57+0900"
+    },
+    {
+      "step": 1,
+      "name": "fanout-logging-and-korean-title",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-23T03:22:57+0900",
+      "summary": "전환 푸시 fan-out(notifyTransition·배송완료 통합) 시점 1회 notifications INSERT(device별·음소거 제외·재독 무중복·best-effort try/catch), subscriberTokens→subscribers(device_id+token), 푸시 title 한글명(#9) worker/src/lib/carrier.ts 미러+buildMessage·notifyOperational 적용(notifications.carrier=carrierId 유지), QA-006 재현 테스트→#9 수정 검증 전환, cron/push/carrier 테스트 추가",
+      "completed_at": "2026-06-23T03:33:47+0900"
+    },
+    {
+      "step": 2,
+      "name": "quiet-flush-and-retention-sweep",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-23T03:33:47+0900",
+      "summary": "flushQueue 가 발송과 동시에 notifications 1행 기록 — devices(토큰 소유자)·shipments(carrier·번호·active·단계) JOIN, device_id=토큰 현재 소유자, active=1(전환 보류분)만 로깅(운영성·완료 active=0 제외 → step1 '전환만 기록' 일관), token 양도분은 F3 큐 정리로 자연 제외, sent_at=flush now, step1 logNotifications 헬퍼 재사용(드리프트 없음). cron(runPollingBatch)에 sweepNotifications 추가 — 90일 경과분 삭제 + device당 상한(NOTIFICATION_DEVICE_CAP=500 export) ROW_NUMBER 정리, best-effort try/catch(E12 호환). 스키마 변경 없음. cron.test 5건(flush 로깅·token양도·운영성 제외·90일 sweep·디바이스 상한) 추가",
+      "completed_at": "2026-06-23T03:49:32+0900"
+    },
+    {
+      "step": 3,
+      "name": "notifications-endpoint-and-delete-cleanup",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-23T03:49:32+0900",
+      "summary": "GET /notifications 추가(handleListNotifications — 미인증 401·device_id 필터만[E10 인가경계]·sent_at DESC·limit 기본100/상한200 클램프·serializeNotification snake→camel[shipmentId NULL 시 null·denormalize 표시 유지]). handleDeleteMe wipe batch 에 DELETE notifications WHERE device_id 추가(즉시 폐기·B 무영향). handleDeleteShipment 에 보류 큐 정리(push_token 읽어 notification_queue WHERE shipment_id+push_token DELETE — 휴지통 송장 지연푸시 차단·per-device·mute 정리 패턴 미러, notifications 이력은 미손상). 송장행 삭제 시 notifications.shipment_id ON DELETE SET NULL(행·컬럼 보존)을 테스트로 잠금. test/notifications.test.ts 10건(GET 401/필터/정렬/denormalize+NULL/limit/상한클램프, DELETE /me 정리, SET NULL 행보존, 삭제 보류큐 정리+flush 미발송, 토큰양도 E10). 스키마 변경 없음. 문서 HTTP 계약(L88) 기일치 — 정정 불필요",
+      "completed_at": "2026-06-23T03:55:21+0900"
+    },
+    {
+      "step": 4,
+      "name": "stage-bucket-counts-filter",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T03:57:22+0900",
+      "summary": "단계→버킷 단일출처 bucket.ts(stageBucket·isImminent) + 이를 소비하는 dashboard.ts(dashboardCounts: 버킷 카운트·오늘 도착·금액 teaser, now/amounts 주입)·filter.ts(filterShipments: 칩별 필터·명시 완료 우선·무정렬) + time.ts monthKST 헬퍼. 전부 test-first(bucket/dashboard/filter/time 52 케이스), npm run verify green.",
+      "completed_at": "2026-06-23T04:03:26+0900"
+    },
+    {
+      "step": 5,
+      "name": "trash-store",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T04:03:26+0900",
+      "summary": "로컬 휴지통 스토어 trash.ts(ADR-022·서버무관) — 키=carrier:trackingNo(trashKey), TrashSnapshot/TrashEntry(info 스냅샷 포함)·loadTrash(손상 graceful)·addTrash(now 적재·동일키 덮어씀)·pruneTrash(30일+용량상한 MAX_TRASH 오래된순)·reconcileTrash(E4 서버키 제거)·removeTrash·clearTrash(wipe). now 주입 고정시계, test-first(trash.test 13 케이스), npm run verify green.",
+      "completed_at": "2026-06-23T04:07:46+0900"
+    },
+    {
+      "step": 6,
+      "name": "info-store-migration-amount",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T04:07:46+0900",
+      "summary": "택배 정보 로컬 스토어 info.ts(ADR-024·서버무관) — ShipmentInfo{memo?,category?,amount?}·InfoMap·loadInfo/getInfo·setInfo(빈 메모 삭제·미설정 category/amount 미저장·amount 0 보존·전필드 빈 시 엔트리 제거)·pruneInfo·clearInfo + 순수 변환 memosToInfoMap(비문자 스킵·trim) + migrateMemosToInfo(구 unboxing.memos→신 shipment_info 1회·멱등·무손실·손상안전·신 우선·구 정리). amount.ts — parseAmount(0이상 정수만·음수/소수/빈/비숫자/≥10^10 거부)·formatAmount(천단위+₩·0→₩0·undefined→—, Hermes Intl 회피 정규식). memo.ts defaultMemoText 무파손(미수정). test-first(info 24·amount 11 케이스), npm run verify green.",
+      "completed_at": "2026-06-23T04:13:04+0900"
+    },
+    {
+      "step": 7,
+      "name": "unread-route-wipe",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T04:13:04+0900",
+      "summary": "알림 미읽음/읽음 notif.ts(ADR-023·로컬 — unreadCount[sentAt>lastSeen]·initLastSeen[첫 fetch now 초기화·E11 폭주방지]·markSeen[max(now,최신sentAt)]·badgeText[99+ 상한]·clearLastSeen) + 콜드스타트 라우팅 route.ts(resolveInitialRoute 우선순위 ①딥링크[routeForNotification 재사용·최우선·E17] ②homePref ③택배함 폴백, 판별 union) + 설정 스토어 prefs.ts(loadHomePref/saveHomePref 기본 list·loadListFilter/saveListFilter 기본 hideCompleted=false·손상 폴백·clear*) + wipeAllData 확장(clearLocal 필수 dep + clearLocalStores 단일출처[info·trash·읽음·시작화면·필터], settings.doWipe·flows.test 배선 갱신, E19 키누락0). 전부 now 주입·로컬전용·test-first(notif·prefs·route·wipe), npm run verify green(app 223).",
+      "completed_at": "2026-06-23T04:21:42+0900"
+    },
+    {
+      "step": 8,
+      "name": "list-integration-and-restore-delete-ux",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T05:15:25+0900",
+      "summary": "stash pop으로 삭제 확인 다이얼로그+햅틱(Undo 폐기)·app.json·expo-haptics 복원. 택배함에 HeaderBell(미읽음 배지·listNotifications+initLastSeen/unreadCount)·필터 칩(filterShipments→sortShipments)·삭제 시 휴지통 적재(getInfo→addTrash, 서버 DELETE 전)·sync reconcileTrash 통합. verify green(app 225·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T05:30:22+0900"
+    },
+    {
+      "step": 9,
+      "name": "dashboard-tab-and-nav",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T05:30:22+0900",
+      "summary": "3탭(대시보드·택배함·설정) — _layout 에 대시보드 탭(좌측)+Grid 아이콘 추가. dashboard.tsx: 진행중/완료/예외/오늘도착/휴지통/새알림 요약 카드(dashboardCounts 08 소비·재정의 없음, ADR-021 클라이언트 집계)+이번달 금액 teaser, HeaderBell·캐시우선/오프라인 배너·신선도, 카드 탭→택배함 필터 프리셋(route param)·/trash·/notifications. 예외>0=stage.exception+라벨/아이콘(색 단독 아님). index.tsx 가 useLocalSearchParams 로 filter 프리셋 수신→칩 반영. verify green(app 225·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T05:40:20+0900"
+    },
+    {
+      "step": 10,
+      "name": "notifications-screen",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T05:40:20+0900",
+      "summary": "알림 기록 화면(/notifications) 신규 — ScreenHeader(title '알림'+'모두 읽음' 액션)·SectionList(날짜 그룹 오늘/어제/M월D일)·항목=단계 글리프(STAGE_META 재사용)+carrierName 한글명·body+상대시간·미읽음=accent 점+굵게(색 단독 아님). 탭→/shipment/:id, shipmentId null=비활성+'정리된 택배예요' 토스트(목록 유지, E9). 열람·'모두 읽음' 시 markSeen(08, 첫 실행 baseline null=폭주 없음). 권한 꺼짐 빈상태=Linking.openSettings 유도. graceful: listNotifications 실패(404/5xx/오프라인)→cacheNotifications 캐시 폴백→[](코드 비노출, E20). cache.ts 에 cacheNotifications/readCachedNotifications 추가+clearCache 가 알림 캐시도 폐기(wipe E19). _layout 에 notifications Stack 등록. verify green(app 229·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T05:49:32+0900"
+    },
+    {
+      "step": 11,
+      "name": "trash-screen",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T05:49:32+0900",
+      "summary": "휴지통 화면(/trash) 신규 — ScreenHeader(title '휴지통'+'일괄'/'취소' 토글, description=N개 선택)·진입 시 pruneTrash(30일·상한, useFocusEffect→reload)·최신 삭제순 FlatList. 행=StageBadge+메모(info?.memo||defaultMemoText)+택배사·번호+'N일 후 영구 삭제' 캡션(D-3 이하 임박=stage.exception+텍스트, 색 단독 아님). 복구=createShipment 재등록(멱등)→반환 shipment.id 로 setInfo 귀속(옛 id 금지·보강④)→removeTrash, 실패(409 미지원/429/NETWORK)는 항목 유지+안내(코드 비노출). 영구삭제=removeTrash(엔트리+info 스냅샷)·서버 호출 없음·확인 다이얼로그. 롱프레스 멀티선택(selection.ts)→일괄 복구(순차·실패분만 잔류)/일괄 영구삭제(확인·Undo 없음). 신규 Restore 아이콘(rotate-ccw)+_layout trash Stack 등록. verify green(app 229·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T05:58:57+0900"
+    },
+    {
+      "step": 12,
+      "name": "info-modal-and-category-chip",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T05:58:57+0900",
+      "summary": "택배 정보 모달 확장(메모+카테고리+금액)+카드 카테고리 칩. info.ts에 CATEGORIES 고정목록 추가(08 미생성분), icons에 Tag 글리프. 상세[id].tsx: 헤더 연필→\"택배 정보\" 모달(메모 textarea 보존+카테고리 칩 선택/재탭 해제[미설정=undefined]+₩금액 number-pad, parseAmount 검증→잘못된 값 인라인 안내+저장차단/미저장, 빈 메모·미설정 필드 미저장) → setInfo(infoStore). 메모 읽기/쓰기를 memo.ts→info 스토어로 전환(step5 마이그레이션이 구 unboxing.memos→shipment_info 통합 예정). index.tsx: memos(MemoMap)→infoMap(InfoMap) 전환(loadInfo/pruneInfo), 카드에 memo·category 전달. ShipmentCard: category 칩(Tag+라벨, bg.secondary, 메모줄 아래 alignSelf:flex-start로 메모 표시규칙 불변). 본문 인라인 박스 없음·색 토큰만. verify green(app 229·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T06:14:22+0900"
+    },
+    {
+      "step": 13,
+      "name": "settings-and-coldstart-routing",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-23T06:14:22+0900",
+      "summary": "설정 '표시' 섹션(시작 화면 라디오[택배함/대시보드·기본 택배함, 테마와 동일 스타일]→saveHomePref·완료 숨기기 토글→saveListFilter, 둘 다 prefsStore 로컬·서버 무관 ADR-025)+포커스 복귀 시 loadHomePref/loadListFilter 재로드. 모든 데이터 삭제 카피에 메모·카테고리·금액·휴지통 반영(wipe 배선은 clearLocalStores 단일 경로 기존 유지·E19). 콜드스타트: (tabs)/_layout unstable_settings.initialRouteName='index'(기본=택배함, 대시보드는 좌측 표시만)+RootLayout useColdStartBootstrap — migrateMemosToInfo 1회(멱등·목록/info 첫 읽기 전, 보강⑦)→resolveInitialRoute(딥링크>시작화면>택배함, 보강③): 딥링크=router.push(상세), 대시보드 pref=router.navigate('/dashboard'), list=기본 탭. push.ts에 getLastNotificationData(getLastNotificationResponseAsync 콜드스타트 payload) 추가. 배선은 _layout/settings(typecheck), 순수 함수는 08 단위 테스트. verify green(app 229·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T06:22:48+0900"
+    },
+    {
+      "step": 14,
+      "name": "live-privacy-policy-sync",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T06:23:49+0900",
+      "summary": "라이브 privacyPolicy.ts §6 '배송완료 즉시 삭제'→'보관·수동 삭제' 정정 + notifications 수집 항목(택배사·끝4자리·상태·발송시각·90일·DELETE me 폐기)·로컬 전용 데이터·lastUpdated 2026-06-23 반영(SoT 일치), ENGINEERING B절에 앱 메모→정보 마이그레이션 확인 한 줄 보강",
+      "completed_at": "2026-06-23T06:27:15+0900"
+    },
+    {
+      "step": 15,
+      "name": "logic-counts",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T15:44:19+0900",
+      "summary": "filter.ts hideCompleted 전용·dashboard.ts 예외→진행중 흡수(exception/arrivingToday 제거), 테스트 갱신. filterShipments 새 시그니처=(list,{hideCompleted}); DashboardCounts={inProgress,completed,trash,unread,amountTeaser}. + dashboard.tsx·index.tsx 는 제거된 심볼을 소비해 typecheck 훅(app .ts(x) 편집 후 tsc 강제)이 막으므로 최소 컴파일 호환 수정 필요(대시보드 예외/오늘도착 카드·택배함 필터 칩 제거) — 시각 재설계(색·토글 이동)는 step1·step2. npm run verify green.",
+      "completed_at": "2026-06-23T15:58:30+0900"
+    },
+    {
+      "step": 16,
+      "name": "dashboard-screen",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T15:58:30+0900",
+      "summary": "A1: 대시보드 4카드 의미색 — SummaryCard 의 emphasize(예외 전용) 패턴을 tint?:string 인자로 일반화(count>0 일 때만 숫자·아이콘에 의미색, 0 이면 중립 text.secondary, 라벨은 항상 중립; 색 단독 아님=아이콘+라벨 동반). 매핑: 진행 중=accent / 배송완료=stage.delivered / 새 알림=stage.inTransit / 휴지통=stage.exception. goList useCallback 제거 후 진행중·배송완료 onPress 를 inline router.navigate('/')(A2 필터 프리셋 없음), 휴지통/새 알림은 push 유지. B1 근본원인=H1(확정): sync 의 listShipments catch 가 NETWORK 만 처리하고 실패 시 shipments 를 null 로 방치→counts===null 무한 스피너. 수정: catch 에 setShipments(prev=>prev??[]) 폴백(캐시 있으면 유지·없으면 [] 확정→EmptyState; NETWORK 는 배너 유지). H2(라우팅)는 resolveInitialRoute/_layout 의 /dashboard 전환이 목록 내용과 독립이라 무관임을 코드로 확인. 시뮬 최종 확인은 사용자 몫으로 남김(iOS 빌드 미구동). npm run verify green(app 224·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T16:05:38+0900"
+    },
+    {
+      "step": 17,
+      "name": "list-settings",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T16:05:38+0900",
+      "summary": "A2: 택배함 필터 칩은 step0에서 이미 컴파일 제거됨 — step2는 '배송 완료된 항목 감추기' 토글을 택배함(index.tsx) 헤더 아래·목록 위에 신규 배치(송장 있고 비선택 모드일 때만; Switch trackColor=accent·색 토큰만)하고 onHideCompleted 핸들러(setState+saveListFilter) 추가. settings.tsx 에선 완료 숨기기 토글 카드·hideCompleted state·onHideCompleted·loadListFilter/saveListFilter import·Switch import·toggleCard 스타일 제거(시작 화면 HOME_OPTIONS 라디오·loadHomePref/saveHomePref 는 유지). 토글 값은 prefs(loadListFilter/saveListFilter) 그대로 영속 — 키·시그니처 무변경(마이그레이션 없음). prefs.ts·filter.ts 미수정. npm run verify green(app 224·worker 174+2todo·harness 51). 시뮬 최종 확인은 사용자 몫(iOS 빌드 미구동).",
+      "completed_at": "2026-06-23T16:10:25+0900"
+    },
+    {
+      "step": 18,
+      "name": "header-safearea",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T16:10:25+0900",
+      "summary": "B2: notifications.tsx·trash.tsx 최상위 SafeAreaView edges={[\"top\"]} → [\"bottom\"] (두 화면 한 줄씩). 원인=top safe-area inset 이중 적용(화면 SafeAreaView edges top + ScreenHeader 내부 paddingTop:insets.top). 수정으로 top inset 책임을 ScreenHeader 단독으로 환원 → register.tsx:142·shipment/[id].tsx:193 의 edges={[\"bottom\"]} 와 통일(확인함). ScreenHeader.tsx 및 그 외 edges/스타일 무수정. npm run verify green(app 224·worker 174+2todo·harness 51). 시뮬 재캡처는 사용자 몫(iOS 빌드 미구동) — 코드 근거로 헤더 위 여백이 register/detail 과 동일 수준.",
+      "completed_at": "2026-06-23T16:12:11+0900"
+    },
+    {
+      "step": 19,
+      "name": "docs-sync",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T16:12:11+0900",
+      "summary": "A1·A2 설계정정의 SoT 동기화(문서만, 코드 무변경). PRD: 대시보드 4카드(예외 흡수·오늘도착 폐기)+의미색·필터 프리셋 없는 카드 라우팅, '6.택배함 완료 숨기기'로 재작성(필터 칩 폐기·토글 설정→택배함 이동), 오늘도착 제안·필터설정·DoD 정정. UI_GUIDE: 화면표(대시보드 4카드·택배함 토글·설정 토글 제거)·대시보드 detail 4카드+색매핑·카드탭 프리셋제거·'필터 칩' 섹션→'완료 숨기기 토글' 섹션 교체·필터 글리프 미사용·섹션헤더 정정. ADR-021: 결정 보존+정정 노트(A1 4카드·예외흡수·dashboardCounts 필드, A2 필터 칩/카드 필터 라우팅 철회[superseded], stageBucket는 dashboardCounts가 계속 사용). ROADMAP: v1.1 Bug Fix 블록(A1·A2·B1·B2)을 '진행 현황'으로 이동·phase 07~11 완료 표기, 예정작업의 중복 v1.1 항목 제거, 배포 전 실호출 스모크 미완 경고 잔존. ADR 번호·이력 보존(append-only). npm run verify green(app 224·worker 174+2todo·harness 51) — 코드 .ts(x) 미수정 확인.",
+      "completed_at": "2026-06-23T16:21:49+0900"
+    },
+    {
+      "step": 20,
+      "name": "dashboard-cards",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T19:22:37+0900",
+      "summary": "dashboard.tsx 빈목록 EmptyState 분기 제거(counts===null?스피너:카드 두 갈래)·EmptyState 컴포넌트+emptyTitle/cta/ctaLabel 스타일 제거·center 유지·catch 폴백(setShipments prev??[]) 유지(주석만 정정). npm run verify green.",
+      "completed_at": "2026-06-23T19:24:28+0900"
+    },
+    {
+      "step": 21,
+      "name": "auto-pick-logic",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T19:24:48+0900",
+      "summary": "carrier.ts 에 autoPickCarrier(후보 1개일 때만 자동선택, ≥2/0 은 null) 추가 + carrier.test.ts 테스트 추가. npm run verify green. (다음 step1 이 register.tsx·공유 CarrierSelect 에서 이 함수를 쓴다.)",
+      "completed_at": "2026-06-23T19:26:14+0900"
+    },
+    {
+      "step": 22,
+      "name": "carrier-select-ui",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T19:26:14+0900",
+      "summary": "src/components/CarrierSelect.tsx 추출(controlled value/onChange/open/onToggleOpen, 추천 순서·'· 추천' 태그·선택 행 accent+Check 보존, export). register.tsx 가 selectedId=picked??autoPickCarrier 로 교체(후보≥2 미선택→null→등록 버튼 비활성+'택배사를 선택하세요') + 모호 진입 시 1회 드롭다운 펼침(prevAmbiguous 상승엣지·무한펼침 방지). 인라인 CarrierList·고아 스타일 제거. npm run verify green(app 229·worker 174+2todo·harness 51).",
+      "completed_at": "2026-06-23T19:30:30+0900"
+    },
+    {
+      "step": 23,
+      "name": "info-transfer",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T19:30:51+0900",
+      "summary": "info.ts 에 transferInfo(old→new id 이관·old 제거·oldId===newId 가드·amount0 보존·1 load/1 save) 추가 + info.test 에 transferInfo 5케이스. npm run verify green. (step1 의 상세 '수정' 재등록이 createShipment 반환 id 로 이 함수를 호출.)",
+      "completed_at": "2026-06-23T19:32:43+0900"
+    },
+    {
+      "step": 24,
+      "name": "detail-edit-reregister",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-23T19:32:43+0900",
+      "summary": "shipment/[id].tsx 헤더 아이콘 2분리(Pencil=운송장 수정/FileText=택배 정보) + 운송장 수정 모달(CarrierSelect·autoPickCarrier 정책 재사용·번호 변경 시 carrierDraft 초기화·고지 카피) + 재등록(POST먼저→transferInfo old→new→DELETE old→router.replace, no-op·created.id===oldId 자기삭제금지·dedupe hit(!isNew) old유지/이관없이 그 상세로·등록실패 시 DELETE 미호출·모달 유지·값 보존·코드 비노출) + icons.tsx FileText 추가. 택배 정보 모달·삭제·타임라인 스크롤·메모 타이틀 회귀 없음. npm run verify green(app 234·worker 174+2todo·harness 51). 외부 경계 실호출·시뮬 재캡처는 사용자 몫.",
+      "completed_at": "2026-06-23T19:39:34+0900"
+    },
+    {
+      "step": 25,
+      "name": "schema-migration",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T21:37:21+0900",
+      "summary": "shipments.webhook_expires_at(INTEGER nullable) ALTER 를 schema.sql·src/schema.ts 1:1 추가, Env 에 WEBHOOK_CALLBACK_SECRET(필수)·WEBHOOK_SIGNING_SECRET?(선택) + .dev.vars 더미, DueRow 에 webhook_expires_at 타입만 추가 — 로직·SELECT 미변경(step1·3·5 소관)",
+      "completed_at": "2026-06-26T21:41:52+0900"
+    },
+    {
+      "step": 26,
+      "name": "decision-logic",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T21:41:52+0900",
+      "summary": "신규 worker/src/lib/webhook.ts(+test) — shouldRegisterWebhook·webhookExpiration(ISO8601 UTC)·reregisterDue + 상수 WEBHOOK_TTL_MS(48h)·REREGISTER_THRESHOLD_MS(24h). 폴백 간격 단일 출처는 polling.ts 에 WEBHOOK_FALLBACK_MS·fallbackInterval 추가하고 webhook.ts 가 re-export(순환 import 회피). isDue 에 선택 4번째 인자 webhookExpiresAt(기본 null·하위호환) 추가해 fallbackInterval 소비 — 등록분 ~12h·NULL 적응형. QA F-1 8단계 전수 테스트 green(test-first)",
+      "completed_at": "2026-06-26T21:46:17+0900"
+    },
+    {
+      "step": 27,
+      "name": "callback-lifecycle-logic",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T21:46:17+0900",
+      "summary": "webhook.ts 에 콜백 순수부 추가(+test-first) — verifyCallbackSecret(상수시간 누산 비교·early-return 없음·빈값 false), shouldRefetchOnCallback(직전 폴링 <60s skip·경계 엄격<·CALLBACK_FRESHNESS_MS=60s), parseCallback(carrierId·trackingNumber 만·여분 무시·누락/타입오류/비객체/빈값 → null). lifecycle.test.ts 에 W11 회귀 잠금 — lifecycleAction 판정이 {stage,createdAt,now} 뿐이고 last_polled_at 에 무관함을 잠가 폴링 분리 sweep 안전성 보증. lifecycleAction 로직 복제 없이 재사용. QA F-1·F-3(W1·W2·W6·W11) green",
+      "completed_at": "2026-06-26T21:52:33+0900"
+    },
+    {
+      "step": 28,
+      "name": "registration",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T21:52:33+0900",
+      "summary": "tracker.ts 에 registerTrackWebhook(flat-arg mutation·{ok:true}·실패 throw) 추가 + 단위테스트(변수 전송·GraphQL오류 throw). index.ts: makeTrackerDeps 단일 deps 경로(fetch.bind(globalThis)·creds 가드)로 tryTrack 리팩터 + scheduleWebhookRegistration(ctx.waitUntil 비차단·실패삼킴) — 현재 행(단계·active·expires) 권위 읽기 후 shouldRegisterWebhook 일 때만 등록·성공 시 webhook_expires_at set. handleCreateShipment 에 ctx 인자+호출 배선, fetch 핸들러 _ctx→ctx. 신규 통합테스트 test/webhook-register.test.ts(createExecutionContext+waitOnExecutionContext+globalThis.fetch 스텁) — 배송출발→1회·set·시크릿경로 / 미등록·배송완료→미호출 / dedupe-hit→미호출·만료불변 / 등록실패→201성공·NULL(폴백). npm run verify green(worker 263+2todo)",
+      "completed_at": "2026-06-26T22:05:34+0900"
+    },
+    {
+      "step": 29,
+      "name": "callback-endpoint",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T22:05:34+0900",
+      "summary": "POST /webhooks/track/<secret> 콜백 수신(ADR-028·029). cron.ts 에서 track→정규화→CAS→전환푸시를 processShipmentUpdate(export·ShipmentUpdateRow) 로 추출해 pollOne·콜백 공용(복제 금지·반환=정규화단계, pollOne 은 선점갱신+fail_count리셋+lifecycle 만 유지). notifyTransition param 을 ShipmentUpdateRow 로 완화. index.ts handleWebhookCallback: Bearer 앞·시크릿경로 게이트(verifyCallbackSecret 불일치 401) → parseCallback(손상/누락 202) → 페이로드 불신(D1 active 송장만, 없으면 202·track 미호출 W1·W12) → 신선도 throttle(직전폴링<60s skip W6) → last_polled_at 선점(동시콜백 dedupe) + ctx.waitUntil(processShipmentUpdate, fetch.bind·실패삼킴 W5) → 1초내 202. dispatch 에 webhooks/track 라우트를 인증 앞 배치(segments 단일화). IP rate limit 미적용(T2). 신규 test/webhook-callback.test.ts 8건(401·미존재·비active·본문오류·전환푸시·중복CAS멱등·신선도skip·track실패202) — 신선도/조용시간이 실시간 Date.now() 의존이라 긴급전환(배송완료)·실시간 lastPolledAt 로 결정적화. npm run verify green(worker 271+2todo).",
+      "completed_at": "2026-06-26T22:17:10+0900"
+    },
+    {
+      "step": 30,
+      "name": "cron-sweeps",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T22:17:11+0900",
+      "summary": "cron 을 신선도 1차에서 유지보수+저빈도 폴백으로 전환(ADR-028). runPollingBatch 를 예산(≤MAX_BATCH·우선순위) 오케스트레이션으로 재구성: ①재등록 sweep(만료<24h active·reregisterDue 단일출처) →②조건부 폴백 pollDue(due SELECT 에 webhook_expires_at 추가, isDue 4번째 인자로 등록분~12h·NULL 적응형 — 드리프트0) →③lifecycle 독립 sweep(폴링 분리·active 전체 스캔, 폴링 뒤·등록 앞 — 갱신단계 읽고 비활성건 등록 제외) →④등록 sweep(active·NULL·등록가능 due무관 등록=즉시마이그레이션+승급W7+실패NULL재시도) →⑤receipt/flush/보존/rate_limits. pollOne 에서 lifecycle 제거(T7·W11). notifyOperational/Check/Lost param 을 최소 구조타입으로 완화. registerWebhook 헬퍼(fetch.bind 된 deps.fetch 재사용·실패삼킴·webhook_expires_at set). cron 콜백 URL origin 부재 해소: Env WEBHOOK_CALLBACK_BASE_URL(var) + wrangler.toml[vars] + ARCHITECTURE 표 동기화(미설정 시 등록 sweep 보류·폴백). 신규 test/webhook-sweeps.test.ts 8건(재등록 임박만/조건부 폴백 due/즉시마이그레이션/등록제외/승급W7/실패재시도W3·W4/lifecycle독립W11/예산우선·이월W10). npm run verify green(app234·worker279+2todo·harness51).",
+      "completed_at": "2026-06-26T22:35:04+0900"
+    },
+    {
+      "step": 31,
+      "name": "smoke-config",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-26T22:35:04+0900",
+      "summary": "운영 배포 + F-4 실호출 스모크 완료(핵심 경계 green). 적용: D1 델타(webhook_expires_at, T8 ALTER만)·WEBHOOK_CALLBACK_SECRET(256bit, 로그 미노출)·BASE_URL 확인·배포(ver bcbee378). 스모크가 실버그 발견 → fix e8bcd1a: registerTrackWebhook 실 스키마는 단일 input:RegisterTrackWebhookInput! 래핑(flat 인자는 Unknown argument→등록0·폴백에 가려짐), 반환 Boolean(introspection 확정). end-to-end 확인: cron 등록 sweep 으로 운영 배송출발 송장 webhook_expires_at=now+48h set. 콜백 보안 라이브 green(잘못된시크릿401·미존재번호202·손상본문202). W7 해소(미등록 번호도 등록 받아줌·true). deregister API 없음(슬롯 회수=48h 자연만료, 설계대로). 미해소(머지 차단 아님·폴백 흡수): 실 상태변화 콜백 수신(수시간~수일 관찰)·서명 헤더 유무·W9 재등록 멱등(목록 API 부재로 API 검증 불가, expires-skip 방어). 문서 반영: ENGINEERING 스모크 확정 사실·QA F-4 결과.",
+      "completed_at": "2026-06-26T23:18:00+0900"
+    },
+    {
+      "step": 32,
+      "name": "inmotion-notify",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-27T00:41:35+0900",
+      "summary": "이동중을 NOTIFYING_STAGES + STAGE_BODY('🚛 상품이 이동을 시작했어요')에 추가 — CAS(prev!==next)로 첫 진입 1회만 발송, 재관측 무발송(추가 상태 없음, ADR-030). 영향받은 통합/E2E 테스트(cron·tracking·lifecycle)를 새 동작으로 갱신, verify green.",
+      "completed_at": "2026-06-27T00:47:24+0900"
+    },
+    {
+      "step": 33,
+      "name": "immediate-delivery",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-27T00:47:24+0900",
+      "summary": "조용시간 폐지(ADR-030) — deliver()를 시각 무관 항상 즉시 발송 + 발송 시점 1회 로깅으로 단순화. 야간 보류 머신 제거(flushQueue·enqueue·FlushRow·FLUSH_SCAN_LIMIT·isQuietHours/isUrgentStage import), quiet.ts/quiet.test.ts 삭제, index.ts notification_queue 정리(음소거·구독해제·steal·deleteMe) 제거(큐 외 동작 보존). notification_queue 테이블은 미사용 deprecated 로 남김(DROP 금지·P-3). 보류/flush 테스트를 즉시 발송으로 재작성, 음소거·CAS·dedupe·전환-only 로깅 보존. ARCHITECTURE/ADR-023 문서 동기화. verify green(worker 272·harness 51).",
+      "completed_at": "2026-06-27T01:06:10+0900"
+    }
+  ]
+}

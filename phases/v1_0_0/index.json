@@ -1,0 +1,332 @@
+{
+  "project": "unboxing",
+  "version": "1.0.0",
+  "created_at": "2026-06-16T17:54:09+0900",
+  "completed_at": "2026-06-17T21:11:54+0900",
+  "steps": [
+    {
+      "step": 0,
+      "name": "schema-evolution",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T17:54:09+0900",
+      "summary": "D1 스키마에 tracker_token·push_tickets 테이블 + shipments 백오프/신선도 컬럼(last_event_time·fail_count·next_retry_at) 추가, 테스트용 단일 출처 src/schema.ts(SCHEMA_STATEMENTS) 신설, Env에 EXPO_ACCESS_TOKEN?·DEMO_TRACKING_NUMBER? optional 확장",
+      "completed_at": "2026-06-16T17:57:49+0900"
+    },
+    {
+      "step": 1,
+      "name": "normalize",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T17:57:49+0900",
+      "summary": "normalize.ts: 원문 status.code → 표준 7단계 코드 상수 맵(STATUS_MAP)으로 정규화. 미매핑→'기타', null/undefined/\"\"→'미등록' 안전 폴백(throw 없음). Stage는 ./polling에서 import. normalize.test.ts로 전수+폴백 검증",
+      "completed_at": "2026-06-16T17:58:44+0900"
+    },
+    {
+      "step": 2,
+      "name": "notify-idempotency",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T17:58:44+0900",
+      "summary": "notify.ts: 순수 알림 트리거 판단. NOTIFYING_STAGES(등록·집화·배송출발·배송완료·예외) Set + shouldNotify(prev,next) — prev===next 재관측은 멱등 false, 무알림 단계(이동중·기타·미등록)로의 전환은 무조건 false, null(첫 관측)→알림단계는 true. Stage는 ./polling에서 import. notify.test.ts로 전환표+멱등+무알림 sweep 검증",
+      "completed_at": "2026-06-16T17:59:52+0900"
+    },
+    {
+      "step": 3,
+      "name": "lifecycle",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T17:59:52+0900",
+      "summary": "lifecycle.ts: 순수 만료/좀비 판단 lifecycleAction({stage,createdAt,now}) → LifecycleAction(keep | deactivate{reason,notify}). 미등록7일·예외7일(notify:false), 분실의심30일(배송완료·예외 제외, notify:true). 경계 now-createdAt>=임계, 7일이 30일보다 우선. SEVEN_DAYS_MS·THIRTY_DAYS_MS 상수, Date.now() 미사용. Stage는 ./polling import. lifecycle.test.ts로 경계·우선순위 고정",
+      "completed_at": "2026-06-16T18:01:15+0900"
+    },
+    {
+      "step": 4,
+      "name": "tracker-client",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T18:01:15+0900",
+      "summary": "tracker.ts: tracker.delivery GraphQL 클라이언트(주입 fetch). TokenStore 추상화 + d1TokenStore(D1 어댑터). getAccessToken은 만료 임박(margin 60s) 시에만 client_credentials 재발급·캐시. graphqlRequest는 에러를 본문 errors[]로 분류(HTTP status 무시), UNAUTHENTICATED면 재발급 후 정확히 1회 재시도. track()은 demoTrackingNumber 일치 시 외부 호출 없이 캔드 결과, carriers()는 지원 목록. timeout 15s(AbortController, 주입 가능). 시크릿/토큰 무로그. tracker.test.ts로 정상 파싱·재인증 1회·캐시·만료·데모 우회·carriers 검증",
+      "completed_at": "2026-06-16T18:06:29+0900"
+    },
+    {
+      "step": 5,
+      "name": "push-pipeline",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T18:06:29+0900",
+      "summary": "push.ts: Expo Push 2단계 파이프라인(주입 fetch). buildMessage(stage,ctx)는 NOTIFYING_STAGES만 PushMessage 생성(title=택배사·끝4자리, body=PRD 단계 문구)·비알림 단계는 null·data.shipment_id 항상 포함. sendPush 배치 ≤100·getReceipts 배치 ≤1000 분할(요청단 한도), ticket 입력 순서 보존. EXPO_ACCESS_TOKEN 있으면 Bearer 헤더(없으면 생략). classifyPushError로 DeviceNotRegistered→DELETE_TOKEN/MessageRateExceeded→RETRY/MessageTooBig→SHRINK/Mismatch·Invalid→ALERT/그외 IGNORE. 토큰삭제·D1 부작용 없음(step7). push_token 무로그. push.test.ts로 100/1000 분할·순서·전수 에러·null·헤더 검증",
+      "completed_at": "2026-06-16T18:10:47+0900"
+    },
+    {
+      "step": 6,
+      "name": "http-api",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T18:10:47+0900",
+      "summary": "index.ts fetch 핸들러에 HTTP API 구현 — POST /devices(upsert), POST /shipments(dedupe ON CONFLICT+구독+즉시1회 track best-effort, 신규201/기존200 멱등), GET /shipments(내 송장만), GET/:id(인가 후 실시간 타임라인·미저장 ADR-011), DELETE/:id(마지막 구독시 orphan 정리), DELETE /me(device+CASCADE+orphan ADR-017). Bearer device_id 인증(없으면 401), 미소유/없음 404 통일, 활성상한 100 초과 429(ADR-008), carrier 형식 409·운송장 ^\\d{9,14}$ 재검증 422. 모든 쿼리 .bind() prepared, device_id/push_token 무로그, 타임라인/수령인 미저장. test/helpers.ts(applySchema·bearer) + test/shipments.test.ts 9케이스(멱등·dedupe·인가404·throttle·삭제·401). vitest.config outboundService로 테스트 외부 실호출 차단. scheduled(cron)은 step7.",
+      "completed_at": "2026-06-16T18:49:51+0900"
+    },
+    {
+      "step": 7,
+      "name": "cron-scheduled",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-16T18:49:51+0900",
+      "summary": "cron.ts: runPollingBatch(env,{now,fetch}) — due 송장 배치 폴링 배선. active=1을 '배송출발' 우선·last_polled_at ASC 정렬 조회 → JS에서 isDue 필터 후 ≤50건만 처리(나머지 이월, subrequest 한도 ADR-012). 건별: last_polled_at=now 선점 갱신 → track(d1TokenStore·주입 fetch) → normalizeStatus → 단계 변경 시 casStage(UPDATE WHERE last_normalized_status IS prev, 영향행=1일 때만 전환 인정 멱등) → shouldNotify면 구독자별 buildMessage→sendPush, ok ticket은 push_tickets 보관·DeviceNotRegistered면 device 삭제 → 배송완료는 알림 후 shipment 삭제(CASCADE, ADR-005) → lifecycleAction로 미등록/예외7일·분실의심30일 active=0(+분실 푸시). 외부 오류는 조용히 백오프(선점 갱신=자연 백오프). index.ts scheduled는 ctx.waitUntil(runPollingBatch)로 얇게 위임. step1~5 모듈 재사용(재구현 없음). test/cron.test.ts 6케이스(isDue 선택·CAS 멱등 재실행 무발송·이동중 무알림·배송완료 후 삭제·30일 비활성·50건 이월) 주입 fetch/now로 결정적.",
+      "completed_at": "2026-06-16T18:57:54+0900"
+    },
+    {
+      "step": 8,
+      "name": "foundation",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T20:24:44+0900",
+      "summary": "expo-router 전환(main=expo-router/entry, app.json scheme=unboxing·userInterfaceStyle=automatic·plugins), app/app/_layout·index 라우트, 시맨틱 토큰 테마 시스템(tokens·resolveTokens·ThemeProvider·useTheme), config.ts(EXPO_PUBLIC_API_URL)·.env.example. App.tsx/index.ts orphan 제거. verify green.",
+      "completed_at": "2026-06-16T20:30:14+0900"
+    },
+    {
+      "step": 9,
+      "name": "device-identity",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T20:30:14+0900",
+      "summary": "app/src/lib/device.ts — SecureStorage 추상화 + generateDeviceId(32바이트/256bit base64url, randomBytes 주입) + getDeviceId(멱등: 저장값 재사용, 없으면 생성·저장) + deviceStorage(expo-secure-store 운영 어댑터). device.test.ts 6 케이스(≥128bit 엔트로피·base64url 문자·결정성·생성저장·멱등재사용). verify green.",
+      "completed_at": "2026-06-16T20:33:44+0900"
+    },
+    {
+      "step": 10,
+      "name": "api-client",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T20:33:44+0900",
+      "summary": "app/src/lib/api.ts — 타입드 Worker API 클라이언트(Stage·Shipment·TimelineEvent·ApiError·ApiDeps). 공통 request()가 Bearer device_id 헤더 부착 + 비-2xx {error,code}/네트워크 throw를 ApiError(code·status)로 정규화. registerDevice·createShipment(201/200 멱등 created 구분)·listShipments·getShipment·deleteShipment·deleteMe. 서버 snake_case→camelCase 매핑. api.test.ts 13 케이스(Bearer 헤더·device_id 비노출·method/path/body·멱등·매핑·에러 정규화·NETWORK), 주입 fetch+getDeviceId mock. verify green.",
+      "completed_at": "2026-06-16T20:36:44+0900"
+    },
+    {
+      "step": 11,
+      "name": "local-cache",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T20:36:44+0900",
+      "summary": "app/src/lib/cache.ts — 오프라인 읽기 캐시(ADR-014). KeyValueStore 추상화 + cacheShipments(list+now)·readCachedShipments(없으면 null)·clearCache·cacheStore(AsyncStorage 운영 어댑터). 목록 Shipment[](비개인 필드만)+cachedAt만 저장, 타임라인은 함수 시그니처상 미캐시(ADR-011), now 주입(Date.now 비호출). cache.test.ts 4 케이스(인메모리 KeyValueStore: 라운드트립·빈캐시 null·clear 후 null·now 주입). AsyncStorage(커뮤니티 모듈)는 jest.setup.js 공식 mock 등록. verify green(app 29 tests).",
+      "completed_at": "2026-06-16T20:40:54+0900"
+    },
+    {
+      "step": 12,
+      "name": "push-setup",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T20:40:54+0900",
+      "summary": "app/src/lib/push.ts — 권한·토큰·채널·딥링크. PushDeps 추상화 + registerForPush(권한 확인→미허용 시 요청→Expo token, 거부면 {denied})·ensureAndroidChannel('배송 상태' 채널, iOS no-op·멱등)·configureForegroundHandler(배너+목록)·addNotificationResponseListener·routeForNotification({shipment_id}→/shipment/{id}, 순수)·운영 pushDeps(expo-notifications, projectId from Constants). usePushNotifications 훅으로 _layout 배선: 포그라운드 핸들러+채널, 콜드스타트 silent 등록(이미 허용 시에만 token 갱신→registerDevice, 팝업 금지), 탭→딥링크 router.push. push_token 무로깅. push.test.ts 8 케이스(정상 매핑 + 7 invalid→null). verify green(app 37 tests).",
+      "completed_at": "2026-06-16T20:50:05+0900"
+    },
+    {
+      "step": 13,
+      "name": "list-detail",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T20:50:05+0900",
+      "summary": "목록/상세 라우트 + 공용 컴포넌트. time.ts(relativeTime '방금'·'N분/시간/일 전'·absoluteKST '+9h 벽시계', now 주입 순수)+10 tests, sort.ts(sortShipments: 배송출발>예외>진행중>완료>비활성, createdAt desc, 비파괴)+3 tests. StageBadge(색 토큰+글리프+한글 라벨, 색단독 금지)·Timeline(세로 점·현재강조·KST 상대+절대, 실시간 events만 ADR-011)·ShipmentCard(PanResponder 좌스와이프 삭제+탭→상세, 단계별 요약, destructive=예외색 텍스트). app/index.tsx 목록: 캐시 우선 렌더→sync, 당겨서 새로고침, 마지막 업데이트, 오프라인 배너, 빈 상태(가치제안+등록 CTA), 낙관적 삭제+Undo 토스트(창 만료 후 서버 반영, 언마운트 flush), useFocusEffect 재동기화. app/shipment/[id].tsx 상세: useLocalSearchParams→캐시로 배지 즉시+getShipment 실시간 타임라인, 당겨서 새로고침, 삭제 Alert 확인, 에러 친근 카피(offline/notfound/unavailable, 코드 비노출). gesture-handler 대신 RN 코어(새 의존성 0). verify green(app 50·worker 82·harness 51).",
+      "completed_at": "2026-06-16T21:01:05+0900"
+    },
+    {
+      "step": 14,
+      "name": "register",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T21:01:05+0900",
+      "summary": "등록 화면 + 순수 택배사 추정. carrier.ts(CARRIERS 국내 8개·id=tracker.delivery carrierId, estimateCarriers: 정규화 자릿수별 후보 순서·미매칭 기본폴백·무효형식 []→tracking.ts 검증 재사용)+5 tests. app/register.tsx: 번호 입력(number-pad·autoFocus)→isValidTrackingNumber 검증→estimateCarriers 후보(추천 먼저)+전체 드롭다운 선택(선택=색+✓, 색단독 금지). 클립보드는 진입 시 1회만 읽어 제안만(자동등록 ❌, iOS 배너 정책). createShipment(selectedId, normalize(input))→성공/멱등 모두 목록 복귀(canGoBack/replace). 에러는 친근 카피 매핑(코드 비노출): 409 unsupported→안내+택배사 조회 딥링크(Linking.openURL), 429 rate·422 invalid·NETWORK/기타 generic, 입력값 보존. 색 토큰만. verify green(app 55·worker 82·harness 51).",
+      "completed_at": "2026-06-16T21:07:38+0900"
+    },
+    {
+      "step": 15,
+      "name": "onboarding-settings",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-16T21:07:38+0900",
+      "summary": "온보딩·설정 화면 + 모든 데이터 삭제 오케스트레이션. wipe.ts(wipeAllData: 서버 DELETE /me → 로컬 clearCache → deleteDeviceId 순, 서버 먼저라 실패 시 로컬 보존·재시도 가능)+2 tests(순서·실패 전파). device.ts에 deleteDeviceId(STORAGE_KEY 캡슐화 유지) 추가. app/onboarding.tsx: 푸시 priming(가치 안내→registerForPush, 허용 시 registerDevice)·'나중에' 스킵·거부 graceful(강제 금지·광고 없음). app/settings.tsx: 알림(권한 상태 표시→미허용 켜기 요청·허용 시 시스템 설정 안내, OS 권한 앱서 못 끔)·테마 시스템/라이트/다크 setPreference(선택=색+✓)·개인정보처리방침 Linking.openURL·모든 데이터 삭제(예외 색·Alert 확인·복구불가 명시→wipeAllData→빈상태 복귀, 실패 친근 카피)·버전(Constants.expoConfig.version). index.tsx 헤더에 설정 진입점 추가. 색 토큰만. verify green(app 57·worker 82·harness 51).",
+      "completed_at": "2026-06-16T21:14:41+0900"
+    },
+    {
+      "step": 16,
+      "name": "qa-scaffold",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T02:35:53+0900",
+      "summary": "E2E 토대 구축 — worker/test/e2e/scenario.ts(지름길 없는 SELF.fetch call 래퍼) + smoke.test.ts(health·해피패스), docs/QA_FINDINGS.md(QA-001 P0 데드락 시드)·QA_TESTPLAN.md 골격. verify green(app 60·worker 84·harness 51).",
+      "completed_at": "2026-06-17T02:44:39+0900"
+    },
+    {
+      "step": 17,
+      "name": "register-flow",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T02:44:39+0900",
+      "summary": "등록 여정 E2E(worker/test/e2e/register.test.ts, 지름길·DB시드 없이 call()만): QA-001 401 데드락 재현+todo, 정상 201·멱등 200·dedupe(1행/구독2)·목록 격리·인가 404·활성상한 429·형식 409/422 검증. 발견 3건 — QA-001(P0 기시드 재확인), QA-002(P2: 형식 유효 미지원 택배사가 409 없이 201→딥링크 폴백 미도달), QA-003(P3: 401 데드락이 앱 generic 카피로 오안내). verify green(app 60·worker 91+2todo·harness 51).",
+      "completed_at": "2026-06-17T02:57:04+0900"
+    },
+    {
+      "step": 18,
+      "name": "tracking-notify",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T02:57:04+0900",
+      "summary": "추적·알림 cron 여정 E2E(worker/test/e2e/tracking.test.ts, 등록은 HTTP call()·폴링은 주입 fetch/now): 미등록→등록→집화→이동중→배송출발→배송완료 단계 진행에서 알림 단계만 1회 발송·재폴링 멱등 무발송·이동중/기타/미등록 무알림·완료 후 shipment 삭제(CASCADE), 배송출발 KST '오늘 도착' 당일/타일 분기, UNAUTHENTICATED 백오프(last_polled_at 원복·fail_count·next_retry·[ALERT] 로깅), receipt sweep(DeviceNotRegistered 토큰·ticket 정리), due 미달 미폴링·청크 ≤50 이월 검증. 발견 3건 — QA-004(P2: 조용시간 미구현, 야간 즉시 발송), QA-005(P3: 알림 그룹화/요약 미구현), QA-006(P3: 푸시 title 에 택배사 id 노출). verify green(app 60·worker 100+5todo·harness 51).",
+      "completed_at": "2026-06-17T03:08:28+0900"
+    },
+    {
+      "step": 19,
+      "name": "lifecycle-privacy",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T03:08:29+0900",
+      "summary": "수명주기·삭제·개인정보 E2E(worker/test/e2e/lifecycle.test.ts, 등록 HTTP call()·폴링 주입 fetch/now) + 정적 감사(grep): 미등록7일·예외7일 active=0·30일 미완료 분실알림(데모번호 제외), DELETE /shipments/:id orphan 정리·타기기 구독시 유지, DELETE /me 완전폐기(device+CASCADE+orphan+토큰)·이후 등록 401·공유송장 유지, 개인정보 비영속(폴링 후 전테이블 덤프에 수령인/description/location 부재). 정적감사 3종 CLEAN(SQLi: 값 전부 .bind / 로그: cron.ts 1곳·민감값 미노출 / 비영속: shipments 쓰기에 PII 컬럼 부재)을 FINDINGS '정적 감사 결과' 표에 기록. 발견 2건 — QA-007(P2: 미등록/예외 7일 비활성 시 '번호 확인' 안내 미발송), QA-008(P3: DELETE /me 후 push_tickets 에 push_token ~15분 잔존). verify green(app 60·worker 110+7todo·harness 51).",
+      "completed_at": "2026-06-17T03:19:10+0900"
+    },
+    {
+      "step": 20,
+      "name": "app-flows",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T03:19:10+0900",
+      "summary": "앱 로직 플로우 QA(app/src/lib/__qa__/flows.test.ts, 주입 mock·여정 단위 조합) + 정적 감사(grep): device_id 영속·재사용(같은 Bearer·생성1회·URL 미포함), 에러 매트릭스 완전성(401/403/404/409/422/429/500/502→ApiError status·code 보존, NETWORK), 오프라인 읽기 라운드트립(api NETWORK→캐시 폴백), wipe 오케스트레이션(서버→캐시→device_id 순·성공시 새 id·서버실패시 로컬보존·재사용), routeForNotification 딥링크, theme resolveTokens+다크 5단계색. 정적감사 5종 CLEAN(안티패턴 0건·하드코딩hex tokens.ts만·색단독금지 StageBadge 색+글리프+라벨·에러코드 비노출·EXPO_PUBLIC URL만)을 FINDINGS '정적 감사 결과(Step 4)' 표에 기록. QA-001 앱측 원인(푸시 토큰 없이 device 등록 익명 경로 부재 — registerDevice push_token 필수·호출처3곳 토큰가드) 확인·연결 기록 + it.todo. verify green(app 76+1todo·worker 110+7todo·harness 51).",
+      "completed_at": "2026-06-17T03:27:10+0900"
+    },
+    {
+      "step": 21,
+      "name": "store-manual",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T03:27:10+0900",
+      "summary": "스토어 준비 감사 + 수동 테스트플랜 + 통합 요약(발견·기록만, 수정/이슈생성 없음). FINDINGS: 스토어 갭 4건 신규 — QA-009(P1: 개인정보처리방침 URL placeholder·제출차단), QA-010(P2: DEMO_TRACKING_NUMBER 미설정으로 데모분기 비활성+리뷰노트 부재), QA-011(P1: App Privacy/Data Safety 신고 초안 부재), QA-012(P2: 앱레벨 Privacy Manifest/클립보드사유 미선언). 인앱 데이터삭제·거래성알림만은 PRESENT/CLEAN. FINDINGS 상단에 통합요약(P0:1·P1:2·P2:5·P3:4=12건, DoD 미충족 매핑, 이슈후보 QA-002~012·QA-001=#3). QA_TESTPLAN 완성: §1 실기기 푸시(iOS/Android priming·허용·수신·딥링크·거부graceful·receipt), §2 화면별 런스루(목록/상세/등록/온보딩/설정·로딩/오프라인/에러·테마/접근성), §3 제출 체크리스트(개인정보URL·데이터삭제·데모/리뷰노트·App Privacy/Data Safety 신고 초안표·Privacy Manifest·플랫폼별). verify green(app 76+1todo·worker 110+7todo·harness 51). phase 완료.",
+      "completed_at": "2026-06-17T03:33:11+0900"
+    },
+    {
+      "step": 22,
+      "name": "register-fix",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T05:22:47+0900",
+      "summary": "기기 등록을 push_token 에서 분리(nullable) — 토큰 없이 POST /devices {platform} + 앱 ensureDeviceRegistered 부트스트랩으로 푸시 거부 사용자 등록 데드락 해소; cron subscriberTokens NULL 토큰 제외(C1) · UNIQUE 충돌 흡수(E1). fixes #3 (#6 자동 해소)",
+      "completed_at": "2026-06-17T05:36:00+0900"
+    },
+    {
+      "step": 23,
+      "name": "carrier-support",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T05:36:00+0900",
+      "summary": "미지원 택배사 409 — worker 에 지원 carrierId 허용집합(SUPPORTED_CARRIERS 8종, 앱 carrier.ts 와 동기화) 추가, 형식만 검사하던 CARRIER_RE 를 대조로 교체. 미지원이면 409 CARRIER_UNSUPPORTED(행 미생성) → 앱 register.tsx 가 이미 409→딥링크 폴백 연결. 등록 핫패스 외부 carriers() 호출 없음(코드 상수). fixes #5",
+      "completed_at": "2026-06-17T05:39:36+0900"
+    },
+    {
+      "step": 24,
+      "name": "lifecycle-notice",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T05:39:36+0900",
+      "summary": "미등록7일 '번호 확인' 안내 1회 — lifecycle 미등록7일 notify:true + cron notifyCheckNumber(fanOut/deliver 중앙 경로 → step3 조용시간 적용 가능, NULL 토큰 제외 재사용). 예외7일은 정책상 안내 생략(이미 예외 푸시 1회 받음 — 과알림 방지). 비활성 후 active=0 → due 아님이라 정확히 1회(재폴링 무재발송). 데모 제외·30일 분실알림 불변. E2E now 주간(KST) 고정. fixes #10",
+      "completed_at": "2026-06-17T05:46:10+0900"
+    },
+    {
+      "step": 25,
+      "name": "quiet-hours",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T05:46:10+0900",
+      "summary": "조용시간(KST 22–08) 야간 보류·아침 묶음 — 순수 헬퍼 quiet.ts(isQuietHours·isUrgentStage) + notification_queue 보류 큐(메시지 스냅샷). cron deliver 가 비긴급·야간이면 큐 적재, 긴급(예외·배송완료)은 즉시; runPollingBatch 주간 fire 가 flushQueue 로 (송장,토큰)당 최신 1건 collapse 발송 후 삭제(≤100/이월). NULL토큰 제외·전환 CAS 멱등 불변. handleDeleteMe 가 push_tickets·notification_queue 의 토큰 사본도 즉시 폐기(ADR-017). 조용시간이 시계를 유의미하게 만들어 cron/E2E now 를 주간 고정(보류 케이스만 야간). fixes #7 #11",
+      "completed_at": "2026-06-17T06:02:53+0900"
+    },
+    {
+      "step": 26,
+      "name": "demo-path",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T06:02:53+0900",
+      "summary": "심사 데모 경로 활성화 — wrangler.toml [vars] DEMO_TRACKING_NUMBER=00000000000000(비밀 아닌 var, 실 운송장·기존 테스트 번호와 비충돌 예약값) 설정으로 tracker.ts 데모 분기가 외부 호출 우회·캔드 타임라인(등록→이동중→배송출발) 반환. 데모 carrier kr.cjlogistics 는 step1 지원목록 통과, 등록은 step0 device ensure 경로 사용. demoResult 주석에 bounded 잔존(M3: 30일 비활성·분실안내 데모가드 제외) 명시 + docs/REVIEW_NOTES.md 작성(심사 제출용 데모 번호·절차·예상 동작). fixes #13",
+      "completed_at": "2026-06-17T06:06:39+0900"
+    },
+    {
+      "step": 27,
+      "name": "store-prep",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-17T06:06:39+0900",
+      "summary": "스토어 제출 준비물 — docs/PRIVACY_POLICY.md(한글 방침: 수집·제3자제공·국외이전·삭제·문의처, ADR-002/005/017/018 일치) + settings.tsx PRIVACY_POLICY_URL 명시 TODO 주석(조용한 placeholder 해소). docs/STORE_PRIVACY_FILING.md(D1 전체 인벤토리 기반 Apple App Privacy·Google Data Safety·PIPA 국외이전 초안, push_token 선택수집·notification_queue 반영). app.json ios.privacyManifests 선언(UserDefaults CA92.1·FileTimestamp C617.1, NSPrivacyTracking:false; 클립보드는 iOS Info.plist 키·required-reason 없어 미추가) + app-config.test.ts JSON sanity(E3). docs/MIGRATION.md(devices.push_token nullable 테이블 재생성·notification_queue 신규 적용 절차). prepares #12 #14 (repo 산출물, 호스팅·콘솔 제출 잔여), fixes #15",
+      "completed_at": "2026-06-17T06:15:44+0900"
+    },
+    {
+      "step": 28,
+      "name": "status-changed-at",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:01:35+0900",
+      "summary": "shipments.status_changed_at(단계 시작 시각) 컬럼 추가 — 등록 시 created_at 초기화·cron CAS(전환+배송완료) 시 이벤트 시각 기록(폴링·백오프엔 미갱신), serializeShipment ?? created_at 폴백 노출. schema.sql↔schema.ts·ARCHITECTURE·ENGINEERING 갱신, cron/shipments/e2e 테스트 추가(verify green).",
+      "completed_at": "2026-06-17T20:09:04+0900"
+    },
+    {
+      "step": 29,
+      "name": "subscription-mute",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:09:04+0900",
+      "summary": "송장별 알림 음소거(per-구독, ADR-020 신설): subscriptions.muted 컬럼 추가(schema.sql↔schema.ts) · cron subscriberTokens 에 AND sub.muted=0(모든 fan-out에서 음소거 구독 제외, CAS 추적은 유지) · PATCH /shipments/:id {muted}(소유 확인·device_id+shipment_id WHERE·레이트리밋 미적용·음소거 시 야간 보류분 정리) · GET 목록/상세에 muted 노출 · ARCHITECTURE/ENGINEERING 갱신 · api·cron 테스트 추가(verify green).",
+      "completed_at": "2026-06-17T20:15:37+0900"
+    },
+    {
+      "step": 30,
+      "name": "recipient-passthrough",
+      "layer": "backend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:15:37+0900",
+      "summary": "상세 페이지 수취인 정보 패스스루(화면 전용·미저장, ADR-005): tracker.ts TRACK_QUERY 에 recipient{name location{name}} 추가(phoneNumber 미수신)·Contact 타입·toContact 헬퍼·TrackResult.recipient·demoResult 캔드 recipient(홍**·서울 강남) · index.ts handleGetShipment 응답에 recipient=result?.recipient??null 패스스루(D1 INSERT/UPDATE·로그 0, 스키마 불변) · ADR-005/ARCHITECTURE/ENGINEERING 갱신 · tracker.test(매핑·빈값 undefined·데모)·shipments.test(recipient 키·null·데모 패스스루 미저장) 추가(verify green).",
+      "completed_at": "2026-06-17T20:23:03+0900"
+    },
+    {
+      "step": 31,
+      "name": "svg-icons",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:26:00+0900",
+      "summary": "react-native-svg@15.15.4 직접 의존성 추가 + SVG 라인 아이콘 세트(app/src/components/icons/icons.tsx, 배럴 index.ts): 네비/액션 ChevronLeft·Plus·Trash·Bell·BellOff·Gear·Package, 단계 글리프 Clock·DotSmall·Truck·CheckCircle·AlertTriangle (공통 IconProps{size,color,strokeWidth,a11y}, 색은 prop 주입·hex 하드코딩 없음). StageBadge 의 텍스트 글리프(○•▸✓!)를 SVG 아이콘으로 교체(색+SVG+라벨 유지, 아이콘 a11y 숨김). jest-expo peer dep @react-native/jest-preset@0.85.3 devDep 명시(expo install 부작용 복원). verify green(app 84·worker 147+2todo·harness 51).",
+      "completed_at": "2026-06-17T20:31:56+0900"
+    },
+    {
+      "step": 32,
+      "name": "navigation",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:31:56+0900",
+      "summary": "라우트 트리 재편 + 헤더 정리 + phase05 api 계약. (1) 하단 탭 app/app/(tabs)/_layout.tsx(Tabs, headerShown:false, tabBarActive/Inactive=text.primary/secondary, tabBarStyle bg.surface/border): index→'택배함'(Package), settings→'설정'(Gear) — index.tsx·settings.tsx를 (tabs)/로 이동(상대 import ../→../../, settings는 헤더 제거로 edges top). (2) 루트 _layout.tsx에 RootStack: 화면=(tabs)(headerShown:false)·shipment/[id]·register·onboarding, screenOptions로 headerTitle:()=>null·headerBackVisible:false·headerLeft=ChevronLeft(router.back, a11y '뒤로')·headerShadowVisible:false — 각 화면의 <Stack.Screen title> 전부 제거(Stack import 정리). (3) api.ts: Shipment에 statusChangedAt:number(?? createdAt 폴백)·muted:boolean(?? false), interface Contact{name?,regionName?}, getShipment 반환에 recipient:Contact|null 추가, 신규 muteShipment(id,muted,deps):Promise<void>=PATCH /shipments/:id {muted}. 라우트: 탭 / ·/settings, 스택 /shipment/[id]·/register·/onboarding(딥링크 routeForNotification '/shipment/:id' 유지). verify green(app 89·worker 147+2todo·harness 51).",
+      "completed_at": "2026-06-17T20:43:12+0900"
+    },
+    {
+      "step": 33,
+      "name": "home-page",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:43:12+0900",
+      "summary": "택배함(목록) 화면 개편. (1) react-native-gesture-handler@2.31.2 직접 의존성 승격 + 루트 _layout.tsx 를 GestureHandlerRootView(flex:1)로 감쌈. (2) 헤더: 우상단 '설정' 텍스트 → Plus 아이콘 버튼(router.push('/register'), a11y '운송장 추가', iconBtn padding 으로 터치≥44). (3) ShipmentCard 재작성: 끝4자리→운송장 전체번호(잘림 없이 줄바꿈 허용), 상대시간 소스 createdAt→statusChangedAt, muted 시 BellOff 아이콘+a11y '알림 꺼짐'. PanResponder→gesture-handler legacy Swipeable(reanimated 불필요) 양방향: 좌스와이프=renderRightActions 삭제·우스와이프=renderLeftActions 음소거. 첫 스와이프는 버튼 노출만(openedRef), 버튼 탭 또는 같은 방향 추가 스와이프(onSwipeableOpen 재발화) 시 실행. 삭제=낙관+Undo(확인 다이얼로그 없음), 음소거=낙관 토글+실패 롤백+notice 토스트. reduce motion 시 overshoot off. (4) 멀티선택: 새 순수 모듈 selection.ts(toggleSelected·selectAll·allSelected·pruneSelected)+selection.test.ts(9). 롱프레스 진입(selectionMode=selectedIds.size>0 파생), 카드 탭=선택 토글·스와이프 비활성·체크박스(Check 아이콘 신규). 헤더 'N개 선택'·전체선택·취소·일괄삭제(확인 다이얼로그·Undo 없음·Promise.allSettled 부분실패 복원·404 멱등 성공). (5) sync 시 pruneSelected 로 허상 선택 제거, 선택 진입 시 flushPending. 정렬·오프라인·캐시·당겨서 새로고침 보존. UI_GUIDE '송장 카드 해부'·'인터랙션' 갱신(좌=삭제/우=음소거·노출후 실행·전체번호·멀티선택). verify green(app 98·worker 147+2todo·harness 51).",
+      "completed_at": "2026-06-17T20:56:36+0900"
+    },
+    {
+      "step": 34,
+      "name": "detail-page",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-17T20:56:36+0900",
+      "summary": "배송 상세 화면 개편 — 단계 진행 인디케이터·현재 상태 문구·수취인 패스스루. (1) 순수 모듈 app/src/lib/stage.ts(신규): stageProgress(stage)→{index,track:'normal'|'exception'|'pre'}(등록=0…배송완료=4, 미등록·기타=pre/index-1, 예외=exception/index-1 — off-track 선형 매핑 금지) + STAGE_PROGRESS_STEPS(5단계) + STAGE_SUMMARY(ShipmentCard 에서 이전, 재사용) · stage.test.ts(5). (2) StageProgress.tsx(신규): happy-path 5단계 가로 스텝퍼 — 지난=채움 점·현재=stage 색+SVG 글리프(STAGE_META 재사용)+굵은 라벨·이후=빈 점, pre=전부 비활성, exception=AlertTriangle 배지+흐린 바. 색 단독 금지(색+글리프+라벨), 스텝은 a11y 숨기고 컨테이너 라벨 '배송 단계: {단계}, {i+1}/5' 단일 announce. (3) time.ts: absoluteKSTLong(number|string)→'M월 D일 (요일) HH:mm'(KST 한글요일, 파싱불가 '') + time.test.ts(요일·자정/정오 경계·KST변환·패딩·파싱실패, 7). (4) StageBadge: STAGE_META·StageColorKey export. ShipmentCard: 로컬 STAGE_SUMMARY 제거→lib/stage import. (5) shipment/[id].tsx: 인디케이터(캐시 stage로도 그림·오프라인 포함)+현재 상태 한 줄(최신 이벤트 시각·설명, 없으면 status_changed_at·STAGE_SUMMARY 폴백, 실시간 ok 일 때만)+받는 분 섹션(recipient name/regionName, 화면 state 한정 미저장·캐시·로그 금지 ADR-005, null/빈 값 숨김). 기존 분기(offline/notfound/unavailable·삭제·당겨서 새로고침) 보존. verify green(app 110·worker 147+2todo·harness 51).",
+      "completed_at": "2026-06-17T21:06:02+0900"
+    },
+    {
+      "step": 35,
+      "name": "settings-privacy",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-17T21:06:02+0900",
+      "summary": "설정 탭 정리 + 개인정보처리방침 인앱 화면(+호스팅 URL 병행). (1) ChevronRight 아이콘 추가(icons.tsx, 미러 path M9 18l6-6-6-6). (2) PRIVACY_POLICY_URL 을 settings 로컬 상수 → src/config.ts 단일 출처로 이동(미배포 placeholder TODO 주석 유지, #12). (3) 신규 src/content/privacyPolicy.ts: docs/PRIVACY_POLICY.md(SoT) 를 구조화 데이터(title·effectiveDate·lastUpdated·intro·sections[heading,body[]])로 번들 — 표는 '항목 — 설명' 줄로 평문화(의미 동일), 상단 '출처·변경 시 함께 갱신' 주석. (4) 신규 app/app/privacy.tsx(stack 화면): 번들 방침 Text 렌더(ScrollView·토큰 색·lineHeight 23) + 하단 '웹에서 보기' 링크(Linking.openURL(PRIVACY_POLICY_URL), 실패 조용히) — 오프라인에도 본문 항상 열림. 루트 _layout.tsx Stack 에 privacy 등록(헤더 title 없음·아이콘 뒤로가기). (5) settings.tsx: 개인정보처리방침 행 Linking.openURL → router.push('/privacy')(role link→button), OS 글리프 전면 SVG 교체 — 알림 행 '시스템 설정 ›/켜기 ›'→텍스트+ChevronRight(rowEnd), 테마 선택 ✓→Check, 방침 행 ›→ChevronRight(아이콘 a11y 숨김). 알림/테마/데이터삭제/버전 로직 불변. grep [›✓✕▾▴] settings·privacy 비어있음. verify green(app 110·worker 147+2todo·harness 51).",
+      "completed_at": "2026-06-17T21:11:54+0900"
+    }
+  ]
+}

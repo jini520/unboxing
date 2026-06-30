@@ -1,82 +1,12 @@
 {
   "phases": [
     {
-      "dir": "01-backend-v0-mvp-worker",
-      "status": "completed",
-      "completed_at": "2026-06-16T18:57:54+0900"
-    },
-    {
-      "dir": "02-ui-v0-mvp-app",
-      "status": "completed",
-      "completed_at": "2026-06-16T21:14:41+0900"
-    },
-    {
-      "dir": "03-qa-v0-mvp-audit",
-      "status": "completed",
-      "completed_at": "2026-06-17T03:33:11+0900"
-    },
-    {
-      "dir": "04-qa-v0-mvp-fixes",
-      "status": "completed",
-      "completed_at": "2026-06-17T06:15:44+0900"
-    },
-    {
-      "dir": "05-backend-v0-redesign-data",
-      "status": "completed",
-      "completed_at": "2026-06-17T20:23:03+0900"
-    },
-    {
-      "dir": "06-ui-v0-redesign-pages",
+      "dir": "v1_0_0",
       "status": "completed",
       "completed_at": "2026-06-17T21:11:54+0900"
     },
     {
-      "dir": "07-backend-v0-v11-notifications",
-      "status": "completed",
-      "completed_at": "2026-06-23T03:55:21+0900"
-    },
-    {
-      "dir": "08-ui-v0-v11-logic",
-      "status": "completed",
-      "completed_at": "2026-06-23T04:21:42+0900"
-    },
-    {
-      "dir": "09-ui-v0-v11-screens",
-      "status": "completed",
-      "completed_at": "2026-06-23T06:22:48+0900"
-    },
-    {
-      "dir": "10-qa-v0-v11-release",
-      "status": "completed",
-      "completed_at": "2026-06-23T06:27:15+0900"
-    },
-    {
-      "dir": "11-qa-v0-v11-fixes",
-      "status": "completed",
-      "completed_at": "2026-06-23T16:21:49+0900"
-    },
-    {
-      "dir": "12-qa-v0-v11-dashboard-empty",
-      "status": "completed",
-      "completed_at": "2026-06-23T19:24:28+0900"
-    },
-    {
-      "dir": "13-qa-v0-v11-carrier-select",
-      "status": "completed",
-      "completed_at": "2026-06-23T19:30:30+0900"
-    },
-    {
-      "dir": "14-qa-v0-v11-detail-edit",
-      "status": "completed",
-      "completed_at": "2026-06-23T19:39:35+0900"
-    },
-    {
-      "dir": "15-backend-v0-webhook-first",
-      "status": "completed",
-      "completed_at": "2026-06-26T23:18:00+0900"
-    },
-    {
-      "dir": "16-backend-v0-notif-immediate",
+      "dir": "v1_1_0",
       "status": "completed",
       "completed_at": "2026-06-27T01:06:10+0900"
     }

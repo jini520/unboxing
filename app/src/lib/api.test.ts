@@ -196,7 +196,7 @@ describe("getShipment", () => {
   });
 });
 
-describe("phase 05 필드 매핑 (status_changed_at·muted·recipient)", () => {
+describe("v1_0_0 step 28~30 필드 매핑 (status_changed_at·muted·recipient)", () => {
   it("status_changed_at·muted 가 있으면 그대로 매핑한다", async () => {
     const d = deps(
       res(200, {
