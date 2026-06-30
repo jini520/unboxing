@@ -124,13 +124,14 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["top"]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* 페이지 제목 + 설명 — 택배함과 동일한 스타일. */}
+      {/* 페이지 제목 + 설명 — 스크롤 영역 밖 고정(택배함과 동일 패턴·토큰, ADR-033). 스크롤돼 사라지지 않음. */}
+      <View style={styles.header}>
         <Text style={[styles.title, { color: tokens.text.primary }]}>설정</Text>
         <Text style={[styles.pageDesc, { color: tokens.text.secondary }]}>
           알림과 테마를 관리해요
         </Text>
-
+      </View>
+      <ScrollView contentContainerStyle={styles.content}>
         {/* 알림 */}
         <Text style={[styles.section, { color: tokens.text.secondary }]}>알림</Text>
         <Pressable
@@ -259,8 +260,10 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  // 택배함 헤더와 동일한 상단 위치(paddingTop 8) — 제목/설명 위치 일치.
-  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.lg },
+  // 고정 헤더(스크롤 밖) — 택배함 header 와 동일 토큰(ADR-033).
+  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xs },
+  // 스크롤 콘텐츠 — 제목/설명이 헤더로 빠져 paddingTop 제거(첫 섹션의 marginTop 이 간격 담당).
+  content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
   // 페이지 제목 + 설명 — 택배함 헤더와 동일.
   title: { fontSize: fontSize.display1, fontWeight: fontWeight.semibold },
   pageDesc: { fontSize: fontSize.footnote, lineHeight: 19, marginTop: 10 },

@@ -7,7 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -32,6 +35,7 @@ import { autoPickCarrier, carrierName, estimateCarriers } from "../../src/lib/ca
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../../src/lib/tracking";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
 import { defaultMemoText } from "../../src/lib/memo";
+import { displayRecipientName } from "../../src/lib/recipient";
 import { CATEGORIES, getInfo, infoStore, setInfo, transferInfo } from "../../src/lib/info";
 import { formatAmount, parseAmount } from "../../src/lib/amount";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
@@ -283,6 +287,9 @@ export default function DetailScreen() {
   // 헤더 타이틀 = 메모(없으면 등록일 기반 default). 일반 페이지 제목처럼 택배사·번호 줄 위에 보여준다(사용자 요구).
   const headerTitle = memo || (shipment ? defaultMemoText(shipment.createdAt) : undefined);
 
+  // 수취인 표시 게이트(ADR-032): 식별 가능한 이름만 표시(라벨·완전마스킹은 숨김). 미저장 패스스루(ADR-005) — 표시 전용.
+  const recipientName = displayRecipientName(recipient?.name);
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: tokens.bg.page }]} edges={["bottom"]}>
       <ScreenHeader
@@ -320,12 +327,12 @@ export default function DetailScreen() {
               <Text style={[styles.meta, { color: tokens.text.secondary }]} numberOfLines={1}>
                 {carrierName(shipment.carrier)} · {shipment.trackingNo}
               </Text>
-              {recipient?.name ? (
+              {recipientName ? (
                 <Text
                   style={[styles.recipientInline, { color: tokens.text.secondary }]}
                   numberOfLines={1}
                 >
-                  받는 분 {recipient.name}
+                  받는 분 {recipientName}
                 </Text>
               ) : null}
             </View>
@@ -389,7 +396,12 @@ export default function DetailScreen() {
 
       {/* 택배 정보 편집 모달 — 헤더 연필로만 진입(본문 인라인 박스 없음·회귀 락). 메모+카테고리+금액(모두 로컬 전용·ADR-024). */}
       <Modal visible={infoModal} transparent animationType="fade" onRequestClose={() => setInfoModal(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setInfoModal(false)}>
+        {/* 바깥 탭 = 키보드만 접기(닫기 아님 — ADR-034 회귀 락). 카드는 KeyboardAvoidingView 로 키보드 회피(P-9). */}
+        <Pressable style={styles.modalBackdrop} onPress={() => Keyboard.dismiss()}>
+          <KeyboardAvoidingView
+            behavior={Platform.select({ ios: "padding", android: "height" })}
+            style={styles.modalAvoider}
+          >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
             <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>택배 정보</Text>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
@@ -499,12 +511,18 @@ export default function DetailScreen() {
               </Pressable>
             </View>
           </Pressable>
+          </KeyboardAvoidingView>
         </Pressable>
       </Modal>
 
       {/* 운송장 수정 모달 — 택배사·번호 편집(헤더 연필 진입). 저장 = 재등록(ADR-027, 새 서버 엔드포인트 없음). */}
       <Modal visible={editModal} transparent animationType="fade" onRequestClose={() => setEditModal(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setEditModal(false)}>
+        {/* 바깥 탭 = 키보드만 접기(닫기 아님 — ADR-034 회귀 락). 카드는 KeyboardAvoidingView 로 키보드 회피(P-9). */}
+        <Pressable style={styles.modalBackdrop} onPress={() => Keyboard.dismiss()}>
+          <KeyboardAvoidingView
+            behavior={Platform.select({ ios: "padding", android: "height" })}
+            style={styles.modalAvoider}
+          >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
             <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>운송장 수정</Text>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
@@ -574,6 +592,7 @@ export default function DetailScreen() {
               </Pressable>
             </View>
           </Pressable>
+          </KeyboardAvoidingView>
         </Pressable>
       </Modal>
     </SafeAreaView>
@@ -615,7 +634,9 @@ const styles = StyleSheet.create({
   editInput: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: fontSize.base },
   editNotice: { fontSize: fontSize.footnote, marginTop: spacing.lg },
   memoInput: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: fontSize.callout, minHeight: 80 },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", paddingHorizontal: spacing.xl },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  // 카드 래퍼 — 중앙 정렬·좌우 패딩을 여기에 두어, KeyboardAvoidingView 가 키보드 높이만큼 줄인 영역 안에서 카드가 위로 재중앙된다(P-9).
+  modalAvoider: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl },
   modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   modalTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
   // 필드가 길어질 수 있어(메모+카테고리 칩+금액) 내부 스크롤 — 작은 화면·키보드에서도 액션 버튼이 가려지지 않게.

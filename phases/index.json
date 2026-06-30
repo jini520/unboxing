@@ -12,7 +12,8 @@
     },
     {
       "dir": "v1_1_1",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-06-30T10:32:44+0900"
     }
   ]
 }
