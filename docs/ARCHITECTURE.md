@@ -367,6 +367,39 @@ unboxing/
 - `migrateMemosToInfo()` 는 **bootstrap 에서 1회**(목록·info 첫 읽기 전) 멱등 실행. 신규 로컬 키(휴지통·읽음·시작화면·필터)는 기본-빈값이라 트리거 불필요.
 - `wipeAllData` 는 **신규 로컬 키 전부**(`shipment_info`·`trash`·`notif_last_seen`·`home_screen`·`list_filter`) + 기존(cache·device_id·memo 잔여) + 서버 `DELETE /me`(→`notifications` 정리)를 폐기. 누락 시 잔존 데이터 — 회귀 금지.
 
+## v1.1.2 — 구매 캡처 분석 파이프라인 (기능 아키텍처)
+
+> 구매내역 캡처 → 택배 정보(메모·금액·카테고리) 자동 채움. 결정 → `ADR.md` ADR-036~039. 핵심 불변: **이미지·PII는 기기를 안 떠남**(외부엔 마스킹 텍스트만)·**$0 서버**(요청 시 실행)·**D1 미저장**(ADR-005).
+
+```
+[캡처 이미지] (기기)
+   │  expo-image-picker 로 선택
+   ▼
+① 온디바이스 OCR  ── iOS Apple Vision / Android ML Kit (무료·한국어)
+   │  텍스트 + 읽기순서        ※ 이미지가 기기를 안 떠남
+   ▼
+② PII 마스킹  ── 클라이언트 순수함수 (app/src/lib · 다층 방어 ADR-038)
+   │  구간 제거 + 패턴 + 잔존 PII 게이트 → 마스킹된 텍스트만
+   ▼  (HTTPS)
+③ 분류  ── Worker POST /classify-purchase → env.AI.run("@cf/openai/gpt-oss-120b")
+   │  { productName, price, category∈CATEGORIES } JSON
+   ▼
+④ 매핑·자동채움  ── ShipmentInfo(memo←상품명·amount←가격·category) → 기존 setInfo (로컬·D1 미저장)
+   ▼
+[편집 가능한 초안] 모달에서 수정 → 저장
+```
+
+| 단계 | 위치 | 책임 | 실패 시 |
+|---|---|---|---|
+| ① OCR | 기기 | 이미지→텍스트(읽기순서) | 0줄 → "인식 실패, 다시 촬영" |
+| ② 마스킹 | 기기(클라) | PII 제거 후에만 전송(다층·과삭제) | 잔존 PII 게이트 0건 단언(test) |
+| ③ 분류 | Worker(요청 시) | 텍스트→구조화 JSON | 타임아웃/한도/JSON 깨짐 → 카테고리 미분류 + 직접 입력 폴백 |
+| ④ 매핑 | 기기(클라) | LLM 출력→ShipmentInfo(카테고리 9종 강제) | 매핑 실패 필드는 빈값(직접 입력) |
+
+- **신규 서버 표면은 `POST /classify-purchase` 단 하나** + `wrangler.toml [ai]` 바인딩(`binding="AI"`). 나머지(OCR·마스킹·매핑)는 전부 클라이언트. 상시 서버 아님 → $0 유지.
+- **무료 한도**: Workers AI 10k neuron/day(앱 전체 공유), 건당 ≈39 → ≈250건/일. 초과 시 캡처 분석 일시중단·직접 입력 폴백(ADR-037). 단가 초과 과금 금지(추후 재검토).
+- **출력 매핑**(`app/src/lib`): memo←상품명(100자), amount←가격(`parseAmount` 0≤n<10^10), category←카테고리(`CATEGORIES` 강제). 송장 ID 변경 시 기존 `transferInfo` 적용.
+
 ## 보안 & 공개 API 남용 방어
 
 - **시크릿**: tracker.delivery 자격증명·서명키는 `wrangler secret`. 코드/로그/리포지토리에 평문 금지.
