@@ -33,7 +33,10 @@
       "step": 3,
       "name": "verify-release",
       "layer": "qa",
-      "status": "pending"
+      "status": "completed",
+      "summary": "npm run verify green(app 240·worker 277+2todo·harness 51) — 버전 범프 후 재확인. app/app.json version 1.1.0→1.1.1(ADR-035 패치 라인). iOS buildNumber·Android versionCode 키 없음(eas appVersionSource:remote 자동 증가)이라 생략. 외부 경계 스모크 2건(#1 수취인 마스킹 게이트 ADR-032·#4 키보드 회피 모달 P-9)은 ENGINEERING 실호출 체크리스트(line 141·142)에 이미 존재·미수행 — 실기기/실 운송장 의존이라 이 세션 실행 불가, 사용자 수행 필요(머지·배포 전 1회).",
+      "started_at": "2026-06-30T10:30:49+0900",
+      "completed_at": "2026-06-30T10:33:00+0900"
     }
   ],
   "created_at": "2026-06-30T10:23:16+0900"
