@@ -129,7 +129,14 @@ export default function RegisterScreen() {
       if (await shouldPrimePush()) {
         // 첫 등록 직후(가치 시점)에 푸시 미허용이면 온보딩(priming)으로 유도 — PRD 권한 온보딩. 1회만.
         // 이걸 안 하면 신규 사용자는 권한 팝업을 못 봐 '앱이 꺼져 있어도 푸시'가 동작하지 않는다.
-        await AsyncStorage.setItem(PRIMED_KEY, "1");
+        // PRIMED_KEY 영속은 **best-effort**(ADR-043 개정·코드리뷰 #5): 등록은 이미 성공했으므로
+        // setItem 이 throw 해도 catch 로 떨어뜨려 "등록 실패"로 오인하지 않고 온보딩으로 진행한다
+        // (priming 은 다음 등록에 다시 시도될 수 있음).
+        try {
+          await AsyncStorage.setItem(PRIMED_KEY, "1");
+        } catch {
+          // 영속 실패는 무시 — 등록은 이미 성공. priming 네비게이션은 그대로 진행.
+        }
         router.replace("/onboarding"); // 온보딩이 끝나면 목록으로 돌아간다.
         return;
       }
