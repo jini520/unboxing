@@ -69,7 +69,9 @@ function reregisterErrorCopy(e: unknown): string {
 }
 
 export default function DetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // openInfo="1" 이면 mount 시 "택배 정보" 모달을 1회 자동오픈한다(등록 후 정보입력 — ADR-043).
+  // 별칭(openInfoParam)으로 받는다 — 아래 openInfo 콜백과 이름 충돌 회피.
+  const { id, openInfo: openInfoParam } = useLocalSearchParams<{ id: string; openInfo?: string }>();
   const { tokens } = useTheme();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [timeline, setTimeline] = useState<TimelineState>({ kind: "loading" });
@@ -111,6 +113,15 @@ export default function DetailScreen() {
       active = false;
     };
   }, [id]);
+
+  // openInfo="1" 딥링크(등록 후 정보입력 — ADR-043)면 mount 시 "택배 정보" 모달을 1회만 자동오픈한다.
+  // consumed ref 로 1회 가드(재오픈 루프 방지). param 을 다시 쓰지 않으므로 URL 정리는 불필요.
+  const openInfoConsumed = useRef(false);
+  useEffect(() => {
+    if (openInfoConsumed.current || openInfoParam !== "1") return;
+    openInfoConsumed.current = true;
+    setInfoModal(true);
+  }, [openInfoParam]);
 
   const openInfo = useCallback(() => {
     setMemoDraft(memo);
