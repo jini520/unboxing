@@ -36,7 +36,7 @@
       "status": "completed",
       "started_at": "2026-06-30T12:19:19+0900",
       "summary": "캡처로 채우기 — 택배 정보 모달에 버튼 추가·파이프라인 와이어(ADR-036~039). 네이티브: expo-image-picker(~56.0.18·config plugin photosPermission KR)·@react-native-ml-kit/text-recognition(^2.0.0·한국어 TextRecognitionScript.KOREAN·RN0.85 peer·TS소스·autolinking, dev build 리빌드 필요). capture.ts(coverage 제외)=이미지선택+OCR→텍스트만 반환(이미지 기기이탈 금지 ADR-036). [id].tsx onCaptureFill: ①capturePurchaseText ②maskPurchaseText(마스킹 텍스트만 전송) ③classifyPurchase(api 신규+test 3케이스) ④mapClassificationToInfo→드래프트 자동채움(매핑 필드만·편집가능). 폴백: 취소 조용·OCR0줄/실패/503 Alert·직접입력 유지(흐름 안멈춤). Camera 아이콘 추가. ⚠️단계적 표시(상품·가격 먼저/카테고리 비동기)는 step-0 엔드포인트가 3필드 1콜로 반환($0·neuron)이라 단일 '분석 중' 인디케이터로 축소(2콜 회피). verify green(app 269+coverage·worker 300+2todo·harness 51). 실 OCR·picker·분류 호출은 외부경계라 step 4 스모크.",
-      "completed_at": "2026-06-30T12:30:22+0900"
+      "completed_at": "2026-06-30T12:31:25+0900"
     },
     {
       "step": 4,
