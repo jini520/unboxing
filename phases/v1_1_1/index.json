@@ -2,9 +2,32 @@
   "project": "unboxing",
   "version": "1.1.1",
   "steps": [
-    { "step": 0, "name": "recipient-gate", "layer": "frontend", "status": "pending" },
-    { "step": 1, "name": "detail-screen", "layer": "frontend", "status": "pending" },
-    { "step": 2, "name": "settings-header", "layer": "frontend", "status": "pending" },
-    { "step": 3, "name": "verify-release", "layer": "qa", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "recipient-gate",
+      "layer": "frontend",
+      "status": "completed",
+      "summary": "app/src/lib/recipient.ts 순수함수 displayRecipientName 신규(test-first) — 빈/공백·플레이스홀더 denylist(받는 분 등 8종)·완전마스킹(***) 숨김, 부분마스킹(김**)·실명 표시(ADR-032). recipient.test.ts 6케이스 green, worker 무변경.",
+      "started_at": "2026-06-30T10:23:16+0900"
+    },
+    {
+      "step": 1,
+      "name": "detail-screen",
+      "layer": "frontend",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "settings-header",
+      "layer": "frontend",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "verify-release",
+      "layer": "qa",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-30T10:23:16+0900"
 }
