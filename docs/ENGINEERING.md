@@ -116,6 +116,13 @@
 - **함정**: 네이티브 모듈이라 **JS만 바꿔선 반영 안 됨** — `expo prebuild`/dev build/EAS **리빌드 필요**(Expo Go·OTA ❌, P-7·P-9·P-11 부류 "빌드/런타임 네이티브"). autolinking 은 `expo-module.config.json`(`modules: ["OcrModule"]` / `expo.modules.ocr.OcrModule`)으로 연결. `app/ios/`·`app/android/` 산출물 직접 편집 금지(P-7).
 - **왜 `verify` 가 못 잡나**: 네이티브 OCR·picker 는 jest/typecheck 와 무관(`capture.ts` 는 coverage 제외 — push.ts 패턴). **dev build 로 한국어 스크린샷 → 캡처 → 텍스트 인식 + 마스킹 누출 0** 1회 스모크로만 확인. mock `verify` green 은 이 경계를 보증하지 않는다.
 
+## P-11. Expo: 로케일 선언(`expo-localization` supportedLocales)은 네이티브 리빌드 필요 + `app.json` 단일 출처 (v1.1.3)
+
+- **증상**: iOS 텍스트 선택 컨텍스트 메뉴(복사/붙여넣기/전체 선택)·시스템 다이얼로그가 **한국 기기에서도 영어로** 표시. 원인 = `app.json` 에 로케일 선언이 전무(`CFBundleLocalizations`/`CFBundleDevelopmentRegion`/`locales` 부재) → iOS 가 base(영어)로 시스템 제공 UI 를 그림.
+- **수정**: `app.json` plugins 에 `["expo-localization", { "supportedLocales": { "ios": ["ko", "en"], "android": ["ko", "en"] } }]` 추가. → iOS `CFBundleLocalizations` 에 `ko` 등록 → 시스템 UI 가 기기 언어(한국어)를 따름. 앱 자체 문자열은 이미 한국어 하드코딩이라 **런타임 i18n 라이브러리 불요**(시스템 UI 로케일만 문제였음). (ADR-044)
+- **함정**: config plugin 변경이라 **JS만 바꿔선 반영 안 됨** — `expo prebuild`/dev build/EAS **네이티브 리빌드 필요**(Expo Go·OTA ❌). `app/ios/Info.plist` 를 손으로 고치지 말 것 — prebuild 산출물이라 재생성으로 사라진다(P-7). **`app.json` 이 단일 출처**.
+- **왜 `verify` 가 못 잡나**: 네이티브 빌드 산출물이라 jest/typecheck 와 무관(P-6·P-7·P-9 부류 "빌드/런타임 네이티브"). **리빌드 후 한국어 기기/시뮬에서 long-press 편집 메뉴 한국어** 1회 스모크로만 확인.
+
 ## webhook 구현 함정 (설계로 선제 차단 — 구현 시 스모크 검증)
 
 > 아직 미구현이라 "발생한 버그"는 아니나, ADR-028/029 설계가 **선제로 피한 함정**을 박아 둔다(재발 방지 == 구현 전 차단). 전부 **mock `verify` 가 못 잡고**(외부 경계) 실호출/런타임에서만 드러난다 → `docs/QA.md` §F-4 스모크로 확인.
