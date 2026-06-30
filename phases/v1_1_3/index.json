@@ -99,7 +99,7 @@
       "layer": "frontend",
       "started_at": "2026-06-30T23:41:17+0900",
       "summary": "shipment/[id].tsx 로드 효과의 무조건 draft 미러 제거(live state만 set + infoLoaded 플래그) → prefillDrafts 헬퍼로 prefill 일원화. #4 자동오픈(openInfo=1)을 infoLoaded 게이트 후 prefill·오픈으로 지연 — 열린 모달의 사용자 입력을 늦은 getInfo() resolve 가 덮는 레이스 차단(ADR-046 개정·P-12 F4). 헤더 openInfo 재-prefill·캡처 자동채움·서버/D1 불변. verify green.",
-      "completed_at": "2026-06-30T23:43:52+0900"
+      "completed_at": "2026-06-30T23:44:13+0900"
     },
     {
       "step": 11,
