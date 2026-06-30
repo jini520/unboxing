@@ -4,11 +4,13 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-ml-kit/text-recognition": "^2.0.0",
     "expo": "~56.0.12",
     "expo-clipboard": "~56.0.4",
     "expo-constants": "~56.0.18",
     "expo-crypto": "~56.0.4",
     "expo-haptics": "~56.0.3",
+    "expo-image-picker": "~56.0.18",
     "expo-linking": "~56.0.14",
     "expo-notifications": "~56.0.18",
     "expo-router": "~56.2.11",
@@ -51,6 +53,7 @@
       "!src/lib/push.ts",
       "!src/lib/usePushNotifications.ts",
       "!src/lib/deps.ts",
+      "!src/lib/capture.ts",
       "!**/*.test.ts",
       "!**/__qa__/**"
     ],

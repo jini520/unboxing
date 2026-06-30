@@ -210,6 +210,16 @@ export function FileText({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconP
   );
 }
 
+/** 카메라(캡처) — 택배 정보 모달 "캡처로 채우기" 버튼 글리프(v1.1.2). 주문 상세 스크린샷 선택. */
+export function Camera({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
+  return (
+    <Svg {...rootProps(size, color, strokeWidth)} {...a11y}>
+      <Path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <Circle cx="12" cy="13" r="4" />
+    </Svg>
+  );
+}
+
 /** 복구(반시계 회전 화살표) — 휴지통 항목 되살리기. UI_GUIDE 신규 글리프 ArrowCounterClockwise/Restore. */
 export function Restore({ size = 20, color, strokeWidth = 1.5, ...a11y }: IconProps) {
   return (

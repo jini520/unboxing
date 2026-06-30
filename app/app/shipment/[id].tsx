@@ -23,6 +23,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ApiError,
+  classifyPurchase,
   createShipment,
   deleteShipment,
   getShipment,
@@ -31,6 +32,9 @@ import {
   type TimelineEvent,
 } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
+import { capturePurchaseText } from "../../src/lib/capture";
+import { maskPurchaseText } from "../../src/lib/purchaseMask";
+import { mapClassificationToInfo } from "../../src/lib/purchase";
 import { autoPickCarrier, carrierName, estimateCarriers } from "../../src/lib/carrier";
 import { isValidTrackingNumber, normalizeTrackingNumber } from "../../src/lib/tracking";
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
@@ -42,7 +46,7 @@ import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { CarrierSelect } from "../../src/components/CarrierSelect";
-import { FileText, Pencil } from "../../src/components/icons";
+import { Camera, FileText, Pencil } from "../../src/components/icons";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -82,6 +86,8 @@ export default function DetailScreen() {
   const [memoDraft, setMemoDraft] = useState("");
   const [categoryDraft, setCategoryDraft] = useState<string | undefined>(undefined);
   const [amountDraft, setAmountDraft] = useState("");
+  // 캡처로 채우기 진행중(이미지 선택→OCR→분류) — 버튼 비활성·스피너. 캡처는 보조라 직접 입력은 그대로(ADR-039).
+  const [capturing, setCapturing] = useState(false);
   const deleting = useRef(false);
   // 운송장 "수정"(택배사·번호) 모달 — 택배 정보 모달과 별개(헤더 연필 진입). 저장 = 재등록(ADR-027).
   // carrierDraft = 명시 선택(picked) — 번호 변경 시 null 로 비워 autoPickCarrier 정책(ADR-026)이 다시 적용되게 한다.
@@ -131,6 +137,34 @@ export default function DetailScreen() {
       );
     setInfoModal(false);
   }, [id, memoDraft, categoryDraft, amountDraft, amountInvalid]);
+
+  // ── 캡처로 채우기(v1.1.2) — 직접 입력의 **보조**(ADR-039). 모달 드래프트를 자동 채움(편집 가능). ──
+  // 파이프라인: ① 이미지 선택+OCR(기기 내) → ② 마스킹(PII 제거) → ③ 분류(마스킹 텍스트만 전송) → ④ 매핑.
+  // 어느 단계가 실패해도 직접 입력·저장 흐름은 안 멈춘다(폴백 안내만). 이미지·원문 PII 는 기기를 안 떠난다(ADR-036).
+  const onCaptureFill = useCallback(async () => {
+    if (capturing) return;
+    setCapturing(true);
+    try {
+      const cap = await capturePurchaseText(); // ① 이미지 선택 + 온디바이스 OCR
+      if (cap.kind === "canceled") return; // 사용자 취소 — 조용히
+      if (cap.kind === "empty") {
+        Alert.alert("글자를 인식하지 못했어요", "주문 상세가 잘 보이게 다시 촬영해 주세요.");
+        return;
+      }
+      const masked = maskPurchaseText(cap.text); // ② PII 마스킹 — 외부엔 마스킹 텍스트만(ADR-038·005)
+      const result = await classifyPurchase(masked, apiDeps); // ③ 분류(Worker, 요청 시)
+      const mapped = mapClassificationToInfo(result); // ④ 검증 통과 필드만 매핑(CATEGORIES 강제·금액 검증)
+      // 드래프트 자동 채움 — 매핑된 필드만 덮어쓴다(미분류/미인식 필드는 사용자 입력 보존). 확정 아닌 편집 초안.
+      if (mapped.memo !== undefined) setMemoDraft(mapped.memo);
+      if (mapped.amount !== undefined) setAmountDraft(String(mapped.amount));
+      if (mapped.category !== undefined) setCategoryDraft(mapped.category);
+    } catch {
+      // OCR 실패·분류 503(한도초과·타임아웃)·네트워크 등 — 직접 입력 폴백(흐름 유지). 원문·에러 미로그(ADR-005).
+      Alert.alert("지금은 캡처로 채울 수 없어요", "직접 입력해 주세요.");
+    } finally {
+      setCapturing(false);
+    }
+  }, [capturing]);
 
   // ── 운송장 수정(택배사·번호) = 재등록(ADR-027) ────────────────
   const openEdit = useCallback(() => {
@@ -404,6 +438,24 @@ export default function DetailScreen() {
           >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
             <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>택배 정보</Text>
+            {/* 캡처로 채우기 — 직접 입력의 보조(ADR-039). 주문 상세 스크린샷 → OCR·마스킹·분류 → 아래 필드 자동 채움(편집 가능). */}
+            <Pressable
+              onPress={() => void onCaptureFill()}
+              disabled={capturing}
+              style={[styles.captureBtn, { borderColor: tokens.accent, opacity: capturing ? 0.6 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="캡처로 채우기"
+              accessibilityState={{ disabled: capturing, busy: capturing }}
+            >
+              {capturing ? (
+                <ActivityIndicator size="small" color={tokens.accent} />
+              ) : (
+                <Camera size={18} color={tokens.accent} />
+              )}
+              <Text style={[styles.captureLabel, { color: tokens.accent }]}>
+                {capturing ? "분석 중…" : "캡처로 채우기"}
+              </Text>
+            </Pressable>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* 메모 — 기존 textarea 동작 보존. 빈 메모는 저장 시 memo 필드 삭제(setInfo 계약). */}
               <Text style={[styles.fieldLabel, { color: tokens.text.secondary }]}>메모</Text>
@@ -639,6 +691,17 @@ const styles = StyleSheet.create({
   modalAvoider: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl },
   modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   modalTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  // 캡처로 채우기 버튼 — accent 보더의 보조 액션(채움 아님·outline). 직접 입력과 병행이라 강조 과하지 않게.
+  captureBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: 10,
+  },
+  captureLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
   // 필드가 길어질 수 있어(메모+카테고리 칩+금액) 내부 스크롤 — 작은 화면·키보드에서도 액션 버튼이 가려지지 않게.
   modalScroll: { maxHeight: 360 },
   fieldLabel: { fontSize: fontSize.footnote, fontWeight: fontWeight.medium, marginBottom: spacing.sm },

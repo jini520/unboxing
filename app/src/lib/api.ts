@@ -243,6 +243,34 @@ export async function deleteShipment(id: string, deps: ApiDeps): Promise<void> {
   await request(`/shipments/${encodeURIComponent(id)}`, { method: "DELETE" }, deps);
 }
 
+/**
+ * 구매 캡처 분류 결과(POST /classify-purchase, v1.1.2 · ADR-036~039). 서버가 이미 이 형태로 응답.
+ * 앱은 purchase.ts mapClassificationToInfo 로 ShipmentInfo(memo←productName·amount←price·category)에 매핑한다.
+ * price 는 0 이상 정수 또는 null, category 는 CATEGORIES 9종 또는 null(미분류).
+ */
+export interface PurchaseClassification {
+  productName: string;
+  price: number | null;
+  category: string | null;
+}
+
+/**
+ * POST /classify-purchase — **마스킹된 텍스트만** 전송(이미지·원문 PII 미전송 — ADR-036·038). 서버는 요청 시 실행($0).
+ * 실패(503 한도초과·타임아웃·네트워크)는 ApiError 로 던져 호출부가 "직접 입력" 폴백(ADR-037). 결과는 D1 미저장(ADR-005).
+ */
+export async function classifyPurchase(
+  text: string,
+  deps: ApiDeps,
+): Promise<PurchaseClassification> {
+  const res = await request("/classify-purchase", { method: "POST", body: { text } }, deps);
+  const body = (await res.json()) as Partial<PurchaseClassification>;
+  return {
+    productName: typeof body.productName === "string" ? body.productName : "",
+    price: typeof body.price === "number" ? body.price : null,
+    category: typeof body.category === "string" ? body.category : null,
+  };
+}
+
 /** DELETE /me — 모든 데이터 삭제(204, ADR-017). */
 export async function deleteMe(deps: ApiDeps): Promise<void> {
   await request("/me", { method: "DELETE" }, deps);

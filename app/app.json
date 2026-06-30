@@ -63,6 +63,12 @@
           "resizeMode": "contain",
           "backgroundColor": "#1b68eb"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "주문 상세 캡처를 분석해 택배 정보를 자동으로 채우기 위해 사진을 선택합니다."
+        }
       ]
     ],
     "extra": {

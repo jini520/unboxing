@@ -9,6 +9,7 @@ import {
   deleteShipment,
   deleteMe,
   muteShipment,
+  classifyPurchase,
   ApiError,
   type ApiDeps,
 } from "./api";
@@ -253,6 +254,31 @@ describe("deleteShipment / deleteMe", () => {
     await expect(deleteMe(d)).resolves.toBeUndefined();
     expect(d.calls[0].url).toBe(`${BASE}/me`);
     expect(d.calls[0].init.method).toBe("DELETE");
+  });
+});
+
+describe("classifyPurchase (v1.1.2 구매 캡처 분류)", () => {
+  it("POST /classify-purchase · body{text}(마스킹 텍스트) · 결과 반환", async () => {
+    const d = deps(res(200, { productName: "백팩", price: 60190, category: "의류·패션" }));
+    const out = await classifyPurchase("마스킹된 주문내역 텍스트", d);
+    expect(d.calls[0].url).toBe(`${BASE}/classify-purchase`);
+    expect(d.calls[0].init.method).toBe("POST");
+    expect(JSON.parse(d.calls[0].init.body as string)).toEqual({ text: "마스킹된 주문내역 텍스트" });
+    expect(out).toEqual({ productName: "백팩", price: 60190, category: "의류·패션" });
+  });
+
+  it("price·category 누락/비정상 타입 → null, productName 누락 → '' (방어)", async () => {
+    const d = deps(res(200, { price: "60190", category: 5 }));
+    const out = await classifyPurchase("text", d);
+    expect(out).toEqual({ productName: "", price: null, category: null });
+  });
+
+  it("503(한도초과·타임아웃) → ApiError (호출부가 직접 입력 폴백)", async () => {
+    const d = deps(res(503, { error: "지금은 분석할 수 없어요", code: "CLASSIFY_UNAVAILABLE" }));
+    await expect(classifyPurchase("text", d)).rejects.toMatchObject({
+      code: "CLASSIFY_UNAVAILABLE",
+      status: 503,
+    });
   });
 });
 
