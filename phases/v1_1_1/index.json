@@ -18,7 +18,7 @@
       "status": "completed",
       "summary": "app/shipment/[id].tsx 수정 — (#1) 수취인 라인을 displayRecipientName 게이트 경유로 렌더(직접 recipient?.name 렌더 제거·ADR-032), (#3) 두 모달 backdrop onPress 를 setModal(false)→Keyboard.dismiss() 로 변경(취소·Android 뒤로만 닫힘·ADR-034), (#4) 두 모달 카드를 KeyboardAvoidingView(iOS padding/Android height)로 감싸고 중앙정렬·좌우패딩을 modalAvoider 로 이동(P-9). npm run verify green(app 240·worker 277·harness 51). 실기기 키보드 회피·바깥탭 스모크는 step 3 으로 남김.",
       "started_at": "2026-06-30T10:25:14+0900",
-      "completed_at": "2026-06-30T10:28:40+0900"
+      "completed_at": "2026-06-30T10:29:15+0900"
     },
     {
       "step": 2,
