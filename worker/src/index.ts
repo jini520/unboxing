@@ -15,6 +15,12 @@ import {
   shouldRefetchOnCallback,
   parseCallback,
 } from "./lib/webhook";
+import {
+  buildClassifyPrompt,
+  parseClassifyResponse,
+  CLASSIFY_MODEL,
+  type ClassifyResult,
+} from "./lib/classify";
 import { track, registerTrackWebhook, d1TokenStore, type TrackResult, type TrackerDeps } from "./tracker";
 import { runPollingBatch, processShipmentUpdate } from "./cron";
 // 개인정보처리방침 공개 페이지(GET /privacy)는 인앱 화면과 동일한 구조화 데이터를 재사용한다(사본 증가 방지).
@@ -39,6 +45,11 @@ export interface Env {
    * 미설정이면 cron 등록 sweep 보류(폴백 폴링이 흡수). POST /shipments 즉시 등록은 request origin 을 쓰므로 무관.
    */
   WEBHOOK_CALLBACK_BASE_URL?: string;
+  /**
+   * Workers AI 바인딩 — 구매 캡처 분류(@cf/openai/gpt-oss-120b, v1.1.2 ADR-037).
+   * 요청 시 실행(상시 서버 아님 → $0). wrangler.toml [ai] binding="AI". 입력/출력은 D1 미저장(ADR-005).
+   */
+  AI: Ai;
 }
 
 /** 디바이스당 활성 구독 상한 (ADR-008 남용 방어). 초과 시 429. */
@@ -69,6 +80,10 @@ const EXPO_TOKEN_RE = /^Expo(nent)?PushToken\[[^\]]+\]$/;
 /** GET /notifications limit — 기본 100, 상한 200(과도한 응답·메모리 방지, ADR-023). */
 const NOTIFICATIONS_LIMIT_DEFAULT = 100;
 const NOTIFICATIONS_LIMIT_MAX = 200;
+/** POST /classify-purchase 입력 텍스트 상한 — OCR 텍스트는 수백자 규모. 과대 입력 neuron 낭비 차단($0, ADR-037). */
+const CLASSIFY_TEXT_MAX = 4000;
+/** Workers AI 호출 타임아웃(ms) — 초과 시 폴백(직접 입력). 실측 ~3.2s(ADR-036). */
+const CLASSIFY_TIMEOUT_MS = 12_000;
 
 interface ShipmentRow {
   id: string;
@@ -723,6 +738,55 @@ async function handleDeleteMe(env: Env, deviceId: string): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
+/**
+ * POST /classify-purchase — 구매 캡처 분류(v1.1.2, ADR-036~039).
+ * 입력: **마스킹된 텍스트만** `{ text }` (이미지·원문 PII 미수용 — PII 는 기기를 안 떠남, ADR-038·005).
+ * 처리: env.AI.run("@cf/openai/gpt-oss-120b", buildClassifyPrompt) → content → parseClassifyResponse.
+ * 출력: `{ productName, price, category }` (category 는 9종 또는 null, price 는 0 이상 정수 또는 null).
+ *
+ * $0·폴백(ADR-037): AI 호출 실패(한도 초과·타임아웃·네트워크)는 **크래시 아닌 503**(앱이 "직접 입력" 폴백).
+ * JSON 깨짐은 parseClassifyResponse 가 안전 폴백(category null) → 200. **입력/출력 D1 미저장**(ADR-005) — 로그도 금지.
+ */
+async function handleClassifyPurchase(request: Request, env: Env): Promise<Response> {
+  await enforceIpRateLimit(env, request); // $0 남용 방어(ADR-008·037) — 기존 IP throttle 재사용.
+  const body = await parseBody(request);
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) throw new ApiError(400, "INVALID_BODY", "분석할 텍스트가 필요해요");
+  if (text.length > CLASSIFY_TEXT_MAX) {
+    throw new ApiError(400, "INVALID_BODY", "텍스트가 너무 길어요");
+  }
+
+  let raw: string;
+  try {
+    const out = await env.AI.run(CLASSIFY_MODEL, buildClassifyPrompt(text), {
+      signal: AbortSignal.timeout(CLASSIFY_TIMEOUT_MS),
+    });
+    raw = extractAiContent(out);
+  } catch {
+    // 한도 초과·타임아웃·네트워크 등 — 등록 흐름과 무관한 보조 기능이라 503 으로 graceful(앱이 직접 입력 폴백).
+    // 입력 텍스트(잔여 PII 가능)·에러 상세는 로그하지 않는다(ADR-005·038).
+    throw new ApiError(503, "CLASSIFY_UNAVAILABLE", "지금은 분석할 수 없어요. 직접 입력해 주세요");
+  }
+  const result: ClassifyResult = parseClassifyResponse(raw);
+  return Response.json(result);
+}
+
+/** Workers AI 응답(chat-completions / responses 호환)에서 텍스트 content 추출. 없으면 "" → 안전 폴백. */
+function extractAiContent(out: unknown): string {
+  if (out !== null && typeof out === "object") {
+    const o = out as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+      output_text?: string;
+      response?: string;
+    };
+    const content = o.choices?.[0]?.message?.content;
+    if (typeof content === "string") return content;
+    if (typeof o.output_text === "string") return o.output_text;
+    if (typeof o.response === "string") return o.response;
+  }
+  return "";
+}
+
 // ── 개인정보처리방침 공개 페이지 (Play/App Store 심사용 공개 URL) ──────────────
 // 본문은 app/src/content/privacyPolicy.ts(인앱 화면과 동일 데이터)를 그대로 렌더한다.
 // SoT: docs/PRIVACY_POLICY.md → privacyPolicy.ts → 여기. 사본을 늘리지 않는다.
@@ -819,6 +883,11 @@ export default {
       }
       if (pathname === "/notifications" && method === "GET") {
         return await handleListNotifications(env, requireDeviceId(request), url);
+      }
+      // 구매 캡처 분류(v1.1.2) — 마스킹 텍스트 → {productName,price,category}. device_id 인증·IP throttle.
+      if (pathname === "/classify-purchase" && method === "POST") {
+        requireDeviceId(request);
+        return await handleClassifyPurchase(request, env);
       }
 
       if (segments.length === 2 && segments[0] === "shipments") {

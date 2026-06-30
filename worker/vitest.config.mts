@@ -6,6 +6,11 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.toml" },
+      // CRITICAL: AI 바인딩([ai], v1.1.2)은 remote-only — remoteBindings(기본 true)면 테스트 풀이
+      // wrangler 원격 프록시 세션을 띄우려 하고, Cloudflare 인증이 없는 CI 에선 worker 테스트 전체가
+      // "No credentials found" 로 시작조차 못 한다. 테스트는 env.AI.run 을 호출하지 않으므로(실호출은
+      // step 4 외부 경계 스모크) 원격 바인딩을 끈다. AI binding 은 로컬 placeholder 로만 존재.
+      remoteBindings: false,
       // 테스트는 외부(tracker.delivery 등) 실호출을 하지 않는다(프로젝트 규칙) —
       // Worker 의 모든 outbound fetch 를 차단한다. 즉시 1회 track 은 best-effort 라
       // 차단돼도 등록은 그대로 진행된다(미등록 상태로 생성).
