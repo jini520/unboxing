@@ -124,6 +124,16 @@
 - **함정 2 (실측 2026-06-30·CRITICAL)**: **기존 `ios/` 가 이미 있으면 비-clean prebuild(`expo run:ios` 내부 sync)가 `Info.plist` 에 `CFBundleLocalizations` 를 안 넣는다** — plugin·deps 다 있어도 `CFBundleDevelopmentRegion` 만 남고 로케일 누락 → 편집 메뉴 영어 그대로. **`npx expo prebuild --clean -p ios` 로 `ios/` 재생성해야** `CFBundleLocalizations=[ko,en]` 가 들어간다(확인). EAS 는 클린 빌드라 무관 — 로컬 시뮬 검증 시에만 `--clean` 필수.
 - **왜 `verify` 가 못 잡나**: 네이티브 빌드 산출물이라 jest/typecheck 와 무관(P-6·P-7·P-9 부류 "빌드/런타임 네이티브"). **리빌드 후 한국어 기기/시뮬에서 long-press 편집 메뉴 한국어** 1회 스모크로만 확인.
 
+## P-12. RN: 비동기 UI 파이프라인 상태머신의 4대 함정 — 재진입·언마운트·탈출구·draft 레이스 (v1.1.3 코드리뷰)
+
+> 캡처 분석(picker→OCR→분류) 같이 **여러 await 를 가로지르며 화면 상태를 켜고/끄는** 흐름(`onCaptureFill` + ramp/hold effect + 자동오픈 모달)에서 step 0~9 구현이 모두 밟은 부류. mock `verify` 는 전부 green(타이밍·네이티브·언마운트는 jest 무관) — **dev build 수동 스모크로만** 드러난다. ADR-045 개정3·ADR-046 개정·ADR-043 개정에 결정.
+
+- **F1. 재진입 가드는 `useState` 파생이 아니라 동기 `ref` 로(#2)** — busy 플래그를 `captureStage`(setState) 에서 파생하면 **그 stage 를 켜기 전 await 구간(예: picker 표시 전)에 두 번째 탭이 가드를 통과**한다. 같은 파일 `saveEdit` 의 `saving.current` 처럼 **핸들러 진입 즉시 set 하는 ref** 로 막는다. "setState 는 비동기라 다음 탭이 stale false 를 본다"가 핵심.
+- **F2. async 핸들러엔 `active` ref 언마운트 가드(#6)** — effect cleanup(`[]`)은 **이미 in-flight 인 async 함수가 await 재개 후 만드는 타이머/`setState`** 를 못 잡는다(cleanup 이 먼저 돌고, resolve 가 나중에 새 타이머 생성 → orphan). 함수 안 await 마다 `if (!active.current) return`. React 18 에선 setState 무해하나 타이머는 진짜 누수.
+- **F3. 전체화면 오버레이는 탈출구를 같이 덮는다(#3)** — `position:absolute` 로 카드를 덮는 진행 오버레이는 ✕·취소·back 도 가린다. 뒤에서 도는 네트워크에 **타임아웃이 없으면**(`request()` 는 주입 `fetch` 그대로) 사용자가 갇힌다. **모달 닫기(✕·`onRequestClose`·취소) = 파이프라인 취소(`clearCapture`)** 로 묶어라 — 안 그러면 모달만 숨고 파이프라인이 계속 돌아 **닫힌 모달 위로 폴백 `Alert`** 이 뜬다.
+- **F4. 비동기 로드가 "열린 모달의 사용자 입력"을 덮는 레이스(#1)** — mount 시 **동기로 모달을 열고**(autoFocus 로 즉시 타이핑) 별도 effect 가 **비동기 로드 후 draft 를 set** 하면, 로드가 늦게 resolve 될 때 사용자가 친 글자를 덮는다. draft 는 **오픈 시점에만** 채우고(자동오픈은 로드 완료까지 `setInfoModal(true)` 지연), **열린 뒤엔 비동기 로드가 draft 를 건드리지 않게** 한다.
+- **왜 `verify` 가 못 잡나**: 더블탭·언마운트·네트워크 지연·로드↔타이핑 경합은 전부 **타이밍/런타임**이라 mock 단위테스트 무관(P-9·P-11 부류). **dev build 수동 스모크**(아래 체크리스트 #7)로만 확인.
+
 ## webhook 구현 함정 (설계로 선제 차단 — 구현 시 스모크 검증)
 
 > 아직 미구현이라 "발생한 버그"는 아니나, ADR-028/029 설계가 **선제로 피한 함정**을 박아 둔다(재발 방지 == 구현 전 차단). 전부 **mock `verify` 가 못 잡고**(외부 경계) 실호출/런타임에서만 드러난다 → `docs/QA.md` §F-4 스모크로 확인.
@@ -159,6 +169,7 @@
 3. **Expo Push**(가능 시): 실제 토큰 1건으로 발송/리시트 경로 확인.
 4. **로컬 D1**: `schema.sql` 과 로컬 스키마 일치(P-3).
 5. **webhook(도입 시 — ADR-028/029, → `docs/QA.md` §F-4)**: ① `registerTrackWebhook` 실호출 — 반환값·`expirationTime` 48h 수락·**최대 TTL**·**재등록이 중복 생성인지 갱신인지**(T4) ② **미등록(이벤트 0) 번호 등록 가부**(T5) ③ 실 상태 변화 시 `/webhooks/track/<secret>` 콜백 **실제 수신**·페이로드 형태·**서명 헤더 유무** ④ **위조 콜백 차단**(잘못된 시크릿/임의 번호 무시) ⑤ **deregister API 존재 여부**(슬롯 회수). `registerTrackWebhook` 도 `fetch.bind(globalThis)`(T1·P-1).
+7. **(v1.1.3 코드리뷰 수정 — P-12) dev build 스모크**: ① **#1 draft 레이스** — 신규 등록 → "입력" 자동오픈 모달에서 **즉시 메모를 타이핑** → 친 글자가 잠시 뒤 사라지지 않는지(저사양/콜드 기기에서 반복). ② **#2 재진입** — "캡처로 채우기" **빠른 더블탭** → picker 2개·헛된 "캡처로 채울 수 없어요" 안 뜨는지. ③ **#3 탈출구** — 분류 중(또는 비행기모드로 지연시켜) **✕·안드로이드 back** 으로 오버레이가 닫히고 닫은 뒤 폴백 `Alert` 이 따로 안 뜨는지. ④ **#4 FAB 가림** — 목록/대시보드를 **끝까지 스크롤** → 마지막 카드의 칩·운송장번호·탭이 FAB 에 안 가리는지. ⑤ **#6 언마운트** — 분류 중 화면을 벗어났다 돌아와도 잔여 타이머/깜빡임 없는지. (전부 jest 무관·런타임 네이티브.)
 
 ## 설계(step) 단계 규칙
 
