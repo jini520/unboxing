@@ -1,0 +1,11 @@
+{
+  "project": "unboxing",
+  "version": "1.1.2",
+  "steps": [
+    { "step": 0, "name": "classify-endpoint", "layer": "backend", "status": "pending" },
+    { "step": 1, "name": "pii-mask", "layer": "frontend", "status": "pending" },
+    { "step": 2, "name": "purchase-fill", "layer": "frontend", "status": "pending" },
+    { "step": 3, "name": "capture-ux", "layer": "frontend", "status": "pending" },
+    { "step": 4, "name": "smoke-release", "layer": "qa", "status": "pending" }
+  ]
+}
