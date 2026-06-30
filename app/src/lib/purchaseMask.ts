@@ -48,18 +48,24 @@ const POSTCODE = /\b\d{5}\b/;
 const CARD = /\d{4,6}\*{4,}\d{0,4}/;
 // 행정구역(특별시·광역시·…시/도/군/구) + 도로명(…로/…길/번길) 동시면 주소로 본다.
 const ADMIN = /특별시|광역시|특별자치시|특별자치도|[가-힣]+시|[가-힣]+도|[가-힣]+군|[가-힣]+구/;
-const ROAD = /[가-힣]+(?:대로|로|길)|번길/;
+// 도로명: 로/길 뒤에 건물번호(숫자)가 와야 주소로 본다 — "바로 구매하기" 같은 로-끝 일반어 오탐 방지(실측 보강).
+const ROAD = /[가-힣]{2,}(?:대로|로|길)\s*\d|\d+\s*번길/;
 // 상세주소(동·호) 패턴.
 const DONG_HO = /\d+\s*동|\d+\s*호/;
+// 건물·동 조각 — 헤더 없는 몰에서 주소가 여러 줄로 쪼개질 때(실측 쿠팡 "비산동, 뷰티하우스)").
+const BUILDING = /아파트|빌라|연립|오피스텔|맨션|빌딩|타워|팰리스|캐슬|하우스/;
+// 마스킹된 수령인 이름(라벨·헤더 없는 줄 — "제·명"·"홍*동"·"김**"). 카테고리(`도서·문구` 등 4자+)와 길이로 구분.
+const MASKED_NAME = /^[가-힣][·•・*][가-힣*]$|^[가-힣]\*{1,2}$/;
 
 const isAddressLine = (line: string): boolean =>
-  (ADMIN.test(line) && ROAD.test(line)) || DONG_HO.test(line);
+  (ADMIN.test(line) && ROAD.test(line)) || DONG_HO.test(line) || BUILDING.test(line);
 
 const isPiiLine = (line: string): boolean =>
   PHONE_PATTERNS.some((re) => re.test(line)) ||
   EMAIL.test(line) ||
   CARD.test(line) ||
   POSTCODE.test(line) ||
+  MASKED_NAME.test(line.trim()) ||
   isAddressLine(line);
 
 /**
@@ -93,7 +99,7 @@ export function maskPurchaseText(ocrText: string): string {
   return afterSection.filter((line) => !isPiiLine(line)).join("\n");
 }
 
-const GATE_PATTERNS: RegExp[] = [...PHONE_PATTERNS, EMAIL, POSTCODE, ROAD];
+const GATE_PATTERNS: RegExp[] = [...PHONE_PATTERNS, EMAIL, POSTCODE, ROAD, BUILDING];
 
 /**
  * 마스킹 결과에 남은 PII 의심 패턴(전화·이메일·우편번호·도로명)을 모아 반환한다.

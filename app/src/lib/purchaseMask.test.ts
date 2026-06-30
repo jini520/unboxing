@@ -132,3 +132,43 @@ describe("detectResidualPII — 패턴 직접 검증", () => {
     expect(detectResidualPII("2026년 신상 가디건\n₩25,707")).toEqual([]);
   });
 });
+
+// 실측 OCR(2026-06-30 3몰)에서 합성 fixture 가 놓친 케이스 — 회귀 락(ADR-038). PII 는 전부 합성.
+describe("maskPurchaseText — 실측 보강 회귀", () => {
+  it("로-끝 일반어('바로 구매하기')는 도로명 오탐이 아니라 보존한다", () => {
+    const out = maskPurchaseText("마크 백팩\n60,190원\n바로 구매하기\n장바구니 담기");
+    expect(out).toContain("바로 구매하기");
+    expect(out).toContain("백팩");
+    expect(detectResidualPII(out)).toEqual([]);
+  });
+
+  it("도로명은 건물번호(숫자)가 있어야 주소로 본다(로-끝 일반어 오탐 방지)", () => {
+    expect(detectResidualPII("바로 구매하기")).toEqual([]);
+    expect(detectResidualPII("새로 나온 신상")).toEqual([]);
+    expect(detectResidualPII("테헤란로 123").length).toBeGreaterThan(0);
+  });
+
+  it("헤더 없는 몰(쿠팡형): 마스킹된 이름·동/건물 조각을 제거한다", () => {
+    const coupang = [
+      "총 결제금액",
+      "27,230 원",
+      "카드영수증 보기",
+      "홍*동",
+      "(06234) 서울특별시 강남구 테헤란로 123 202동 101호",
+      "비산동, 뷰티하우스)",
+      "010***5678",
+      "강화유리 액정보호필름 4p 세트",
+    ].join("\n");
+    const out = maskPurchaseText(coupang);
+    expect(out).not.toContain("홍*동");
+    expect(out).not.toContain("뷰티하우스");
+    expect(out).not.toContain("010***5678");
+    expect(out).toContain("액정보호필름");
+    expect(out).toContain("27,230");
+    expect(detectResidualPII(out)).toEqual([]);
+  });
+
+  it("카테고리(`도서·문구`)는 마스킹 이름으로 오인하지 않는다", () => {
+    expect(maskPurchaseText("도서·문구 노트")).toContain("도서·문구");
+  });
+});
