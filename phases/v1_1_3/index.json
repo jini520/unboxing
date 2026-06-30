@@ -144,7 +144,7 @@
       "layer": "qa",
       "started_at": "2026-07-01T03:33:00+0900",
       "summary": "step10~14 코드리뷰 수정 후 verify green(app273·worker300+2todo·harness51)·version 1.1.3 유지·서버/D1/워커 무변경. 타이밍/네이티브 스모크(#1draft·#2재진입·#3탈출구·#4FAB가림·#6언마운트 + 기존 #1키보드·#4자동오픈·#5편집메뉴·OCR)는 dev build 수동 게이트(미수행). merge/EAS/스토어 제출은 외부 작업.",
-      "completed_at": "2026-07-01T03:33:56+0900"
+      "completed_at": "2026-07-01T03:34:25+0900"
     }
   ],
   "created_at": "2026-06-30T19:16:51+0900"
