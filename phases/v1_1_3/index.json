@@ -36,7 +36,7 @@
       "status": "completed",
       "started_at": "2026-06-30T19:31:18+0900",
       "summary": "register.tsx submit 이 createShipment 반환 {shipment,created} 수신 → 분기 우선순위(priming>멱등 created:false→상세 자동오픈X>신규→Alert 확인). '입력' 시 router.replace({pathname:'/shipment/[id]', params:{id,openInfo:'1'}}). shipment/[id].tsx 가 openInfo 별칭 param 을 useRef 1회 가드로 소비해 setInfoModal(true)(재오픈 루프 방지). 서버/D1/api 무변경. verify green.",
-      "completed_at": "2026-06-30T19:34:47+0900"
+      "completed_at": "2026-06-30T19:35:27+0900"
     },
     {
       "step": 4,
