@@ -18,7 +18,7 @@
       "status": "completed",
       "started_at": "2026-06-30T12:09:19+0900",
       "summary": "PII 다층 마스킹 순수함수 app/src/lib/purchaseMask.ts test-first — maskPurchaseText(① 구간 제거: PII 헤더~안전 헤더 통째 삭제 ② 패턴 안전망: 전화·우편번호·주소(행정구역+도로명)·이메일·카드 줄 삭제 ③ 보수적 과삭제)·detectResidualPII(잔존 PII 게이트). 실측 3몰 합성 fixture(네이버페이·쿠팡[헤더없음→패턴]·AliExpress) 13케이스 green: PII 제거·상품/금액 보존·게이트 0. 100% 커버리지. verify green(app 253·worker 300+2todo·harness 51).",
-      "completed_at": "2026-06-30T12:14:30+0900"
+      "completed_at": "2026-06-30T12:15:10+0900"
     },
     {
       "step": 2,
