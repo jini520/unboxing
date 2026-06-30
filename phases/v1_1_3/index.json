@@ -69,11 +69,12 @@
       "step": 7,
       "name": "info-prefill",
       "layer": "frontend",
-      "status": "error",
+      "status": "completed",
       "started_at": "2026-06-30T20:03:49+0900",
-      "error_message": "[3회 시도 후 실패] Step did not update status",
-      "failed_at": "2026-06-30T20:04:26+0900"
+      "summary": "getInfo 로드 효과에서 draft(memo/category/amount) 미러 → 헤더·#4 자동오픈 모두 저장값 prefill(비동기 안전·ADR-046). 헤더 openInfo 재-prefill·캡처 자동채움 불변. 코드는 feat 4246026 에 정상 커밋·verify green; 세션이 status 갱신 직전 크래시해 harness 가 error 로 오판한 것 수동 정정.",
+      "completed_at": "2026-06-30T20:04:26+0900"
     }
   ],
-  "created_at": "2026-06-30T19:16:51+0900"
+  "created_at": "2026-06-30T19:16:51+0900",
+  "completed_at": "2026-06-30T20:04:26+0900"
 }
