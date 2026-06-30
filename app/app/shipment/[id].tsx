@@ -110,6 +110,11 @@ export default function DetailScreen() {
       setMemoState(info.memo ?? "");
       setCategory(info.category);
       setAmount(info.amount);
+      // 드래프트도 같이 미러 — 로드 완료 시점에 채워져 #4 자동오픈(openInfo, setInfoModal만)도
+      // 저장값으로 열린다(비동기 타이밍 안전 — ADR-046). 헤더 openInfo 콜백은 재오픈 시 재-prefill 유지.
+      setMemoDraft(info.memo ?? "");
+      setCategoryDraft(info.category);
+      setAmountDraft(info.amount === undefined ? "" : String(info.amount));
     });
     return () => {
       active = false;
