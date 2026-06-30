@@ -121,6 +121,7 @@
 - **증상**: iOS 텍스트 선택 컨텍스트 메뉴(복사/붙여넣기/전체 선택)·시스템 다이얼로그가 **한국 기기에서도 영어로** 표시. 원인 = `app.json` 에 로케일 선언이 전무(`CFBundleLocalizations`/`CFBundleDevelopmentRegion`/`locales` 부재) → iOS 가 base(영어)로 시스템 제공 UI 를 그림.
 - **수정**: `app.json` plugins 에 `["expo-localization", { "supportedLocales": { "ios": ["ko", "en"], "android": ["ko", "en"] } }]` 추가. → iOS `CFBundleLocalizations` 에 `ko` 등록 → 시스템 UI 가 기기 언어(한국어)를 따름. 앱 자체 문자열은 이미 한국어 하드코딩이라 **런타임 i18n 라이브러리 불요**(시스템 UI 로케일만 문제였음). (ADR-044)
 - **함정**: config plugin 변경이라 **JS만 바꿔선 반영 안 됨** — `expo prebuild`/dev build/EAS **네이티브 리빌드 필요**(Expo Go·OTA ❌). `app/ios/Info.plist` 를 손으로 고치지 말 것 — prebuild 산출물이라 재생성으로 사라진다(P-7). **`app.json` 이 단일 출처**.
+- **함정 2 (실측 2026-06-30·CRITICAL)**: **기존 `ios/` 가 이미 있으면 비-clean prebuild(`expo run:ios` 내부 sync)가 `Info.plist` 에 `CFBundleLocalizations` 를 안 넣는다** — plugin·deps 다 있어도 `CFBundleDevelopmentRegion` 만 남고 로케일 누락 → 편집 메뉴 영어 그대로. **`npx expo prebuild --clean -p ios` 로 `ios/` 재생성해야** `CFBundleLocalizations=[ko,en]` 가 들어간다(확인). EAS 는 클린 빌드라 무관 — 로컬 시뮬 검증 시에만 `--clean` 필수.
 - **왜 `verify` 가 못 잡나**: 네이티브 빌드 산출물이라 jest/typecheck 와 무관(P-6·P-7·P-9 부류 "빌드/런타임 네이티브"). **리빌드 후 한국어 기기/시뮬에서 long-press 편집 메뉴 한국어** 1회 스모크로만 확인.
 
 ## webhook 구현 함정 (설계로 선제 차단 — 구현 시 스모크 검증)
