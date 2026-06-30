@@ -13,6 +13,7 @@ import {
 import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  resolveScheme,
   resolveTokens,
   type ColorTokens,
   type Scheme,
@@ -24,6 +25,8 @@ const STORAGE_KEY = "theme.preference";
 interface ThemeContextValue {
   /** 활성 컬러 토큰 세트 */
   tokens: ColorTokens;
+  /** 활성 스킴(light/dark) — 스킴 의존 스타일(예: 라이트 전용 그림자) 분기용 */
+  scheme: Scheme;
   /** 현재 사용자 선호 */
   preference: ThemePreference;
   /** 선호 변경(설정 화면에서 사용) → AsyncStorage 영속 */
@@ -61,6 +64,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(
     () => ({
       tokens: resolveTokens(preference, normalizedScheme),
+      scheme: resolveScheme(preference, normalizedScheme),
       preference,
       setPreference,
     }),

@@ -52,6 +52,7 @@ import { loadListFilter, prefsStore, saveListFilter } from "../../src/lib/prefs"
 import { pruneSelected, selectAll, toggleSelected } from "../../src/lib/selection";
 import { relativeTime } from "../../src/lib/time";
 import { Plus, Trash } from "../../src/components/icons";
+import { Fab } from "../../src/components/Fab";
 import { HeaderBell } from "../../src/components/HeaderBell";
 import { ShipmentCard } from "../../src/components/ShipmentCard";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -462,6 +463,12 @@ export default function ListScreen() {
           }
           renderItem={renderItem}
         />
+      )}
+
+      {/* 등록 바로가기 FAB — 송장이 있고 비선택 모드일 때만(빈 상태=중앙 CTA·멀티선택=액션 헤더 충돌, ADR-042).
+          헤더 '+' 와 병존. 토스트보다 먼저 렌더 → 토스트가 위에 보이도록(우하단 겹침 회피). */}
+      {!selectionMode && shipments !== null && shipments.length > 0 && (
+        <Fab onPress={() => router.push("/register")} label="운송장 등록" />
       )}
 
       {notice && (

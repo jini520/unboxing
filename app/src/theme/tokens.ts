@@ -103,15 +103,22 @@ const dark: ColorTokens = {
 export const tokens: Record<Scheme, ColorTokens> = { light, dark };
 
 /**
- * 선호(preference)와 시스템 외형(systemScheme)을 합쳐 활성 토큰 세트를 결정한다.
+ * 선호(preference)와 시스템 외형(systemScheme)을 합쳐 활성 스킴(light/dark)을 결정한다.
  * - `'system'`이면 시스템 외형을 따르되, 미확정(null)이면 라이트 기준(ADR-016).
  * - `'light'`/`'dark'`는 시스템과 무관하게 고정.
+ * 스킴 의존 스타일(예: 라이트 전용 그림자) 분기의 단일 출처.
  */
+export function resolveScheme(
+  preference: ThemePreference,
+  systemScheme: Scheme | null | undefined,
+): Scheme {
+  return preference === "system" ? systemScheme ?? "light" : preference;
+}
+
+/** 선호+시스템 외형 → 활성 토큰 세트(resolveScheme 으로 결정한 스킴의 토큰). */
 export function resolveTokens(
   preference: ThemePreference,
   systemScheme: Scheme | null | undefined,
 ): ColorTokens {
-  const scheme: Scheme =
-    preference === "system" ? systemScheme ?? "light" : preference;
-  return tokens[scheme];
+  return tokens[resolveScheme(preference, systemScheme)];
 }

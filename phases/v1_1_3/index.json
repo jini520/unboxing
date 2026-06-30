@@ -24,7 +24,10 @@
       "step": 2,
       "name": "register-fab",
       "layer": "frontend",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-30T19:24:46+0900",
+      "summary": "신규 공용 Fab.tsx(accent 원형·onAccent Plus·라이트 전용 그림자) + 대시보드(항상)·택배함(송장 있고 비선택 모드만, 헤더 '+' 병존·토스트 위)에 배선(ADR-042). 그림자 분기용으로 ThemeProvider 가 resolveScheme 으로 scheme 노출. verify green. FAB 위치/탭바 겹침은 step 5 시뮬 확인.",
+      "completed_at": "2026-06-30T19:31:00+0900"
     },
     {
       "step": 3,

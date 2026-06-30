@@ -28,6 +28,7 @@ import { infoStore, loadInfo } from "../../src/lib/info";
 import { initLastSeen, notifStore, unreadCount } from "../../src/lib/notif";
 import { formatAmount } from "../../src/lib/amount";
 import { relativeTime } from "../../src/lib/time";
+import { Fab } from "../../src/components/Fab";
 import { HeaderBell } from "../../src/components/HeaderBell";
 import {
   Bell,
@@ -200,6 +201,9 @@ export default function DashboardScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* 등록 바로가기 FAB — 대시보드는 현황판이라 항상 노출(ADR-042). */}
+      <Fab onPress={() => router.push("/register")} label="운송장 등록" />
     </SafeAreaView>
   );
 }
