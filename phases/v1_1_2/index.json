@@ -45,7 +45,7 @@
       "status": "completed",
       "started_at": "2026-06-30T12:31:25+0900",
       "summary": "verify green(app 269·worker 300+2todo·harness 51·typecheck exit0) → 워커 운영 배포(npm --prefix worker run deploy: env.AI 바인딩 운영 반영, version 5e8f59c9, https://unboxing-worker.dev-jinni520.workers.dev). 버전 1.1.1→1.1.2(ADR-035 패치 라인, buildNumber/versionCode 키 없음→eas remote 자동). e2e 스모크: ①[실행·통과] 실 Workers AI 분류 엔드포인트 — 마스킹된 네이버페이형 텍스트(fixture A, PII 0) POST /classify-purchase → {productName:'마크곤잘레스 엔젤 키링 스트릿 백팩', price:60190, category:'의류·패션'} HTTP200·2.89s, decoy 99,000 아닌 결제금액 60,190 정확·카테고리 정확(PLAN 실측 백팩·60,190·의류·패션 일치). ②[실행·통과] 마스킹 게이트 — 실 maskPurchaseText+detectResidualPII 3몰 fixture(네이버페이·쿠팡·AliExpress) 13케이스 green, 잔존 PII 0. ③[미수행·거짓통과 금지] 실 네이버페이 스크린샷→온디바이스 OCR(Apple Vision/ML Kit)→마스킹 누출 0 육안 + 네트워크 캡처로 이미지·원문 PII 미전송 확인 — 실기기 dev build(네이티브 OCR·image-picker) 필요라 이 CLI 환경에서 실행 불가. 엔드포인트 계약이 {text}만 수용·이미지는 capture.ts에서 기기 이탈 안 함(ADR-036 구조 보장)이나 네트워크 캡처 최종 확인은 실기기 스모크로 잔여. CLAUDE.md 'mock green≠런타임' 대로 ③은 통과로 단정 안 함.",
-      "completed_at": "2026-06-30T12:34:38+0900"
+      "completed_at": "2026-06-30T12:35:27+0900"
     }
   ],
   "created_at": "2026-06-30T11:54:27+0900"
