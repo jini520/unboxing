@@ -122,8 +122,11 @@
     {
       "step": 13,
       "name": "register-priming-robust",
-      "status": "pending",
-      "layer": "frontend"
+      "status": "error",
+      "layer": "frontend",
+      "started_at": "2026-07-01T00:00:03+0900",
+      "error_message": "[3회 시도 후 실패] Step did not update status",
+      "failed_at": "2026-07-01T00:00:23+0900"
     },
     {
       "step": 14,
