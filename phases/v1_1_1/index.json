@@ -27,7 +27,7 @@
       "status": "completed",
       "summary": "app/(tabs)/settings.tsx 수정 — (#2) 제목 '설정'+설명을 ScrollView 밖 고정 <View style={header}> 로 분리(택배함과 동일 header/title/pageDesc 토큰 차용·ADR-033 회귀 락). content paddingTop 제거(첫 섹션 marginTop 이 간격 담당), 설정 항목 로직 무변경(헤더 위치 이동만). npm run verify green(app 240·worker 277·harness 51).",
       "started_at": "2026-06-30T10:29:15+0900",
-      "completed_at": "2026-06-30T10:31:00+0900"
+      "completed_at": "2026-06-30T10:30:49+0900"
     },
     {
       "step": 3,
