@@ -42,6 +42,9 @@ export const CATEGORIES = [
   "기타",
 ] as const;
 
+/** 메모 최대 길이(자) — 택배 정보 모달 입력·캡처 자동채움 매핑(purchase.ts)의 단일 출처(드리프트 방지). */
+export const MEMO_MAX_LENGTH = 100;
+
 /** 저장된 정보 맵(없으면 빈 객체). 손상 JSON·비객체는 빈 객체로 안전 처리. */
 export async function loadInfo(deps: { store: KeyValueStore }): Promise<InfoMap> {
   const raw = await deps.store.getItem(INFO_KEY);

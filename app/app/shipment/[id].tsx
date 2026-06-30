@@ -36,7 +36,7 @@ import { isValidTrackingNumber, normalizeTrackingNumber } from "../../src/lib/tr
 import { readCachedShipments, cacheStore } from "../../src/lib/cache";
 import { defaultMemoText } from "../../src/lib/memo";
 import { displayRecipientName } from "../../src/lib/recipient";
-import { CATEGORIES, getInfo, infoStore, setInfo, transferInfo } from "../../src/lib/info";
+import { CATEGORIES, getInfo, infoStore, MEMO_MAX_LENGTH, setInfo, transferInfo } from "../../src/lib/info";
 import { formatAmount, parseAmount } from "../../src/lib/amount";
 import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
@@ -417,7 +417,7 @@ export default function DetailScreen() {
                   { backgroundColor: tokens.bg.secondary, borderColor: tokens.border, color: tokens.text.primary },
                 ]}
                 multiline
-                maxLength={100}
+                maxLength={MEMO_MAX_LENGTH}
                 autoFocus
                 accessibilityLabel="메모 입력"
               />
