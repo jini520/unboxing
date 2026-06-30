@@ -88,8 +88,10 @@ export default function DetailScreen() {
   const [memoDraft, setMemoDraft] = useState("");
   const [categoryDraft, setCategoryDraft] = useState<string | undefined>(undefined);
   const [amountDraft, setAmountDraft] = useState("");
-  // 캡처로 채우기 진행중(이미지 선택→OCR→분류) — 버튼 비활성·스피너. 캡처는 보조라 직접 입력은 그대로(ADR-039).
-  const [capturing, setCapturing] = useState(false);
+  // 캡처로 채우기 단계(이미지 선택→OCR→분류) — null=비진행. 모달 오버레이가 단계별 진행을 표시(ADR-045).
+  // 단계는 실제 두 함수 경계(OCR/분류)로만 — 가짜 중간 단계 금지(ADR-045·ADR-037 1콜 반환). 캡처는 보조(ADR-039).
+  const [captureStage, setCaptureStage] = useState<null | "ocr" | "classify">(null);
+  const capturing = captureStage !== null;
   const deleting = useRef(false);
   // 운송장 "수정"(택배사·번호) 모달 — 택배 정보 모달과 별개(헤더 연필 진입). 저장 = 재등록(ADR-027).
   // carrierDraft = 명시 선택(picked) — 번호 변경 시 null 로 비워 autoPickCarrier 정책(ADR-026)이 다시 적용되게 한다.
@@ -154,7 +156,7 @@ export default function DetailScreen() {
   // 어느 단계가 실패해도 직접 입력·저장 흐름은 안 멈춘다(폴백 안내만). 이미지·원문 PII 는 기기를 안 떠난다(ADR-036).
   const onCaptureFill = useCallback(async () => {
     if (capturing) return;
-    setCapturing(true);
+    setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"(capturePurchaseText 전, ADR-045)
     try {
       const cap = await capturePurchaseText(); // ① 이미지 선택 + 온디바이스 OCR
       if (cap.kind === "canceled") return; // 사용자 취소 — 조용히
@@ -163,6 +165,7 @@ export default function DetailScreen() {
         return;
       }
       const masked = maskPurchaseText(cap.text); // ② PII 마스킹 — 외부엔 마스킹 텍스트만(ADR-038·005)
+      setCaptureStage("classify"); // ② 분류 구간 — 오버레이 "상품 분석 중…"(classifyPurchase 전, ADR-045)
       const result = await classifyPurchase(masked, apiDeps); // ③ 분류(Worker, 요청 시)
       const mapped = mapClassificationToInfo(result); // ④ 검증 통과 필드만 매핑(CATEGORIES 강제·금액 검증)
       // 드래프트 자동 채움 — 매핑된 필드만 덮어쓴다(미분류/미인식 필드는 사용자 입력 보존). 확정 아닌 편집 초안.
@@ -173,7 +176,7 @@ export default function DetailScreen() {
       // OCR 실패·분류 503(한도초과·타임아웃)·네트워크 등 — 직접 입력 폴백(흐름 유지). 원문·에러 미로그(ADR-005).
       Alert.alert("지금은 캡처로 채울 수 없어요", "직접 입력해 주세요.");
     } finally {
-      setCapturing(false);
+      setCaptureStage(null); // 오버레이 제거 — 폴백 Alert 은 네이티브라 그 위에 뜸(가림 없음).
     }
   }, [capturing]);
 
@@ -459,14 +462,9 @@ export default function DetailScreen() {
               accessibilityLabel="캡처로 채우기"
               accessibilityState={{ disabled: capturing, busy: capturing }}
             >
-              {capturing ? (
-                <ActivityIndicator size="small" color={tokens.accent} />
-              ) : (
-                <Camera size={18} color={tokens.accent} />
-              )}
-              <Text style={[styles.captureLabel, { color: tokens.accent }]}>
-                {capturing ? "분석 중…" : "캡처로 채우기"}
-              </Text>
+              {/* 진행 표시는 카드 오버레이가 담당(ADR-045) — 버튼은 분석 중 비활성·흐림만. */}
+              <Camera size={18} color={tokens.accent} />
+              <Text style={[styles.captureLabel, { color: tokens.accent }]}>캡처로 채우기</Text>
             </Pressable>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* 메모 — 기존 textarea 동작 보존. 빈 메모는 저장 시 memo 필드 삭제(setInfo 계약). */}
@@ -578,6 +576,17 @@ export default function DetailScreen() {
                 </Text>
               </Pressable>
             </View>
+            {/* 캡처 분석 진행 오버레이(ADR-045) — captureStage(OCR/분류)일 때만 카드를 덮어 단계 스피너 표시.
+                분석 중 필드 오터치 차단. 폴백 Alert 은 네이티브라 이 위에 뜸(가림 없음). 단계는 두 경계로만. */}
+            {capturing ? (
+              <View style={styles.captureOverlay}>
+                <View style={[styles.captureOverlayBg, { backgroundColor: tokens.bg.surface }]} />
+                <ActivityIndicator size="large" color={tokens.accent} />
+                <Text style={[styles.captureStageText, { color: tokens.text.body }]}>
+                  {captureStage === "ocr" ? "이미지 인식 중…" : "상품 분석 중…"}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
@@ -741,6 +750,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   captureLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
+  // 캡처 분석 진행 오버레이(ADR-045) — 카드 전체(absolute)를 덮어 단계 스피너 표시 + 필드 오터치 차단(터치 흡수).
+  captureOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", gap: spacing.md },
+  // 반투명 표면색 베이스(별도 레이어 — opacity 가 스피너/텍스트엔 안 걸리게). 카드 라운드에 맞춤.
+  captureOverlayBg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius.lg, opacity: 0.92 },
+  captureStageText: { fontSize: fontSize.callout, fontWeight: fontWeight.medium },
   // 필드가 길어질 수 있어(메모+카테고리 칩+금액) 내부 스크롤 — 작은 화면·키보드에서도 액션 버튼이 가려지지 않게.
   modalScroll: { maxHeight: 360 },
   fieldLabel: { fontSize: fontSize.footnote, fontWeight: fontWeight.medium, marginBottom: spacing.sm },
