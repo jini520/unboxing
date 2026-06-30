@@ -97,6 +97,11 @@ export default function DetailScreen() {
   const [captureProgress, setCaptureProgress] = useState(0);
   const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 램프 setInterval 핸들
   const captureHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 성공 100% 유지(250ms) 핸들
+  // 동기 재진입 가드(#2·P-12 F1) — captureStage(setState)는 picker 가 사진을 반환한 onImagePicked 에서야 켜지므로,
+  // 그 전(picker 표시 전) 빠른 더블탭이 capturing 파생 가드를 통과한다(saveEdit 의 saving.current 와 동형).
+  const captureBusy = useRef(false);
+  // 언마운트/취소 가드(active ref·#6·P-12 F2) — async 재개 후 setState/타이머 생성을 막는다(언마운트 효과에서 false).
+  const mounted = useRef(true);
   const deleting = useRef(false);
   // 운송장 "수정"(택배사·번호) 모달 — 택배 정보 모달과 별개(헤더 연필 진입). 저장 = 재등록(ADR-027).
   // carrierDraft = 명시 선택(picked) — 번호 변경 시 null 로 비워 autoPickCarrier 정책(ADR-026)이 다시 적용되게 한다.
@@ -191,15 +196,17 @@ export default function DetailScreen() {
     };
   }, [captureStage]);
 
-  // 성공 100% 유지(250ms) setTimeout 의 언마운트 정리 — 램프 interval 은 위 effect cleanup 이 정리.
+  // 언마운트 정리(#6·P-12 F2) — mounted=false 로 async 재개를 차단 + hold setTimeout 정리(램프 interval 은 위 ramp effect cleanup 이 정리).
   useEffect(
     () => () => {
+      mounted.current = false;
       if (captureHoldRef.current) clearTimeout(captureHoldRef.current);
     },
     [],
   );
 
-  // 즉시 클리어(취소·empty·실패) — 오버레이 제거·% 0·타이머 전부 정리. setCaptureStage(null) 이 램프 effect cleanup 도 발동.
+  // 즉시 클리어(취소·empty·실패·모달 닫힘) — 오버레이 제거·% 0·타이머·재진입 가드 전부 정리(teardown 단일 출처 #10).
+  // setCaptureStage(null) 이 램프 effect cleanup 도 발동. captureBusy=false 로 in-flight 런의 live() 도 거짓이 된다(#2/#3).
   const clearCapture = useCallback(() => {
     if (captureTimerRef.current) {
       clearInterval(captureTimerRef.current);
@@ -209,12 +216,24 @@ export default function DetailScreen() {
       clearTimeout(captureHoldRef.current);
       captureHoldRef.current = null;
     }
+    captureBusy.current = false;
     setCaptureStage(null);
     setCaptureProgress(0);
   }, []);
 
+  // "택배 정보" 모달 닫기 = 캡처 파이프라인 취소(#3·P-12 F3) — 오버레이가 ✕·취소를 덮고 분류엔 타임아웃이 없어,
+  // 닫는 모든 경로가 clearCapture 도 호출해 갇힘·닫힌 모달 위 폴백 Alert 을 막는다(네트워크 타임아웃 도입은 범위 밖).
+  const closeInfoModal = useCallback(() => {
+    clearCapture();
+    setInfoModal(false);
+  }, [clearCapture]);
+
   const onCaptureFill = useCallback(async () => {
-    if (capturing) return;
+    // 동기 재진입 가드(#2·P-12 F1) — capturing 은 captureStage 파생이라 onImagePicked 전엔 거짓이다. ref 로 즉시 막는다.
+    if (captureBusy.current || capturing) return;
+    captureBusy.current = true;
+    // 이 캡처 런이 여전히 살아있나(언마운트 안 됨·취소/모달 닫힘 안 됨) — await 재개마다 확인(#3/#6·P-12 F2·F3).
+    const live = () => mounted.current && captureBusy.current;
     try {
       // 진행률·오버레이는 picker 가 사진을 반환한 직후(onImagePicked·OCR 시작)부터 — picker 여는 동안엔
       // 안 뜬다(ADR-045 개정 2: 사진 고르는 시간에 램프가 미리 돌던 버그 수정). 취소 시 onImagePicked 미발화 → 오버레이 안 뜸.
@@ -224,8 +243,9 @@ export default function DetailScreen() {
           setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"·램프 0→45
         },
       }); // ① 이미지 선택 + 온디바이스 OCR
+      if (!live()) return; // 언마운트·취소(모달 닫힘) 후엔 setState/Alert 금지
       if (cap.kind === "canceled") {
-        clearCapture(); // 사용자 취소 — 조용히(% 0·오버레이 제거)
+        clearCapture(); // 사용자 취소 — 조용히(% 0·오버레이 제거·busy 해제)
         return;
       }
       if (cap.kind === "empty") {
@@ -236,20 +256,26 @@ export default function DetailScreen() {
       const masked = maskPurchaseText(cap.text); // ② PII 마스킹 — 외부엔 마스킹 텍스트만(ADR-038·005)
       setCaptureStage("classify"); // ② 분류 구간 — 오버레이 "상품 분석 중…"·램프 45→90(classifyPurchase 전, ADR-045)
       const result = await classifyPurchase(masked, apiDeps); // ③ 분류(Worker, 요청 시)
+      if (!live()) return; // ★ 분류 직후 가드(P-12 F2·F3) — 언마운트/취소 후 setState·hold 타이머 생성 금지
       const mapped = mapClassificationToInfo(result); // ④ 검증 통과 필드만 매핑(CATEGORIES 강제·금액 검증)
       // 드래프트 자동 채움 — 매핑된 필드만 덮어쓴다(미분류/미인식 필드는 사용자 입력 보존). 확정 아닌 편집 초안.
       if (mapped.memo !== undefined) setMemoDraft(mapped.memo);
       if (mapped.amount !== undefined) setAmountDraft(String(mapped.amount));
       if (mapped.category !== undefined) setCategoryDraft(mapped.category);
-      // 성공 — 100% 스냅 후 ~250ms 유지하고 종료(완료 신호). 램프 천장 90<100 이라 그동안 100 유지.
-      setCaptureProgress(100);
+      // 성공 hold 진입(#2) — 재진입 가드 해제(hold 동안엔 capturing 이 계속 막음). 램프 interval 은 즉시 정리(헛도는 tick 제거 #9).
+      captureBusy.current = false;
+      setCaptureProgress(100); // 100% 스냅 후 ~250ms 유지하고 종료(완료 신호)
+      if (captureTimerRef.current) {
+        clearInterval(captureTimerRef.current);
+        captureTimerRef.current = null;
+      }
       captureHoldRef.current = setTimeout(() => {
-        captureHoldRef.current = null;
-        setCaptureStage(null);
-        setCaptureProgress(0);
+        if (!mounted.current) return; // 언마운트 후 setState 금지
+        clearCapture(); // teardown 일원화(#10) — stage null·% 0·타이머 정리
       }, 250);
     } catch {
       // OCR 실패·분류 503(한도초과·타임아웃)·네트워크 등 — 직접 입력 폴백(흐름 유지). 원문·에러 미로그(ADR-005).
+      if (!live()) return; // 언마운트·취소(모달 닫힘) 후엔 폴백 Alert 금지(닫힌 모달 위 Alert 방지 — #3)
       clearCapture();
       Alert.alert("지금은 캡처로 채울 수 없어요", "직접 입력해 주세요.");
     }
@@ -518,7 +544,7 @@ export default function DetailScreen() {
       )}
 
       {/* 택배 정보 편집 모달 — 헤더 연필로만 진입(본문 인라인 박스 없음·회귀 락). 메모+카테고리+금액(모두 로컬 전용·ADR-024). */}
-      <Modal visible={infoModal} transparent animationType="fade" onRequestClose={() => setInfoModal(false)}>
+      <Modal visible={infoModal} transparent animationType="fade" onRequestClose={closeInfoModal}>
         {/* 바깥 탭 = 키보드만 접기(닫기 아님 — ADR-034 회귀 락). 카드는 KeyboardAvoidingView 로 키보드 회피(P-9). */}
         <Pressable style={styles.modalBackdrop} onPress={() => Keyboard.dismiss()}>
           <KeyboardAvoidingView
@@ -526,8 +552,8 @@ export default function DetailScreen() {
             style={styles.modalAvoider}
           >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
-            {/* 제목 + 닫기(✕) 헤더 + 구분선(ADR-040 ①②). ✕ = 취소와 동일하게 모달 닫기(바깥 탭의 Keyboard.dismiss 와 구분 — ADR-034). */}
-            <ModalHeader title="택배 정보" onClose={() => setInfoModal(false)} />
+            {/* 제목 + 닫기(✕) 헤더 + 구분선(ADR-040 ①②). ✕ = 취소와 동일하게 모달 닫기(바깥 탭의 Keyboard.dismiss 와 구분 — ADR-034). 닫기 = 캡처 취소(#3). */}
+            <ModalHeader title="택배 정보" onClose={closeInfoModal} />
             {/* 캡처로 채우기 — 직접 입력의 보조(ADR-039). 주문 상세 스크린샷 → OCR·마스킹·분류 → 아래 필드 자동 채움(편집 가능). */}
             <Pressable
               onPress={() => void onCaptureFill()}
@@ -628,7 +654,7 @@ export default function DetailScreen() {
               ) : null}
             </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setInfoModal(false)} hitSlop={8} accessibilityRole="button">
+              <Pressable onPress={closeInfoModal} hitSlop={8} accessibilityRole="button">
                 <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
               </Pressable>
               <Pressable

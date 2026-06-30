@@ -104,8 +104,11 @@
     {
       "step": 11,
       "name": "capture-pipeline-robustness",
-      "status": "pending",
-      "layer": "frontend"
+      "status": "completed",
+      "layer": "frontend",
+      "started_at": "2026-06-30T23:44:13+0900",
+      "summary": "shipment/[id].tsx 캡처 상태머신 견고화: ① 동기 재진입 ref(captureBusy — picker 전 더블탭 차단) ② 언마운트 active ref(mounted)+live() 가드(await 재개·catch·hold body) ③ 모달 닫기=캡처 취소(closeInfoModal=clearCapture+setInfoModal(false) → ✕·onRequestClose·취소 3경로, 닫힌 모달 위 폴백 Alert 방지) ④ 성공 시 ramp interval 즉시 clear+hold body=clearCapture teardown 일원화. % 이징(45/90)·단계경계·폴백·ADR-005 불변. 네트워크 타임아웃 미도입(범위 밖). verify green(typecheck+app273+worker300+harness51).",
+      "completed_at": "2026-06-30T23:55:30+0900"
     },
     {
       "step": 12,
