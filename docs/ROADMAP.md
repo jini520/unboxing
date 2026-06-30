@@ -5,13 +5,15 @@
 
 ## 진행 현황 (무엇을 했는가)
 
+> **디렉토리 재편(2026-06-30).** 구 `NN-category-v0-…` phase 들은 release 버전 단위로 병합됨 → **`v1_0_0`**(구 01~06·MVP/redesign·step 0~35) · **`v1_1_0`**(구 07~16·v1.1·step 0~33). 구 phase별 step 범위 — 01→0~7·02→8~15·03→16~21·04→22~27·05→28~30·06→31~35 / 07→0~3·08→4~7·09→8~13·10→14·11→15~19·12→20·13→21~22·14→23~24·15→25~31·16→32~33. 아래 참조는 새 위치 기준. 신 컨벤션 → `.claude/commands/harness.md`.
+
 **Phase 1 (MVP) — 국내·익명·tracker.delivery Free.** 핵심 경로 구현·QA·런타임 버그 수정까지 완료, 로컬 iOS 시뮬레이터 + 로컬 worker 로 동작 확인됨.
 
 완료 단계(`phases/` — 상세는 각 phase index.json·step):
-- `01-backend-v0-mvp-worker` — Cloudflare Worker HTTP API + cron 폴링 + 멱등 푸시 + D1 (PR #1)
-- `02-ui-v0-mvp-app` — Expo 앱: 목록/상세/등록/온보딩/설정 (PR #2)
-- `03-qa-v0-mvp` — MVP QA: E2E 시나리오 + 사양 감사 (발견 12건, PR #4)
-- `04-qa-v0-mvp-fixes` — P0~P2 수정: 등록 데드락·택배사·조용시간·데모·스토어 준비 (PR #16)
+- `v1_0_0` step 0~7 — Cloudflare Worker HTTP API + cron 폴링 + 멱등 푸시 + D1 (PR #1)
+- `v1_0_0` step 8~15 — Expo 앱: 목록/상세/등록/온보딩/설정 (PR #2)
+- `v1_0_0` step 16~21 — MVP QA: E2E 시나리오 + 사양 감사 (발견 12건, PR #4)
+- `v1_0_0` step 22~27 — P0~P2 수정: 등록 데드락·택배사·조용시간·데모·스토어 준비 (PR #16)
 
 QA 이후 런타임 버그·UX 수정(main 머지):
 - PR #17 — `fetch` this-binding(`Illegal invocation`) 수정: 실제 tracker.delivery 호출 복구. 재발 방지 문서화(`ENGINEERING` A절).
@@ -25,9 +27,9 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - **iOS 실기기 빌드**: Apple Developer 멤버십 결제 완료, **활성화(team 생성) 대기 중** — 활성화 후 `eas device:create` → `eas build -p ios --profile preview`. 상세 경로 → 아래 "실기기 설치·배포 경로".
 - **iOS App Store 출시 준비 (2026-06-22):** 멤버십 활성. 정책 검토 완료 — **리젝 항목 없음**. `app.json` 패치 적용(`ITSAppUsesNonExemptEncryption=false`·`supportsTablet=false` iPhone 전용·`expo-secure-store faceIDPermission`). 절차·콘솔 체크리스트 → **`docs/IOS_SUBMISSION.md`**. `eas submit -p ios`는 **사용자 지시 대기**.
 
-**v1.1 마이너 업데이트 (phase 07~11) — 구현·설계정정·버그수정 완료 (2026-06-23):**
-- **07~10 구현·main 머지 완료** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·완료 숨기기. 머지 커밋: `07`→`eb3030a`, `08`→`f7a11c6`, `09`→`b9c5f83`, `10`→`7c1b560`. 실행 순서: `07-backend-v0-v11-notifications`(notifications·#9 한글명·휴지통 알림차단) → `08-ui-v0-v11-logic`(순수 로직 test-first) → `09-ui-v0-v11-screens`(삭제UX[확인 다이얼로그+햅틱] 복원) → `10-qa-v0-v11-release`(라이브 `privacyPolicy.ts` 정정). 설계: `PRD`/`ARCHITECTURE` "v1.1 …", `ADR` ADR-021~025, `UI_GUIDE` "v1.1 화면 …".
-- **11-qa-v0-v11-fixes 구현·설계정정 완료** — iOS 시뮬 스모크 후속 수정(권위 출처 `phases/index.json`·git):
+**v1.1 마이너 업데이트 (`v1_1_0` step 0~19, 구 phase 07~11) — 구현·설계정정·버그수정 완료 (2026-06-23):**
+- **step 0~14 구현·main 머지 완료** — 대시보드·휴지통(30일 로컬 복구)·알림 기록(서버 로그+로컬 캐시)·택배 정보(메모+카테고리+금액)·시작 화면 설정·완료 숨기기. 머지 커밋: step 0~3→`eb3030a`, step 4~7→`f7a11c6`, step 8~13→`b9c5f83`, step 14→`7c1b560`. 실행 순서: `v1_1_0` step 0~3(notifications·#9 한글명·휴지통 알림차단) → step 4~7(순수 로직 test-first) → step 8~13(삭제UX[확인 다이얼로그+햅틱] 복원) → step 14(라이브 `privacyPolicy.ts` 정정). 설계: `PRD`/`ARCHITECTURE` "v1.1 …", `ADR` ADR-021~025, `UI_GUIDE` "v1.1 화면 …".
+- **`v1_1_0` step 15~19 (구 11-qa-fixes) 구현·설계정정 완료** — iOS 시뮬 스모크 후속 수정(권위 출처 `phases/index.json`·git):
   - **A1(설계 정정)** 대시보드 6→**4카드**(진행 중·배송완료·휴지통·새 알림) + 항목별 의미색. "확인 필요(예외)"·"오늘 도착" 카드 폐기, 예외는 진행 중에 흡수(`dashboardCounts`·`filter.ts`). `PRD`·`UI_GUIDE`·`ADR-021` 사양 동기화.
   - **A2(설계 정정)** 택배함 필터 칩(전체/진행중/임박/완료/예외) **전면 제거** + "배송 완료된 항목 감추기" 토글을 **설정→택배함 상단**으로 이동. `filterShipments`는 `hideCompleted` 전용. `PRD`·`UI_GUIDE`·`ADR-021`(필터 라우팅 철회) 사양 동기화.
   - **B1(버그)** 빈 목록 시 대시보드 무한 스피너 — `sync` 의 `listShipments` catch 가 실패 시 shipments 를 null 로 방치하던 것을 `setShipments(prev=>prev??[])` 폴백으로 수정(빈 상태 진입).
@@ -37,21 +39,28 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 
 ## 예정 작업 (무엇을 해야 하는가)
 
+**v1.1.1 (2026-06-30 — UX·버그 수정 묶음 · 패치 · 설계 작성·검토 중):** 출시 후 사용자 보고 4건. 설계 SoT: `PRD`/`ADR-032~035`/`UI_GUIDE` "v1.1.1"/`ENGINEERING` P-9. 버전 정책 ADR-035(패치 라인 유지·마이너 보류).
+- **#1 수취인 마스킹 게이트** — 상세 "받는 분"은 식별 가능할 때만 표시(`받는 분`·`***` 숨김, `김**`·`이**`·`김*윤` 표시). 앱 순수함수 `displayRecipientName` **test-first**(ADR-032).
+- **#2 페이지 제목 고정** — 설정 제목을 다른 화면처럼 스크롤 밖 고정(알림·상세 등은 이미 고정). (ADR-033)
+- **#3 모달 바깥 탭 닫힘 방지** + **#4 키보드 가림 수정** — 두 모달 공통: 바깥 탭=키보드만 접기, `KeyboardAvoidingView` 로 재중앙(ADR-034·P-9). **실기기 스모크 1회 필수**.
+- 구현: 확정 후 harness phase 정의. #1 은 순수 로직 TDD, #2~#4 는 `shipment/[id].tsx`·`settings.tsx` UI(시뮬/실기기 재캡처 검증).
+- **분리: 구매내역 캡처 → v1.1.2** — 기능 규모 + 미해결 PII 블로커(🔴)로 v1.1.1과 묶지 않음(ADR-035). 계획·미해결 → `docs/PLAN_PURCHASE_CAPTURE.md`. §8 #1 PII 마스킹 강화·#4 쇼핑몰 일반화 먼저 해소 후 별도 설계 사이클.
+
 **열린 이슈(GitHub):**
 - `#8` (P3) 알림 그룹화/요약 — 과알림 방지.
-- `#9` (P3) 푸시 **title** 의 택배사 id(`kr.cjlogistics`) → 한글명. (목록·상세는 PR #18에서 해결, **푸시 발송 문구는 worker `buildMessage` 쪽 별개** — **v1.1 phase 07 step1에 포함**.)
+- `#9` (P3) 푸시 **title** 의 택배사 id(`kr.cjlogistics`) → 한글명. (목록·상세는 PR #18에서 해결, **푸시 발송 문구는 worker `buildMessage` 쪽 별개** — **`v1_1_0` step1에 포함**.)
 - `#12` (P1·제출차단) 개인정보처리방침 URL — repo 방침 문서(`PRIVACY_POLICY.md`) 완료, **호스팅·URL 확정은 배포 시 외부 작업**.
 - `#14` (P1·제출차단) App Privacy/Data Safety 신고 — 초안(`QA` D절) 완료, **콘솔 제출은 외부 작업**.
 
 **계획된 기능(아래 §상세):**
 - **v1.1 추가 (2026-06-23 #1~#4 — 설계 완료·구현 대기):** 시뮬레이터 스모크/사용자 요청에서 발견. 설계 SoT: `PRD`/`UI_GUIDE`/`ARCHITECTURE` "v1.1 추가", `ADR-026`(택배사 자동선택)·`ADR-027`(식별자 수정=재등록).
-  - **#1 대시보드 빈 목록 = 항상 4카드** — EmptyState 제거(현황판). → harness **phase 12 `12-qa-v0-v11-dashboard-empty`**(설계·step 작성 완료, 실행 대기).
-  - **#3 택배사 자동선택 보수화** — 추정 후보 ≥2면 자동선택 없이 드롭다운 명시 선택(오선택 방지). → harness **phase 13**(`carrier` 로직·`register.tsx`).
-  - **#2 상세 "택배 정보"·"수정" 아이콘 분리** + **#4 택배사·번호 수정=재등록**(POST 새등록 먼저→정보 old→new id 이관→DELETE 기존, 새 서버 엔드포인트 없음). → harness **phase 14**(상세 화면·재등록 로직 test-first·신규 `FileText` 글리프).
-  - 의존: 12·13·14 각각 독립(13·14 동시 가능), 14의 택배사 선택 UI는 #3 컴포넌트 재사용. 각 phase 후 시뮬 재캡처 검증.
+  - **#1 대시보드 빈 목록 = 항상 4카드** — EmptyState 제거(현황판). → harness **`v1_1_0` step 20**(구 phase 12).
+  - **#3 택배사 자동선택 보수화** — 추정 후보 ≥2면 자동선택 없이 드롭다운 명시 선택(오선택 방지). → harness **`v1_1_0` step 21~22**(구 phase 13: `carrier` 로직·`register.tsx`).
+  - **#2 상세 "택배 정보"·"수정" 아이콘 분리** + **#4 택배사·번호 수정=재등록**(POST 새등록 먼저→정보 old→new id 이관→DELETE 기존, 새 서버 엔드포인트 없음). → harness **`v1_1_0` step 23~24**(구 phase 14: 상세 화면·재등록 로직 test-first·신규 `FileText` 글리프).
+  - 의존: step 20·21~22·23~24(구 phase 12·13·14) 각각 독립(뒤 둘 동시 가능), step 23~24의 택배사 선택 UI는 #3 컴포넌트 재사용. 각 단계 후 시뮬 재캡처 검증.
 - 배송완료 **자동 삭제 옵트인 설정** — 현재 기본은 보관(ADR-005 개정), 자동 삭제는 다음 phase 설정으로.
 
-> v1.1 마이너 업데이트(phase 07~11)는 구현·설계정정·버그수정 완료 → **위 "진행 현황"** 으로 이동. **배포 전 외부 경계 실호출 스모크는 여전히 미완**(진행 현황 ⚠️ 항목 참조).
+> v1.1 마이너 업데이트(`v1_1_0` step 0~19, 구 phase 07~11)는 구현·설계정정·버그수정 완료 → **위 "진행 현황"** 으로 이동. **배포 전 외부 경계 실호출 스모크는 여전히 미완**(진행 현황 ⚠️ 항목 참조).
 
 **Phase 2 (이후):** 해외·계정 동기화(CLAUDE.md). 별도 phase 설계 필요.
 

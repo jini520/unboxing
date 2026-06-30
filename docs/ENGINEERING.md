@@ -102,11 +102,18 @@
 - **왜 `verify` 가 못 잡나**: `.gitignore`·빌드 아카이브 구성은 typecheck/jest와 무관(P-6·P-7과 같은 "빌드 타임 네이티브 에셋" 부류). EAS 빌드 또는 `build:inspect` 클린 복사에서만 드러난다.
 - **재발 방지**: 루트 디렉터리명 무시 패턴(`assets/`·`build/`·`dist/` 등)은 **반드시 앵커(`/`)** 를 붙여 하위 워크스페이스(`app/`)의 동명 폴더를 안 잡게 한다. 빌드가 원인 불명으로 prebuild에서 죽으면 **`eas build:inspect ... --stage pre-build --verbose` 로컬 재현이 1순위 도구**.
 
+## P-9. Expo: `KeyboardAvoidingView` 를 `<Modal>` 안에 둘 때 iOS 가림/오프셋 (v1.1.1)
+
+- **증상**: 세로 중앙 정렬 입력 모달이 키보드가 뜨면 **하단(입력·액션 버튼)이 가린다** — 윗 공간이 충분히 남아도. `<Modal>` 은 별도 호스트 뷰라 **바깥 화면의 키보드 회피가 모달엔 적용되지 않는다**.
+- **수정**: 모달 콘텐츠를 `KeyboardAvoidingView`(iOS `behavior="padding"`, Android `"height"`)로 감싼다. 중앙 정렬(`justifyContent:"center"`)이면 가용 영역 축소로 카드가 자연히 위로 재중앙 정렬된다. iOS 는 헤더/세이프에어리어에 따라 `keyboardVerticalOffset` 가 필요할 수 있다.
+- **왜 `verify` 가 못 잡나**: 키보드·네이티브 레이아웃은 jest/typecheck 와 무관(P-6·P-7 부류 "런타임 네이티브"). 시뮬레이터/실기기에서만 드러남 → 머지 전 **실기기 스모크 1회**(모달 열고 입력 포커스 → 입력·액션 버튼이 키보드에 안 가리는지). AGENTS.md 대로 **Expo SDK 56 문서 확인 후 구현**.
+- 관련: 같은 모달 래퍼에서 **바깥 탭 닫힘 방지**(ADR-034)도 처리 — backdrop `onPress` 는 `Keyboard.dismiss()` 만(모달 `setVisible(false)` 금지).
+
 ## webhook 구현 함정 (설계로 선제 차단 — 구현 시 스모크 검증)
 
 > 아직 미구현이라 "발생한 버그"는 아니나, ADR-028/029 설계가 **선제로 피한 함정**을 박아 둔다(재발 방지 == 구현 전 차단). 전부 **mock `verify` 가 못 잡고**(외부 경계) 실호출/런타임에서만 드러난다 → `docs/QA.md` §F-4 스모크로 확인.
 
-### 스모크 확정 사실 (2026-06-26 운영 실호출 — phase 15)
+### 스모크 확정 사실 (2026-06-26 운영 실호출 — `v1_1_0` step 25~31, webhook-first)
 > mock green 으로 통과했으나 **실호출에서 깨진** 외부 경계. T1 가 예방한 `fetch.bind` 와 **별개로 mutation 스키마가 틀렸다**(설계 단계의 미검증 가정). 재발 방지로 박아 둠.
 - **T0(실발생 버그). `registerTrackWebhook` mutation 스키마** — 실제는 **단일 `input: RegisterTrackWebhookInput!`** 을 받는다(flat 인자 `carrierId/...` 는 `Unknown argument` BAD_REQUEST). `graphqlRequest` throw → `registerWebhook` catch 삼킴 → `webhook_expires_at` NULL 유지 → **cron 은 "Ok" 인데 등록 0**(폴백 폴링에 완전히 가려짐). introspection 으로 확정: `registerTrackWebhook(input: RegisterTrackWebhookInput!): Boolean`, `input{ carrierId:ID!, trackingNumber:String!, callbackUrl:String!, expirationTime:DateTime! }`. → `fix(backend) e8bcd1a`. **교훈**: GraphQL mutation/입력타입은 mock 이 자유롭게 통과시키므로 **introspection 또는 실호출로 shape 확정 필수**(쿼리 1개라도).
 - **W7(해소). 미등록(이벤트 0) 번호 등록 가부** — tracker.delivery 는 **존재하지 않는 번호의 webhook 등록도 받아준다**(`registerTrackWebhook(input)` → `true`). 따라서 T5 의 "안 받아주면 폴링 승급" 전제는 불필요(받아줌). 우리 설계는 그대로 `미등록` 단계엔 등록 안 함(이벤트 0 번호에 슬롯 낭비 회피)이라 무관하게 안전.
@@ -131,6 +138,8 @@
 
 1. **tracker.delivery**: 실제 운송장 번호 1건을 로컬 worker(`wrangler dev`)에 등록 → 응답 status 가 실제 단계로 나오는지. (예: `522093451360`=CJ, `44593463530`=로젠 → `배송완료`.) `미등록` 만 나오면 `Illegal invocation`(P-1)·자격증명·NOT_FOUND 중 무엇인지 로그로 구분.
    - **수취인 패스스루(step2)**: `GET /shipments/:id` 응답의 `recipient`(이름·지역명)가 실제로 채워지는지·마스킹 형태 확인(쿼리 필드명 `recipient { name location { name } }` 변경은 외부 경계라 mock verify 가 못 잡음). 수취인은 **GET /:id track 패스스루(미저장, ADR-005)** — D1 저장·로그 금지, `phoneNumber` 미수신.
+   - **(v1.1.1) 수취인 마스킹 게이트(ADR-032)**: 실 운송장 중 **마스킹 케이스**(예 한진 `받는 분`·`김**`)를 1건 잡아 `displayRecipientName` 게이트가 라벨/완전마스킹은 숨기고 부분마스킹은 표시하는지 확인. 게이트는 앱 순수함수라 단위테스트가 1차 검증하나, **실제 택배사가 보내는 라벨 변형**은 실호출로만 드러남(denylist 보강 입력).
+6. **(v1.1.1) 키보드 회피 모달(P-9)**: 상세의 택배 정보·운송장 수정 모달을 **실기기/시뮬레이터**에서 열고 입력 포커스 → 입력·액션 버튼이 키보드에 안 가리는지, 바깥 탭으로 안 닫히는지(키보드만 접힘) 확인. jest 가 못 잡는 런타임 네이티브 경계.
 2. **cron 폴링**: `curl "http://localhost:8787/cdn-cgi/handler/scheduled"` 트리거 후 목록 status 가 저장·갱신되는지. (로컬 cron 은 자동 실행 안 됨.)
 3. **Expo Push**(가능 시): 실제 토큰 1건으로 발송/리시트 경로 확인.
 4. **로컬 D1**: `schema.sql` 과 로컬 스키마 일치(P-3).
@@ -232,9 +241,9 @@ npx wrangler d1 execute unboxing --file=./schema.sql --remote
 - **NOT NULL+DEFAULT 0 안전**: SQLite 는 NOT NULL 컬럼도 DEFAULT 가 있으면 기존 행에 그 값을 채워 ADD COLUMN 이 성공한다.
 - **신규 배포(아직 `subscriptions` 미생성)**: 위 명령 불필요 — `schema.sql` 의 ALTER 가 처음 적용 시 컬럼을 만든다.
 
-## 07-backend-v0-v11-notifications phase 스키마 변경
+## `v1_1_0` step 0~3 (구 07-…-notifications) 스키마 변경
 
-### 5. `notifications` 신규 테이블 (step0, v1.1 ADR-023 알림 기록)
+### 5. `notifications` 신규 테이블 (step 0, v1.1 ADR-023 알림 기록)
 
 - **변경**: `CREATE TABLE IF NOT EXISTS notifications (...)` + `CREATE INDEX IF NOT EXISTS idx_notifications_device_sent` 추가(발송한 알림 기록 — `device_id`·`shipment_id`[nullable, `ON DELETE SET NULL`]·`carrier`·`last4`·`body`·`stage`·`sent_at`). 수령인 없는 비-PII.
 - **적용**: `IF NOT EXISTS` 라 `schema.sql` 재실행 시 **자동 생성**된다(notification_queue·step3 과 동일 — RENAME·ADD COLUMN 함정 없음, P-2 무관). 로컬·원격 동일.
