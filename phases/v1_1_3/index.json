@@ -117,7 +117,7 @@
       "layer": "frontend",
       "started_at": "2026-06-30T23:55:37+0900",
       "summary": "코드리뷰 #4 — 등록 FAB(absolute 우하단)가 스크롤 끝에서 마지막 항목을 가리던 것 수정: dashboard.tsx content·index.tsx list 두 contentContainerStyle 에 동적 paddingBottom(insets.bottom + spacing.lg + FAB_SIZE(56) + spacing.lg) 추가 — FAB anchor(inset+lg)+높이+위여백, 노치 기기까지 클리어. Fab.tsx·노출 조건·right/bottom/SIZE 무변경(ADR-042 개정). verify green. 실제 가림은 dev build 스모크(step15 게이트).",
-      "completed_at": "2026-06-30T23:59:30+0900"
+      "completed_at": "2026-07-01T00:00:03+0900"
     },
     {
       "step": 13,
