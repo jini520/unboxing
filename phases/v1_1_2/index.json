@@ -8,7 +8,8 @@
       "layer": "backend",
       "status": "completed",
       "started_at": "2026-06-30T11:54:27+0900",
-      "summary": "Workers AI 분류 엔드포인트 POST /classify-purchase 추가 — wrangler.toml [ai] binding(remote=true)·Env.AI, 순수 헬퍼 lib/classify.ts(buildClassifyPrompt·parseClassifyResponse·CATEGORIES 9종 강제·price 0이상정수·JSON깨짐 폴백) test-first(18 케이스), 마스킹 텍스트 전용·D1 미저장(ADR-005)·IP throttle·AI 실패 시 503 폴백($0 ADR-037). vitest remoteBindings:false 로 인증 없는 CI 안전. verify green(worker 300+2todo·coverage 게이트 통과)."
+      "summary": "Workers AI 분류 엔드포인트 POST /classify-purchase 추가 — wrangler.toml [ai] binding(remote=true)·Env.AI, 순수 헬퍼 lib/classify.ts(buildClassifyPrompt·parseClassifyResponse·CATEGORIES 9종 강제·price 0이상정수·JSON깨짐 폴백) test-first(18 케이스), 마스킹 텍스트 전용·D1 미저장(ADR-005)·IP throttle·AI 실패 시 503 폴백($0 ADR-037). vitest remoteBindings:false 로 인증 없는 CI 안전. verify green(worker 300+2todo·coverage 게이트 통과).",
+      "completed_at": "2026-06-30T12:09:19+0900"
     },
     {
       "step": 1,
