@@ -8,7 +8,8 @@
       "layer": "frontend",
       "status": "completed",
       "started_at": "2026-06-30T19:16:51+0900",
-      "summary": "shipment/[id].tsx 두 입력 모달(택배 정보·운송장 수정)에 공통 ModalHeader(제목+닫기✕+구분선) 추가 + 채움형 accent 저장 버튼(비활성=bg.secondary/text.disabled)·title3/semibold 제목·토큰 간격 통일(ADR-040 ①~④). ADR-034 동작 보존(backdrop=Keyboard.dismiss만·KeyboardAvoidingView 중앙 카드 유지). verify green. 실기기 키보드 회피 스모크는 step 5에 남음."
+      "summary": "shipment/[id].tsx 두 입력 모달(택배 정보·운송장 수정)에 공통 ModalHeader(제목+닫기✕+구분선) 추가 + 채움형 accent 저장 버튼(비활성=bg.secondary/text.disabled)·title3/semibold 제목·토큰 간격 통일(ADR-040 ①~④). ADR-034 동작 보존(backdrop=Keyboard.dismiss만·KeyboardAvoidingView 중앙 카드 유지). verify green. 실기기 키보드 회피 스모크는 step 5에 남음.",
+      "completed_at": "2026-06-30T19:22:20+0900"
     },
     {
       "step": 1,
