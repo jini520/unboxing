@@ -135,7 +135,7 @@
       "layer": "frontend",
       "started_at": "2026-07-01T03:30:18+0900",
       "summary": "shipment/[id].tsx 두 모달(택배 정보·운송장 수정)의 복붙 footer(취소 텍스트 + 채움형 저장 버튼)를 공통 ModalActions({onCancel,onSave,saveDisabled}) 로 추출(ModalHeader 와 대칭·cleanup #7). 정보=closeInfoModal/saveInfo/amountInvalid, 수정=setEditModal(false)/saveEdit/editDisabled. 비활성 색 분기(bg.secondary+text.disabled)·accent/onAccent·취소 text.secondary·a11y(accessibilityState disabled)·hitSlop·modalActions 스타일 전부 불변(순수 추출). 정보 취소가 step11 clearCapture 위임 유지(탈출구 회귀 없음). verify green(app273·worker300·harness51).",
-      "completed_at": "2026-07-01T03:32:30+0900"
+      "completed_at": "2026-07-01T03:33:00+0900"
     },
     {
       "step": 15,
