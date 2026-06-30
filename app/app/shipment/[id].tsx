@@ -92,6 +92,11 @@ export default function DetailScreen() {
   // 단계는 실제 두 함수 경계(OCR/분류)로만 — 가짜 중간 단계 금지(ADR-045·ADR-037 1콜 반환). 캡처는 보조(ADR-039).
   const [captureStage, setCaptureStage] = useState<null | "ocr" | "classify">(null);
   const capturing = captureStage !== null;
+  // 추정 진행률 %(ADR-045 개정) — OCR/분류는 원자적 호출이라 세밀 진행이 없어 시간 기반 추정.
+  // OCR 0→45 / 분류 45→90 천장으로 이징 점근(완료 전 100% 금지), 성공 시 100 스냅. % 는 추정치(정확도 보장 아님).
+  const [captureProgress, setCaptureProgress] = useState(0);
+  const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 램프 setInterval 핸들
+  const captureHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 성공 100% 유지(250ms) 핸들
   const deleting = useRef(false);
   // 운송장 "수정"(택배사·번호) 모달 — 택배 정보 모달과 별개(헤더 연필 진입). 저장 = 재등록(ADR-027).
   // carrierDraft = 명시 선택(picked) — 번호 변경 시 null 로 비워 autoPickCarrier 정책(ADR-026)이 다시 적용되게 한다.
@@ -159,31 +164,81 @@ export default function DetailScreen() {
   // ── 캡처로 채우기(v1.1.2) — 직접 입력의 **보조**(ADR-039). 모달 드래프트를 자동 채움(편집 가능). ──
   // 파이프라인: ① 이미지 선택+OCR(기기 내) → ② 마스킹(PII 제거) → ③ 분류(마스킹 텍스트만 전송) → ④ 매핑.
   // 어느 단계가 실패해도 직접 입력·저장 흐름은 안 멈춘다(폴백 안내만). 이미지·원문 PII 는 기기를 안 떠난다(ADR-036).
+
+  // 진행률 추정 램프(ADR-045) — captureStage 동안 ceiling(OCR 45·분류 90)으로 이징 점근(완료 전 100% 금지).
+  // 단계 전환 시 cleanup→재시작(progress 유지·새 ceiling 으로 계속), stage null·언마운트 시 clearInterval(누수 방지).
+  useEffect(() => {
+    if (captureStage === null) return;
+    const ceiling = captureStage === "ocr" ? 45 : 90;
+    captureTimerRef.current = setInterval(() => {
+      setCaptureProgress((p) => (p >= ceiling ? p : p + Math.max(1, Math.round((ceiling - p) * 0.08))));
+    }, 120);
+    return () => {
+      if (captureTimerRef.current) {
+        clearInterval(captureTimerRef.current);
+        captureTimerRef.current = null;
+      }
+    };
+  }, [captureStage]);
+
+  // 성공 100% 유지(250ms) setTimeout 의 언마운트 정리 — 램프 interval 은 위 effect cleanup 이 정리.
+  useEffect(
+    () => () => {
+      if (captureHoldRef.current) clearTimeout(captureHoldRef.current);
+    },
+    [],
+  );
+
+  // 즉시 클리어(취소·empty·실패) — 오버레이 제거·% 0·타이머 전부 정리. setCaptureStage(null) 이 램프 effect cleanup 도 발동.
+  const clearCapture = useCallback(() => {
+    if (captureTimerRef.current) {
+      clearInterval(captureTimerRef.current);
+      captureTimerRef.current = null;
+    }
+    if (captureHoldRef.current) {
+      clearTimeout(captureHoldRef.current);
+      captureHoldRef.current = null;
+    }
+    setCaptureStage(null);
+    setCaptureProgress(0);
+  }, []);
+
   const onCaptureFill = useCallback(async () => {
     if (capturing) return;
-    setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"(capturePurchaseText 전, ADR-045)
+    setCaptureProgress(0);
+    setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"·램프 0→45(capturePurchaseText 전, ADR-045)
     try {
       const cap = await capturePurchaseText(); // ① 이미지 선택 + 온디바이스 OCR
-      if (cap.kind === "canceled") return; // 사용자 취소 — 조용히
+      if (cap.kind === "canceled") {
+        clearCapture(); // 사용자 취소 — 조용히(% 0·오버레이 제거)
+        return;
+      }
       if (cap.kind === "empty") {
+        clearCapture();
         Alert.alert("글자를 인식하지 못했어요", "주문 상세가 잘 보이게 다시 촬영해 주세요.");
         return;
       }
       const masked = maskPurchaseText(cap.text); // ② PII 마스킹 — 외부엔 마스킹 텍스트만(ADR-038·005)
-      setCaptureStage("classify"); // ② 분류 구간 — 오버레이 "상품 분석 중…"(classifyPurchase 전, ADR-045)
+      setCaptureStage("classify"); // ② 분류 구간 — 오버레이 "상품 분석 중…"·램프 45→90(classifyPurchase 전, ADR-045)
       const result = await classifyPurchase(masked, apiDeps); // ③ 분류(Worker, 요청 시)
       const mapped = mapClassificationToInfo(result); // ④ 검증 통과 필드만 매핑(CATEGORIES 강제·금액 검증)
       // 드래프트 자동 채움 — 매핑된 필드만 덮어쓴다(미분류/미인식 필드는 사용자 입력 보존). 확정 아닌 편집 초안.
       if (mapped.memo !== undefined) setMemoDraft(mapped.memo);
       if (mapped.amount !== undefined) setAmountDraft(String(mapped.amount));
       if (mapped.category !== undefined) setCategoryDraft(mapped.category);
+      // 성공 — 100% 스냅 후 ~250ms 유지하고 종료(완료 신호). 램프 천장 90<100 이라 그동안 100 유지.
+      setCaptureProgress(100);
+      captureHoldRef.current = setTimeout(() => {
+        captureHoldRef.current = null;
+        setCaptureStage(null);
+        setCaptureProgress(0);
+      }, 250);
     } catch {
       // OCR 실패·분류 503(한도초과·타임아웃)·네트워크 등 — 직접 입력 폴백(흐름 유지). 원문·에러 미로그(ADR-005).
+      clearCapture();
       Alert.alert("지금은 캡처로 채울 수 없어요", "직접 입력해 주세요.");
-    } finally {
-      setCaptureStage(null); // 오버레이 제거 — 폴백 Alert 은 네이티브라 그 위에 뜸(가림 없음).
     }
-  }, [capturing]);
+  }, [capturing, clearCapture]);
 
   // ── 운송장 수정(택배사·번호) = 재등록(ADR-027) ────────────────
   const openEdit = useCallback(() => {
@@ -587,6 +642,8 @@ export default function DetailScreen() {
               <View style={styles.captureOverlay}>
                 <View style={[styles.captureOverlayBg, { backgroundColor: tokens.bg.surface }]} />
                 <ActivityIndicator size="large" color={tokens.accent} />
+                {/* 추정 진행률 큰 숫자(ADR-045 개정) — 완료 전엔 천장(45/90)에 점근, 성공 시에만 100%. 추정치. */}
+                <Text style={[styles.capturePercent, { color: tokens.accent }]}>{captureProgress}%</Text>
                 <Text style={[styles.captureStageText, { color: tokens.text.body }]}>
                   {captureStage === "ocr" ? "이미지 인식 중…" : "상품 분석 중…"}
                 </Text>
@@ -759,6 +816,8 @@ const styles = StyleSheet.create({
   captureOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", gap: spacing.md },
   // 반투명 표면색 베이스(별도 레이어 — opacity 가 스피너/텍스트엔 안 걸리게). 카드 라운드에 맞춤.
   captureOverlayBg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius.lg, opacity: 0.92 },
+  // 추정 진행률 큰 숫자(ADR-045 개정) — accent 색, 단계 텍스트 위. % 는 추정치(완료 전 100% 금지).
+  capturePercent: { fontSize: fontSize.display2, fontWeight: fontWeight.bold },
   captureStageText: { fontSize: fontSize.callout, fontWeight: fontWeight.medium },
   // 필드가 길어질 수 있어(메모+카테고리 칩+금액) 내부 스크롤 — 작은 화면·키보드에서도 액션 버튼이 가려지지 않게.
   modalScroll: { maxHeight: 360 },
