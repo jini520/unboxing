@@ -178,24 +178,27 @@ function ShipmentCardBase({
           <Text style={[styles.memo, { color: tokens.text.primary }]} numberOfLines={1}>
             {memo || defaultMemoText(shipment.createdAt)}
           </Text>
-          {/* 카테고리 칩(로컬·보조) — 설정 시에만 메모 줄 **아래** 작게(메모 표시 규칙 불변·칩은 보조). 색 단독 아님(Tag 글리프+라벨). */}
-          {category ? (
-            <View style={[styles.chip, { backgroundColor: tokens.bg.secondary }]}>
-              <Tag
-                size={12}
-                color={tokens.text.secondary}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
-              <Text style={[styles.chipText, { color: tokens.text.secondary }]} numberOfLines={1}>
-                {category}
-              </Text>
-            </View>
-          ) : null}
-          {/* 택배사·운송장 전체번호(하단·작게) — 본인 데이터라 끝4자리로 줄이지 않고, 길면 잘림 없이 줄바꿈 허용. */}
-          <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
-            {carrierName(shipment.carrier)} · {shipment.trackingNo}
-          </Text>
+          {/* 하단 행 — 좌: 택배사·운송장 전체번호(작게·줄바꿈 허용) / 우: 카테고리 칩(설정 시·하단 정렬·보조).
+              칩 유무 무관 카드는 3줄 고정(ADR-041 — 독립 줄 금지·메모 줄에 붙이지 말 것). 칩은 색 단독 아님(Tag 글리프+라벨). */}
+          <View style={styles.bottomRow}>
+            {/* 택배사·운송장 전체번호 — 본인 데이터라 끝4자리로 줄이지 않고, 길면 잘림 없이 줄바꿈 허용. */}
+            <Text style={[styles.carrier, { color: tokens.text.secondary }]}>
+              {carrierName(shipment.carrier)} · {shipment.trackingNo}
+            </Text>
+            {category ? (
+              <View style={[styles.chip, { backgroundColor: tokens.bg.secondary }]}>
+                <Tag
+                  size={12}
+                  color={tokens.text.secondary}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+                <Text style={[styles.chipText, { color: tokens.text.secondary }]} numberOfLines={1}>
+                  {category}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </View>
     </View>
@@ -376,27 +379,34 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     marginTop: spacing.sm,
   },
-  // 카테고리 칩(보조) — 메모 줄 아래 작게. 좌측정렬·내용폭(alignSelf:flex-start)이라 메모/번호 줄을 밀지 않는다.
+  // 하단 행(택배사·번호 + 칩) — 메모 줄 아래 한 줄(ADR-041). 좌 택배사·번호(flex:1·줄바꿈) / 우 칩(flexShrink:0·하단정렬).
+  // flex-end 로 칩을 줄바꿈된 번호의 마지막 줄(하단)에 맞춘다. 칩 미설정이면 우측 비고 택배사·번호가 전체 폭.
+  bottomRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  // 카테고리 칩(보조) — 하단 행 우측. flexShrink:0 이라 번호 줄바꿈이 우선되고 칩은 안 찌그러진다(겹침 없음).
   chip: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,
-    marginTop: spacing.sm,
-    maxWidth: "100%",
   },
   chipText: {
     fontSize: fontSize.micro,
     fontWeight: fontWeight.medium,
   },
-  // 택배사·운송장 전체번호(하단·보조) — 더 작게(12). 줄바꿈 허용(끝4자리 축약 금지).
+  // 택배사·운송장 전체번호(하단 행 좌측·보조) — 더 작게(12). 줄바꿈 허용(끝4자리 축약 금지). flex:1 로 남은 폭 차지.
   carrier: {
+    flex: 1,
     fontSize: fontSize.caption,
     fontWeight: fontWeight.medium,
-    marginTop: spacing.sm,
   },
   // 스와이프 액션 콘텐츠 — **고정 폭 96**(스냅 폭·터치 타깃 ≥44). 배경은 별도 한정폭 레이어(actionBg*)라
   // 여기엔 배경/라운드를 두지 않는다. 색은 토큰만(아이콘·라벨=onAccent 흰색).
