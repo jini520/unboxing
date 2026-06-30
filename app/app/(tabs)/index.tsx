@@ -24,7 +24,7 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, router } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ApiError,
   deleteShipment,
@@ -59,6 +59,8 @@ import { useTheme } from "../../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
 
 const NOTICE_MS = 2000;
+// 등록 FAB(ADR-042)가 우하단 absolute 라 스크롤 끝에서 마지막 카드를 덮는다 → 리스트 하단에 FAB 만큼 여유(개정).
+const FAB_SIZE = 56; // Fab.tsx SIZE 와 일치(클리어런스 계산용).
 
 /**
  * 삭제 시 휴지통에 적재할 스냅샷 — 송장 + 라이브 택배 정보(info). 보강④: info 는 prune 보다 먼저 읽어 유실 방지.
@@ -77,6 +79,7 @@ function toTrashSnapshot(s: Shipment, info: ShipmentInfo): TrashSnapshot {
 
 export default function ListScreen() {
   const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
   const [shipments, setShipments] = useState<Shipment[] | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -441,7 +444,11 @@ export default function ListScreen() {
         <FlatList
           data={visible}
           keyExtractor={(s) => s.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            // FAB 가 마지막 항목을 가리지 않게 하단 여유: FAB anchor(inset+lg) + 높이 + 위 여백(lg).
+            { paddingBottom: insets.bottom + spacing.lg + FAB_SIZE + spacing.lg },
+          ]}
           // 마지막 업데이트(신선도) — 첫 카드 위 오른쪽.
           ListHeaderComponent={
             lastUpdated !== null && !selectionMode ? (
