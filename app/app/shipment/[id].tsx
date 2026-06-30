@@ -205,10 +205,15 @@ export default function DetailScreen() {
 
   const onCaptureFill = useCallback(async () => {
     if (capturing) return;
-    setCaptureProgress(0);
-    setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"·램프 0→45(capturePurchaseText 전, ADR-045)
     try {
-      const cap = await capturePurchaseText(); // ① 이미지 선택 + 온디바이스 OCR
+      // 진행률·오버레이는 picker 가 사진을 반환한 직후(onImagePicked·OCR 시작)부터 — picker 여는 동안엔
+      // 안 뜬다(ADR-045 개정 2: 사진 고르는 시간에 램프가 미리 돌던 버그 수정). 취소 시 onImagePicked 미발화 → 오버레이 안 뜸.
+      const cap = await capturePurchaseText({
+        onImagePicked: () => {
+          setCaptureProgress(0);
+          setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"·램프 0→45
+        },
+      }); // ① 이미지 선택 + 온디바이스 OCR
       if (cap.kind === "canceled") {
         clearCapture(); // 사용자 취소 — 조용히(% 0·오버레이 제거)
         return;

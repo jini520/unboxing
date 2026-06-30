@@ -82,8 +82,16 @@
       "started_at": "2026-06-30T22:43:38+0900",
       "summary": "캡처 오버레이에 추정 진행률 %(setInterval 이징 점근·ocr45/classify90 천장·성공 100% 스냅·실패/취소 즉시 클리어·타이머 누수가드). 단계텍스트·스피너 유지·폴백·ADR-005 불변. JS 전용.",
       "completed_at": "2026-06-30T22:50:25+0900"
+    },
+    {
+      "step": 9,
+      "name": "capture-progress-start",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T23:04:55+0900",
+      "summary": "capture.ts onImagePicked 콜백(uri 후·OCR 전) + onCaptureFill 이 stage/progress 를 picker 전이 아닌 onImagePicked 에서 켜 % 가 사진 선택 시점부터 0→ 오름. 취소 시 오버레이 미표시. JS 전용.",
+      "completed_at": "2026-06-30T23:07:30+0900"
     }
   ],
-  "created_at": "2026-06-30T19:16:51+0900",
-  "completed_at": "2026-06-30T22:50:25+0900"
+  "created_at": "2026-06-30T19:16:51+0900"
 }
