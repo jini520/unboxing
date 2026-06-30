@@ -653,30 +653,7 @@ export default function DetailScreen() {
                 </Text>
               ) : null}
             </ScrollView>
-            <View style={styles.modalActions}>
-              <Pressable onPress={closeInfoModal} hitSlop={8} accessibilityRole="button">
-                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
-              </Pressable>
-              <Pressable
-                onPress={saveInfo}
-                disabled={amountInvalid}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: amountInvalid }}
-                style={[
-                  styles.modalSaveBtn,
-                  { backgroundColor: amountInvalid ? tokens.bg.secondary : tokens.accent },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.modalSave,
-                    { color: amountInvalid ? tokens.text.disabled : tokens.onAccent },
-                  ]}
-                >
-                  저장
-                </Text>
-              </Pressable>
-            </View>
+            <ModalActions onCancel={closeInfoModal} onSave={saveInfo} saveDisabled={amountInvalid} />
             {/* 캡처 분석 진행 오버레이(ADR-045) — captureStage(OCR/분류)일 때만 카드를 덮어 단계 스피너 표시.
                 분석 중 필드 오터치 차단. 폴백 Alert 은 네이티브라 이 위에 뜸(가림 없음). 단계는 두 경계로만. */}
             {capturing ? (
@@ -751,30 +728,11 @@ export default function DetailScreen() {
                 번호를 바꾸면 새 운송장으로 다시 추적해요.
               </Text>
             </ScrollView>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setEditModal(false)} hitSlop={8} accessibilityRole="button">
-                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void saveEdit()}
-                disabled={editDisabled}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: editDisabled }}
-                style={[
-                  styles.modalSaveBtn,
-                  { backgroundColor: editDisabled ? tokens.bg.secondary : tokens.accent },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.modalSave,
-                    { color: editDisabled ? tokens.text.disabled : tokens.onAccent },
-                  ]}
-                >
-                  저장
-                </Text>
-              </Pressable>
-            </View>
+            <ModalActions
+              onCancel={() => setEditModal(false)}
+              onSave={() => void saveEdit()}
+              saveDisabled={editDisabled}
+            />
           </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
@@ -808,6 +766,45 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
       </View>
       <View style={[styles.modalDivider, { borderBottomColor: tokens.border }]} />
     </>
+  );
+}
+
+/**
+ * 입력 모달 공통 하단 액션 — 취소(텍스트) + 채움형 저장 버튼(ADR-040 ③). ModalHeader 와 대칭 추출(cleanup #7).
+ * 두 모달 footer 가 복붙이라 lockstep 드리프트를 막으려 공통화 — onCancel/onSave/saveDisabled 만 다름. 시각·동작 불변.
+ */
+function ModalActions({
+  onCancel,
+  onSave,
+  saveDisabled,
+}: {
+  onCancel: () => void;
+  onSave: () => void;
+  saveDisabled: boolean;
+}) {
+  const { tokens } = useTheme();
+  return (
+    <View style={styles.modalActions}>
+      <Pressable onPress={onCancel} hitSlop={8} accessibilityRole="button">
+        <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
+      </Pressable>
+      <Pressable
+        onPress={onSave}
+        disabled={saveDisabled}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: saveDisabled }}
+        style={[
+          styles.modalSaveBtn,
+          { backgroundColor: saveDisabled ? tokens.bg.secondary : tokens.accent },
+        ]}
+      >
+        <Text
+          style={[styles.modalSave, { color: saveDisabled ? tokens.text.disabled : tokens.onAccent }]}
+        >
+          저장
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
