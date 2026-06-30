@@ -8,7 +8,8 @@
       "layer": "frontend",
       "status": "completed",
       "summary": "app/src/lib/recipient.ts 순수함수 displayRecipientName 신규(test-first) — 빈/공백·플레이스홀더 denylist(받는 분 등 8종)·완전마스킹(***) 숨김, 부분마스킹(김**)·실명 표시(ADR-032). recipient.test.ts 6케이스 green, worker 무변경.",
-      "started_at": "2026-06-30T10:23:16+0900"
+      "started_at": "2026-06-30T10:23:16+0900",
+      "completed_at": "2026-06-30T10:25:14+0900"
     },
     {
       "step": 1,
