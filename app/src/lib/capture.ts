@@ -1,14 +1,14 @@
 /**
- * 구매 캡처 분석 파이프라인 ①② — 이미지 선택(expo-image-picker) + 온디바이스 OCR(ML Kit, 한국어).
+ * 구매 캡처 분석 파이프라인 ①② — 이미지 선택(expo-image-picker) + 온디바이스 OCR(iOS Apple Vision / Android ML Kit, 한국어).
  * 결정: docs/ADR.md ADR-036(온디바이스 OCR·이미지 기기이탈 금지)·038(마스킹은 호출부에서) / docs/ARCHITECTURE.md "v1.1.2".
  *
  * CRITICAL(ADR-036·005): 이미지·OCR 원문은 **기기를 떠나지 않는다** — 이 모듈은 텍스트만 반환하고,
  *   호출부(shipment/[id].tsx)가 maskPurchaseText 로 PII 를 제거한 **마스킹 텍스트만** 외부(/classify-purchase)로 보낸다.
- * 네이티브 경계(이미지 picker·ML Kit)라 순수 로직이 없다 → jest 단위테스트 대상 아님(coverage 제외, push.ts 패턴).
+ * 네이티브 경계(이미지 picker·OCR 모듈)라 순수 로직이 없다 → jest 단위테스트 대상 아님(coverage 제외, push.ts 패턴).
  *   실 동작 검증은 외부 경계 스모크(step 4)에서. mock verify green 은 이 경계를 보증하지 않는다(docs/ENGINEERING.md).
  */
 import * as ImagePicker from "expo-image-picker";
-import TextRecognition, { TextRecognitionScript } from "@react-native-ml-kit/text-recognition";
+import { recognizeText } from "../../modules/ocr";
 
 /**
  * 캡처 결과 — 호출부가 분기한다.
@@ -34,9 +34,8 @@ export async function capturePurchaseText(): Promise<CaptureResult> {
   const uri = picked.canceled ? undefined : picked.assets?.[0]?.uri;
   if (!uri) return { kind: "canceled" };
 
-  // 온디바이스 OCR(한국어 스크립트 모델). 이미지 URI 는 기기 로컬 — 외부 전송 없음(ADR-036).
-  const result = await TextRecognition.recognize(uri, TextRecognitionScript.KOREAN);
-  const text = (result.text ?? "").trim();
+  // 온디바이스 OCR(iOS Apple Vision / Android ML Kit·한국어). 이미지 URI 는 기기 로컬 — 외부 전송 없음(ADR-036).
+  const text = (await recognizeText(uri)).trim();
   if (!text) return { kind: "empty" };
   return { kind: "ok", text };
 }

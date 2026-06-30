@@ -257,6 +257,8 @@
 **이유**: OCR은 "글자 읽기"만 정확(캡처라 ~100%), "어디가 상품/가격인가"는 몰마다 레이아웃이 달라 위치 규칙 불가 → 의미 이해(LLM)가 흡수. 비전 LLM에 이미지 직송은 PII 노출·neuron·레이턴시(4~10초) 모두 불리 → 텍스트 경로(토큰 적고 마스킹 가능). 실측: OCR 1.1s + LLM 2.1s ≈ 3.2s.
 **트레이드오프**: 네이티브 OCR 의존(`expo-image-picker` + ML Kit/Vision)으로 dev build 리빌드 필요. OCR 0줄 → "인식 실패, 다시 촬영" 폴백.
 
+**보강(2026-06-30 · v1.1.2 후속)**: 위 "iOS Apple Vision / Android ML Kit" 를 **자체 Expo 네이티브 모듈**(`app/modules/ocr/` · 단일 인터페이스 `recognizeText(uri): Promise<string>`)로 구현한다 — iOS = **Apple Vision**(`VNRecognizeTextRequest`, `recognitionLanguages=["ko-KR","en-US"]`·`.accurate`·언어보정·boundingBox `midY→minX` 읽기순서 정렬), Android = **ML Kit 한국어**(`KoreanTextRecognizerOptions`). v1.1.2 step3 가 지름길로 쓴 제3자 라이브러리 `@react-native-ml-kit/text-recognition`(iOS·Android **둘 다 ML Kit**)을 **제거**한다. **이유**: ① 라이브러리는 iOS 도 ML Kit 을 써 위 설계 의도(iOS=Vision)와 어긋났다. ② **iOS ML Kit 은 시뮬레이터에서 동작하지 않는다**(device-only) → v1.1.2 캡처 스모크가 시뮬에서 막혔다(ENGINEERING **P-10**). Apple Vision 은 **시뮬·실기기 모두 동작 + iOS 추가 의존 0**(OS 내장). ③ 읽기순서·언어를 직접 제어. **불변**: 이미지·OCR 원문 기기이탈 금지(ADR-005·이 ADR ①) — 모듈은 텍스트만 반환하고 마스킹은 호출부(ADR-038). **트레이드오프**: 네이티브 코드(Swift+Kotlin) 유지보수 소폭↑, 여전히 dev build/EAS 리빌드 필요(라이브러리든 자체 모듈이든 동일 — 이 ADR 트레이드오프 불변). 결정 SoT 는 이 ADR(별도 번호 안 부여 — 구현 정합 보강).
+
 ### ADR-037: 분류 모델 = `@cf/openai/gpt-oss-120b` (Workers AI · 비학습 · 무료 한도)
 **결정**: 분류 LLM은 Cloudflare Workers AI의 **`@cf/openai/gpt-oss-120b`**(오픈웨이트, OpenAI API 아님). `worker/wrangler.toml` 에 `[ai]` 바인딩(`binding = "AI"`) + 기존 `unboxing-worker` 에 신규 `POST /classify-purchase`(요청 시 실행 — 상시 서버 아님, $0 유지).
 **이유**: 실측에서 8B는 가격 오독·카테고리 오류, **120b는 전부 정답 + 가장 빠름(2.1s)**. Gemini 무료는 입력을 학습에 사용(한국 비예외)·Claude는 API 종량제(신규 비용) → Workers AI는 **학습 미사용 + 무료 한도(10k neuron/day) + 기존 스택 정합**. 건당 ≈39 neuron → 무료 **≈250건/일(앱 전체 공유)**.

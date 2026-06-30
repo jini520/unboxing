@@ -1,0 +1,23 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.ocr'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.ocr"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // 온디바이스 한국어 OCR (ML Kit). iOS 는 OS 내장 Vision 이라 추가 의존 없음.
+  implementation "com.google.mlkit:text-recognition-korean:16.0.1"
+}

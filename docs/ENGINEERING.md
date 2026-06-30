@@ -109,6 +109,13 @@
 - **왜 `verify` 가 못 잡나**: 키보드·네이티브 레이아웃은 jest/typecheck 와 무관(P-6·P-7 부류 "런타임 네이티브"). 시뮬레이터/실기기에서만 드러남 → 머지 전 **실기기 스모크 1회**(모달 열고 입력 포커스 → 입력·액션 버튼이 키보드에 안 가리는지). AGENTS.md 대로 **Expo SDK 56 문서 확인 후 구현**.
 - 관련: 같은 모달 래퍼에서 **바깥 탭 닫힘 방지**(ADR-034)도 처리 — backdrop `onPress` 는 `Keyboard.dismiss()` 만(모달 `setVisible(false)` 금지).
 
+## P-10. 온디바이스 OCR: iOS ML Kit 은 시뮬레이터 미동작 → 자체 네이티브 모듈(Apple Vision) (v1.1.2 후속)
+
+- **증상**: v1.1.2 캡처 스모크에서 **iOS 시뮬레이터의 OCR 이 동작하지 않음**(텍스트 0줄/throw). 원인 = `@react-native-ml-kit/text-recognition` 의 iOS 구현이 **ML Kit**(Google)인데 **iOS ML Kit 은 device-only** 라 시뮬레이터에 모델이 없다. ADR-036 은 본래 "iOS = Apple Vision" 이었으나 step3 구현이 양 플랫폼 ML Kit 라이브러리로 지름길을 타며 의도와 어긋났다.
+- **수정**: 라이브러리를 제거하고 **자체 Expo 네이티브 모듈** `app/modules/ocr/` 로 — **iOS = Apple Vision**(`VNRecognizeTextRequest`·`ko-KR`/`en-US`·`.accurate`, OS 내장이라 **시뮬·실기기 모두 동작**·iOS 의존 0), **Android = ML Kit 한국어**(유지). `capture.ts` 는 `modules/ocr` 의 `recognizeText(uri)` 단일 인터페이스만 사용. 결정 = ADR-036 보강.
+- **함정**: 네이티브 모듈이라 **JS만 바꿔선 반영 안 됨** — `expo prebuild`/dev build/EAS **리빌드 필요**(Expo Go·OTA ❌, P-7·P-9·P-11 부류 "빌드/런타임 네이티브"). autolinking 은 `expo-module.config.json`(`modules: ["OcrModule"]` / `expo.modules.ocr.OcrModule`)으로 연결. `app/ios/`·`app/android/` 산출물 직접 편집 금지(P-7).
+- **왜 `verify` 가 못 잡나**: 네이티브 OCR·picker 는 jest/typecheck 와 무관(`capture.ts` 는 coverage 제외 — push.ts 패턴). **dev build 로 한국어 스크린샷 → 캡처 → 텍스트 인식 + 마스킹 누출 0** 1회 스모크로만 확인. mock `verify` green 은 이 경계를 보증하지 않는다.
+
 ## webhook 구현 함정 (설계로 선제 차단 — 구현 시 스모크 검증)
 
 > 아직 미구현이라 "발생한 버그"는 아니나, ADR-028/029 설계가 **선제로 피한 함정**을 박아 둔다(재발 방지 == 구현 전 차단). 전부 **mock `verify` 가 못 잡고**(외부 경계) 실호출/런타임에서만 드러난다 → `docs/QA.md` §F-4 스모크로 확인.
