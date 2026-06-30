@@ -9,6 +9,10 @@
       "dir": "v1_1_0",
       "status": "completed",
       "completed_at": "2026-06-27T01:06:10+0900"
+    },
+    {
+      "dir": "v1_1_1",
+      "status": "pending"
     }
   ]
 }

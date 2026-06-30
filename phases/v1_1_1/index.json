@@ -1,0 +1,10 @@
+{
+  "project": "unboxing",
+  "version": "1.1.1",
+  "steps": [
+    { "step": 0, "name": "recipient-gate", "layer": "frontend", "status": "pending" },
+    { "step": 1, "name": "detail-screen", "layer": "frontend", "status": "pending" },
+    { "step": 2, "name": "settings-header", "layer": "frontend", "status": "pending" },
+    { "step": 3, "name": "verify-release", "layer": "qa", "status": "pending" }
+  ]
+}
