@@ -12,6 +12,13 @@ binding = "DB"
 database_name = "unboxing"
 database_id = "2222ba46-7652-4085-8e6a-69604d2fc4b5"
 
+# Workers AI — 구매 캡처 분류(POST /classify-purchase, @cf/openai/gpt-oss-120b). 요청 시 실행($0, ADR-037).
+# remote=true: AI 는 항상 원격 리소스라는 명시(로컬 dev 전용 플래그·배포 무관). 테스트는 vitest.config.mts
+# remoteBindings:false 로 원격 세션을 끄므로 인증 없는 CI 에서도 안전하다(env.AI.run 미호출, 실호출은 step4 스모크).
+[ai]
+binding = "AI"
+remote = true
+
 # 비밀 아닌 설정값(var). secret 으로 다루지 말 것 — docs/ARCHITECTURE.md "환경변수 & 시크릿".
 [vars]
 # 심사용 데모 운송장(ADR-019) — 이 번호면 tracker.ts 가 외부 호출 없이 캔드 타임라인 반환.
