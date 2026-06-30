@@ -27,7 +27,7 @@
       "status": "completed",
       "started_at": "2026-06-30T12:15:10+0900",
       "summary": "LLM 분류 응답 → ShipmentInfo 매핑 순수함수 app/src/lib/purchase.ts test-first(13 케이스) — mapClassificationToInfo(memo←상품명 trim·100자 절단·빈값 미설정 / amount←가격 parseAmount 검증·0 보존·음수/비정수/상한 거부 / category←CATEGORIES 9종 정확 일치만, 그 외 미분류). 메모 100자 단일출처 info.ts MEMO_MAX_LENGTH 신설·상세 모달 maxLength 도 이 상수로 연결(드리프트 방지). CATEGORIES·parseAmount·100자 규칙 재구현 없이 재사용·D1 미저장(ADR-039). verify green(app 266·worker 300+2todo·harness 51).",
-      "completed_at": "2026-06-30T12:18:50+0900"
+      "completed_at": "2026-06-30T12:19:19+0900"
     },
     {
       "step": 3,
