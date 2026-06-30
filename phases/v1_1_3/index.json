@@ -18,7 +18,7 @@
       "status": "completed",
       "started_at": "2026-06-30T19:22:20+0900",
       "summary": "ShipmentCard.tsx 카테고리 칩을 독립 줄 → 택배사·번호 줄과 같은 행(bottomRow: row·flex-end·space-between)의 우측으로 이동(ADR-041) — 좌 carrier(flex:1·줄바꿈) / 우 chip(flexShrink:0). 칩 유무 무관 3줄 고정. 메모 줄·배지·스와이프 등 카드 인터랙션 불변. verify green.",
-      "completed_at": "2026-06-30T19:24:30+0900"
+      "completed_at": "2026-06-30T19:24:46+0900"
     },
     {
       "step": 2,
