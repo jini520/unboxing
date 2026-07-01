@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -117,17 +118,49 @@ export default function RegisterScreen() {
     try {
       // 송장 등록 전 device 가 서버에 등록돼 있음을 보장(푸시 거부 사용자도 통과 — QA-001 데드락 방지).
       await ensureDeviceRegistered();
-      await createShipment(selectedId, normalizeTrackingNumber(input), apiDeps);
-      // 첫 등록 직후(가치 시점)에 푸시 미허용이면 온보딩(priming)으로 유도한다 — PRD 권한 온보딩.
-      // 이걸 안 하면 신규 사용자는 권한 팝업을 못 봐 '앱이 꺼져 있어도 푸시'가 동작하지 않는다. priming은 1회만.
+      const { shipment, created } = await createShipment(
+        selectedId,
+        normalizeTrackingNumber(input),
+        apiDeps,
+      );
+      // 등록 성공 후 분기 우선순위(ADR-043): ① 첫 등록 푸시 priming → 온보딩(최우선) →
+      // ② 멱등 등록(이미 추적 중) → 그 상세(정보 모달 자동오픈 X) → ③ 신규 등록 → "택배 정보 입력" 확인.
+      // priming 과 확인을 동시에 띄우지 않는다(첫 등록 프롬프트 과다 회피).
       if (await shouldPrimePush()) {
-        await AsyncStorage.setItem(PRIMED_KEY, "1");
+        // 첫 등록 직후(가치 시점)에 푸시 미허용이면 온보딩(priming)으로 유도 — PRD 권한 온보딩. 1회만.
+        // 이걸 안 하면 신규 사용자는 권한 팝업을 못 봐 '앱이 꺼져 있어도 푸시'가 동작하지 않는다.
+        // PRIMED_KEY 영속은 **best-effort**(ADR-043 개정·코드리뷰 #5): 등록은 이미 성공했으므로
+        // setItem 이 throw 해도 catch 로 떨어뜨려 "등록 실패"로 오인하지 않고 온보딩으로 진행한다
+        // (priming 은 다음 등록에 다시 시도될 수 있음).
+        try {
+          await AsyncStorage.setItem(PRIMED_KEY, "1");
+        } catch {
+          // 영속 실패는 무시 — 등록은 이미 성공. priming 네비게이션은 그대로 진행.
+        }
         router.replace("/onboarding"); // 온보딩이 끝나면 목록으로 돌아간다.
-      } else if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace("/");
+        return;
       }
+      if (!created) {
+        // 멱등 등록(이미 추적 중) → 확인 스킵하고 그 상세로(기존 정보 덮어쓰기 혼란 방지).
+        router.replace({ pathname: "/shipment/[id]", params: { id: shipment.id } });
+        return;
+      }
+      // 신규 등록 → 택배 정보 입력 권유(tracker.delivery 엔 상품명이 없어 직접 적어야 함 — ADR-024).
+      Alert.alert("택배 정보 입력", "택배 정보를 입력할까요?", [
+        {
+          text: "취소",
+          style: "cancel",
+          onPress: () => (router.canGoBack() ? router.back() : router.replace("/")),
+        },
+        {
+          text: "입력",
+          onPress: () =>
+            router.replace({
+              pathname: "/shipment/[id]",
+              params: { id: shipment.id, openInfo: "1" },
+            }),
+        },
+      ]);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setError("unsupported");
       else if (e instanceof ApiError && e.status === 429) setError("rate");

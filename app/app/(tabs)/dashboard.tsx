@@ -18,7 +18,7 @@ import {
   View,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, listNotifications, listShipments, type Shipment } from "../../src/lib/api";
 import { apiDeps } from "../../src/lib/deps";
 import { cacheShipments, cacheStore, readCachedShipments } from "../../src/lib/cache";
@@ -28,6 +28,7 @@ import { infoStore, loadInfo } from "../../src/lib/info";
 import { initLastSeen, notifStore, unreadCount } from "../../src/lib/notif";
 import { formatAmount } from "../../src/lib/amount";
 import { relativeTime } from "../../src/lib/time";
+import { Fab } from "../../src/components/Fab";
 import { HeaderBell } from "../../src/components/HeaderBell";
 import {
   Bell,
@@ -39,8 +40,12 @@ import {
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { fontSize, fontWeight, radius, spacing } from "../../src/theme/layout";
 
+// 등록 FAB(ADR-042)는 우하단 absolute 라 스크롤 끝에서 마지막 카드를 덮는다 → 콘텐츠 하단에 FAB 만큼 여유(개정).
+const FAB_SIZE = 56; // Fab.tsx SIZE 와 일치(클리어런스 계산용).
+
 export default function DashboardScreen() {
   const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
   const [shipments, setShipments] = useState<Shipment[] | null>(null);
   // 로컬 스토어 집계 입력 — 휴지통 수·미읽음 수·송장별 금액(로컬 정보 스토어).
   const [trashCount, setTrashCount] = useState(0);
@@ -142,7 +147,11 @@ export default function DashboardScreen() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            // FAB 가 마지막 항목을 가리지 않게 하단 여유: FAB anchor(inset+lg) + 높이 + 위 여백(lg).
+            { paddingBottom: insets.bottom + spacing.lg + FAB_SIZE + spacing.lg },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -200,6 +209,9 @@ export default function DashboardScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* 등록 바로가기 FAB — 대시보드는 현황판이라 항상 노출(ADR-042). */}
+      <Fab onPress={() => router.push("/register")} label="운송장 등록" />
     </SafeAreaView>
   );
 }

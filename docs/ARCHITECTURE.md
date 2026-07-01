@@ -400,6 +400,13 @@ unboxing/
 - **무료 한도**: Workers AI 10k neuron/day(앱 전체 공유), 건당 ≈39 → ≈250건/일. 초과 시 캡처 분석 일시중단·직접 입력 폴백(ADR-037). 단가 초과 과금 금지(추후 재검토).
 - **출력 매핑**(`app/src/lib`): memo←상품명(100자), amount←가격(`parseAmount` 0≤n<10^10), category←카테고리(`CATEGORIES` 강제). 송장 ID 변경 시 기존 `transferInfo` 적용.
 
+## v1.1.3 — UX 개선 묶음 (서버·D1 무영향 · 클라이언트/빌드 설정만)
+
+> 결정 SoT: ADR-040~044. 이 묶음은 **새 서버 엔드포인트·D1 스키마·마이그레이션이 전혀 없다**(전부 앱 화면/네비게이션/빌드 설정). 기존 데이터 흐름·동시성·멱등(위 절)·ADR-005 비영속 불변. 아래는 시스템에 영향이 있는 두 항목만 기록(나머지 — 모달 정련·카드 칩·FAB — 은 순수 프레젠테이션이라 UI_GUIDE 단일 출처).
+
+- **등록 후 정보입력 네비게이션(#4 · ADR-043)**: `register.tsx` 의 `createShipment` 는 이미 `{ shipment, created }` 를 반환 → 성공 직후 native `Alert` 확인 → `router.replace({ pathname: "/shipment/[id]", params: { id: shipment.id, openInfo: "1" } })`. 상세(`shipment/[id].tsx`)는 `useLocalSearchParams().openInfo` 를 mount 시 1회 읽어 `setInfoModal(true)`(소비 후 무시 — 재오픈 루프 방지). **분기 우선순위**: `shouldPrimePush()`(첫 등록 푸시 priming → `/onboarding`) > 정보입력 확인 > 기존 back/replace. **멱등 등록**(`created:false` = 이미 추적 중)은 확인 스킵하고 그 상세로. 서버 호출·스키마 무변경(순수 클라 네비게이션).
+- **로케일 선언(#5 · ADR-044 · 빌드 설정)**: `app.json` plugins `["expo-localization", { supportedLocales: { ios:["ko","en"], android:["ko","en"] } }]`. iOS `CFBundleLocalizations` 에 `ko` 등록 → 시스템 제공 UI(편집 메뉴 등) 한국어. **네이티브 산출물 변경**이라 dev build/EAS 리빌드 필요(OTA·Expo Go 반영 안 됨), `app/ios/` 직접 편집 금지(P-7) — `app.json` 단일 출처. 런타임 i18n 없음(앱 문자열 이미 한국어). 함정·스모크 → ENGINEERING **P-11**.
+
 ## 보안 & 공개 API 남용 방어
 
 - **시크릿**: tracker.delivery 자격증명·서명키는 `wrangler secret`. 코드/로그/리포지토리에 평문 금지.

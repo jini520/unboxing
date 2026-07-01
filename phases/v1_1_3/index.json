@@ -1,0 +1,152 @@
+{
+  "project": "unboxing",
+  "version": "1.1.3",
+  "steps": [
+    {
+      "step": 0,
+      "name": "modal-refine",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T19:16:51+0900",
+      "summary": "shipment/[id].tsx 두 입력 모달(택배 정보·운송장 수정)에 공통 ModalHeader(제목+닫기✕+구분선) 추가 + 채움형 accent 저장 버튼(비활성=bg.secondary/text.disabled)·title3/semibold 제목·토큰 간격 통일(ADR-040 ①~④). ADR-034 동작 보존(backdrop=Keyboard.dismiss만·KeyboardAvoidingView 중앙 카드 유지). verify green. 실기기 키보드 회피 스모크는 step 5에 남음.",
+      "completed_at": "2026-06-30T19:22:20+0900"
+    },
+    {
+      "step": 1,
+      "name": "card-chip",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T19:22:20+0900",
+      "summary": "ShipmentCard.tsx 카테고리 칩을 독립 줄 → 택배사·번호 줄과 같은 행(bottomRow: row·flex-end·space-between)의 우측으로 이동(ADR-041) — 좌 carrier(flex:1·줄바꿈) / 우 chip(flexShrink:0). 칩 유무 무관 3줄 고정. 메모 줄·배지·스와이프 등 카드 인터랙션 불변. verify green.",
+      "completed_at": "2026-06-30T19:24:46+0900"
+    },
+    {
+      "step": 2,
+      "name": "register-fab",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T19:24:46+0900",
+      "summary": "신규 공용 Fab.tsx(accent 원형·onAccent Plus·라이트 전용 그림자) + 대시보드(항상)·택배함(송장 있고 비선택 모드만, 헤더 '+' 병존·토스트 위)에 배선(ADR-042). 그림자 분기용으로 ThemeProvider 가 resolveScheme 으로 scheme 노출. verify green. FAB 위치/탭바 겹침은 step 5 시뮬 확인.",
+      "completed_at": "2026-06-30T19:31:17+0900"
+    },
+    {
+      "step": 3,
+      "name": "post-register-info",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T19:31:18+0900",
+      "summary": "register.tsx submit 이 createShipment 반환 {shipment,created} 수신 → 분기 우선순위(priming>멱등 created:false→상세 자동오픈X>신규→Alert 확인). '입력' 시 router.replace({pathname:'/shipment/[id]', params:{id,openInfo:'1'}}). shipment/[id].tsx 가 openInfo 별칭 param 을 useRef 1회 가드로 소비해 setInfoModal(true)(재오픈 루프 방지). 서버/D1/api 무변경. verify green.",
+      "completed_at": "2026-06-30T19:35:27+0900"
+    },
+    {
+      "step": 4,
+      "name": "locale-ko",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T19:35:27+0900",
+      "summary": "app.json expo-localization plugin + dep — 리빌드 후 편집메뉴 한국어 스모크는 step 5",
+      "completed_at": "2026-06-30T19:37:59+0900"
+    },
+    {
+      "step": 5,
+      "name": "smoke-release",
+      "layer": "qa",
+      "status": "completed",
+      "started_at": "2026-06-30T19:37:59+0900",
+      "summary": "verify green·version 1.1.2→1.1.3·서버무변경. 네이티브 스모크(#1키보드·#4자동오픈·#5편집메뉴·OCR캡처) dev build 수동 게이트로 잔여.",
+      "completed_at": "2026-06-30T19:39:43+0900"
+    },
+    {
+      "step": 6,
+      "name": "capture-spinner",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T19:52:50+0900",
+      "summary": "captureStage(ocr/classify) 단계 + 모달 오버레이 스피너·단계텍스트 / 폴백·ADR-005 불변. dev build 오버레이 스모크는 #6 수동 게이트.",
+      "completed_at": "2026-06-30T19:58:40+0900"
+    },
+    {
+      "step": 7,
+      "name": "info-prefill",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T20:03:49+0900",
+      "summary": "getInfo 로드 효과에서 draft(memo/category/amount) 미러 → 헤더·#4 자동오픈 모두 저장값 prefill(비동기 안전·ADR-046). 헤더 openInfo 재-prefill·캡처 자동채움 불변. 코드는 feat 4246026 에 정상 커밋·verify green; 세션이 status 갱신 직전 크래시해 harness 가 error 로 오판한 것 수동 정정.",
+      "completed_at": "2026-06-30T20:04:26+0900"
+    },
+    {
+      "step": 8,
+      "name": "capture-progress-percent",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T22:43:38+0900",
+      "summary": "캡처 오버레이에 추정 진행률 %(setInterval 이징 점근·ocr45/classify90 천장·성공 100% 스냅·실패/취소 즉시 클리어·타이머 누수가드). 단계텍스트·스피너 유지·폴백·ADR-005 불변. JS 전용.",
+      "completed_at": "2026-06-30T22:50:25+0900"
+    },
+    {
+      "step": 9,
+      "name": "capture-progress-start",
+      "layer": "frontend",
+      "status": "completed",
+      "started_at": "2026-06-30T23:04:55+0900",
+      "summary": "capture.ts onImagePicked 콜백(uri 후·OCR 전) + onCaptureFill 이 stage/progress 를 picker 전이 아닌 onImagePicked 에서 켜 % 가 사진 선택 시점부터 0→ 오름. 취소 시 오버레이 미표시. JS 전용.",
+      "completed_at": "2026-06-30T23:07:13+0900"
+    },
+    {
+      "step": 10,
+      "name": "info-draft-prefill-fix",
+      "status": "completed",
+      "layer": "frontend",
+      "started_at": "2026-06-30T23:41:17+0900",
+      "summary": "shipment/[id].tsx 로드 효과의 무조건 draft 미러 제거(live state만 set + infoLoaded 플래그) → prefillDrafts 헬퍼로 prefill 일원화. #4 자동오픈(openInfo=1)을 infoLoaded 게이트 후 prefill·오픈으로 지연 — 열린 모달의 사용자 입력을 늦은 getInfo() resolve 가 덮는 레이스 차단(ADR-046 개정·P-12 F4). 헤더 openInfo 재-prefill·캡처 자동채움·서버/D1 불변. verify green.",
+      "completed_at": "2026-06-30T23:44:13+0900"
+    },
+    {
+      "step": 11,
+      "name": "capture-pipeline-robustness",
+      "status": "completed",
+      "layer": "frontend",
+      "started_at": "2026-06-30T23:44:13+0900",
+      "summary": "shipment/[id].tsx 캡처 상태머신 견고화: ① 동기 재진입 ref(captureBusy — picker 전 더블탭 차단) ② 언마운트 active ref(mounted)+live() 가드(await 재개·catch·hold body) ③ 모달 닫기=캡처 취소(closeInfoModal=clearCapture+setInfoModal(false) → ✕·onRequestClose·취소 3경로, 닫힌 모달 위 폴백 Alert 방지) ④ 성공 시 ramp interval 즉시 clear+hold body=clearCapture teardown 일원화. % 이징(45/90)·단계경계·폴백·ADR-005 불변. 네트워크 타임아웃 미도입(범위 밖). verify green(typecheck+app273+worker300+harness51).",
+      "completed_at": "2026-06-30T23:55:37+0900"
+    },
+    {
+      "step": 12,
+      "name": "fab-list-clearance",
+      "status": "completed",
+      "layer": "frontend",
+      "started_at": "2026-06-30T23:55:37+0900",
+      "summary": "코드리뷰 #4 — 등록 FAB(absolute 우하단)가 스크롤 끝에서 마지막 항목을 가리던 것 수정: dashboard.tsx content·index.tsx list 두 contentContainerStyle 에 동적 paddingBottom(insets.bottom + spacing.lg + FAB_SIZE(56) + spacing.lg) 추가 — FAB anchor(inset+lg)+높이+위여백, 노치 기기까지 클리어. Fab.tsx·노출 조건·right/bottom/SIZE 무변경(ADR-042 개정). verify green. 실제 가림은 dev build 스모크(step15 게이트).",
+      "completed_at": "2026-07-01T00:00:03+0900"
+    },
+    {
+      "step": 13,
+      "name": "register-priming-robust",
+      "status": "completed",
+      "layer": "frontend",
+      "started_at": "2026-07-01T03:28:38+0900",
+      "summary": "코드리뷰 #5 — register.tsx priming 분기의 AsyncStorage.setItem(PRIMED_KEY) 을 자체 try/catch 로 감싸 best-effort 영속으로 전환(ADR-043 개정). 등록 성공 후 setItem throw 시 submit catch 로 떨어져 '등록 실패(generic)' 를 오인하던 것 차단 — 영속 실패해도 router.replace('/onboarding') priming 진행. 분기 우선순위(priming>멱등>신규 Alert)·catch·finally·shouldPrimePush·createShipment·서버 경로 불변. verify green(app273·worker300·harness51).",
+      "completed_at": "2026-07-01T03:30:18+0900"
+    },
+    {
+      "step": 14,
+      "name": "modal-actions-dedup",
+      "status": "completed",
+      "layer": "frontend",
+      "started_at": "2026-07-01T03:30:18+0900",
+      "summary": "shipment/[id].tsx 두 모달(택배 정보·운송장 수정)의 복붙 footer(취소 텍스트 + 채움형 저장 버튼)를 공통 ModalActions({onCancel,onSave,saveDisabled}) 로 추출(ModalHeader 와 대칭·cleanup #7). 정보=closeInfoModal/saveInfo/amountInvalid, 수정=setEditModal(false)/saveEdit/editDisabled. 비활성 색 분기(bg.secondary+text.disabled)·accent/onAccent·취소 text.secondary·a11y(accessibilityState disabled)·hitSlop·modalActions 스타일 전부 불변(순수 추출). 정보 취소가 step11 clearCapture 위임 유지(탈출구 회귀 없음). verify green(app273·worker300·harness51).",
+      "completed_at": "2026-07-01T03:33:00+0900"
+    },
+    {
+      "step": 15,
+      "name": "smoke-fixes",
+      "status": "completed",
+      "layer": "qa",
+      "started_at": "2026-07-01T03:33:00+0900",
+      "summary": "step10~14 코드리뷰 수정 후 verify green(app273·worker300+2todo·harness51)·version 1.1.3 유지·서버/D1/워커 무변경. 타이밍/네이티브 스모크(#1draft·#2재진입·#3탈출구·#4FAB가림·#6언마운트 + 기존 #1키보드·#4자동오픈·#5편집메뉴·OCR)는 dev build 수동 게이트(미수행). merge/EAS/스토어 제출은 외부 작업.",
+      "completed_at": "2026-07-01T03:34:25+0900"
+    }
+  ],
+  "created_at": "2026-06-30T19:16:51+0900",
+  "completed_at": "2026-07-01T03:34:25+0900"
+}

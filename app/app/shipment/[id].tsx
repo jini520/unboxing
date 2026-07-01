@@ -46,7 +46,7 @@ import { STAGE_STATUS_MESSAGE } from "../../src/lib/stage";
 import { absoluteKSTLong } from "../../src/lib/time";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { CarrierSelect } from "../../src/components/CarrierSelect";
-import { Camera, FileText, Pencil } from "../../src/components/icons";
+import { Camera, Close, FileText, Pencil } from "../../src/components/icons";
 import { StageProgress } from "../../src/components/StageProgress";
 import { Timeline } from "../../src/components/Timeline";
 import { useTheme } from "../../src/theme/ThemeProvider";
@@ -69,7 +69,9 @@ function reregisterErrorCopy(e: unknown): string {
 }
 
 export default function DetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // openInfo="1" 이면 mount 시 "택배 정보" 모달을 1회 자동오픈한다(등록 후 정보입력 — ADR-043).
+  // 별칭(openInfoParam)으로 받는다 — 아래 openInfo 콜백과 이름 충돌 회피.
+  const { id, openInfo: openInfoParam } = useLocalSearchParams<{ id: string; openInfo?: string }>();
   const { tokens } = useTheme();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [timeline, setTimeline] = useState<TimelineState>({ kind: "loading" });
@@ -86,8 +88,20 @@ export default function DetailScreen() {
   const [memoDraft, setMemoDraft] = useState("");
   const [categoryDraft, setCategoryDraft] = useState<string | undefined>(undefined);
   const [amountDraft, setAmountDraft] = useState("");
-  // 캡처로 채우기 진행중(이미지 선택→OCR→분류) — 버튼 비활성·스피너. 캡처는 보조라 직접 입력은 그대로(ADR-039).
-  const [capturing, setCapturing] = useState(false);
+  // 캡처로 채우기 단계(이미지 선택→OCR→분류) — null=비진행. 모달 오버레이가 단계별 진행을 표시(ADR-045).
+  // 단계는 실제 두 함수 경계(OCR/분류)로만 — 가짜 중간 단계 금지(ADR-045·ADR-037 1콜 반환). 캡처는 보조(ADR-039).
+  const [captureStage, setCaptureStage] = useState<null | "ocr" | "classify">(null);
+  const capturing = captureStage !== null;
+  // 추정 진행률 %(ADR-045 개정) — OCR/분류는 원자적 호출이라 세밀 진행이 없어 시간 기반 추정.
+  // OCR 0→45 / 분류 45→90 천장으로 이징 점근(완료 전 100% 금지), 성공 시 100 스냅. % 는 추정치(정확도 보장 아님).
+  const [captureProgress, setCaptureProgress] = useState(0);
+  const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 램프 setInterval 핸들
+  const captureHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 성공 100% 유지(250ms) 핸들
+  // 동기 재진입 가드(#2·P-12 F1) — captureStage(setState)는 picker 가 사진을 반환한 onImagePicked 에서야 켜지므로,
+  // 그 전(picker 표시 전) 빠른 더블탭이 capturing 파생 가드를 통과한다(saveEdit 의 saving.current 와 동형).
+  const captureBusy = useRef(false);
+  // 언마운트/취소 가드(active ref·#6·P-12 F2) — async 재개 후 setState/타이머 생성을 막는다(언마운트 효과에서 false).
+  const mounted = useRef(true);
   const deleting = useRef(false);
   // 운송장 "수정"(택배사·번호) 모달 — 택배 정보 모달과 별개(헤더 연필 진입). 저장 = 재등록(ADR-027).
   // carrierDraft = 명시 선택(picked) — 번호 변경 시 null 로 비워 autoPickCarrier 정책(ADR-026)이 다시 적용되게 한다.
@@ -98,6 +112,10 @@ export default function DetailScreen() {
   const [savingEdit, setSavingEdit] = useState(false); // 저장 버튼 비활성·중복탭 표시(시각)
   const saving = useRef(false); // 동기 재진입 가드(setState 전파 전 빠른 더블탭 방지 — deleting 패턴)
 
+  // 저장값 로드 — live state(memo/category/amount)만 채운다. **드래프트는 여기서 미러하지 않는다**:
+  // 자동오픈 모달에 사용자가 타이핑하는 중 늦게 resolve 된 getInfo() 결과가 입력을 덮는 레이스를 막기 위함(ADR-046 개정·P-12 F4).
+  // 드래프트는 모달을 여는 시점(openInfo·자동오픈)에만 prefillDrafts 로 채운다.
+  const [infoLoaded, setInfoLoaded] = useState(false);
   useEffect(() => {
     if (!id) return;
     let active = true;
@@ -106,19 +124,39 @@ export default function DetailScreen() {
       setMemoState(info.memo ?? "");
       setCategory(info.category);
       setAmount(info.amount);
+      setInfoLoaded(true); // 로드 완료 — 자동오픈은 이 시점 이후에만 열린다(아래 effect).
     });
     return () => {
       active = false;
     };
   }, [id]);
 
-  const openInfo = useCallback(() => {
-    setMemoDraft(memo);
-    setCategoryDraft(category);
-    // 금액 드래프트는 순수 숫자 문자열(미설정이면 빈 문자열). ₩·천단위는 표시 전용이라 입력엔 두지 않는다.
-    setAmountDraft(amount === undefined ? "" : String(amount));
+  // 저장값(또는 live 값) → 모달 드래프트 단일 매핑(헤더·자동오픈 공유). 금액은 순수 숫자 문자열(미설정=빈 문자열).
+  const prefillDrafts = useCallback(
+    (info: { memo?: string; category?: string; amount?: number }) => {
+      setMemoDraft(info.memo ?? "");
+      setCategoryDraft(info.category);
+      setAmountDraft(info.amount === undefined ? "" : String(info.amount));
+    },
+    [],
+  );
+
+  // openInfo="1" 딥링크(등록 후 정보입력 — ADR-043)면 mount 시 "택배 정보" 모달을 1회만 자동오픈한다.
+  // **로드 완료(infoLoaded)까지 지연** 후 prefill 하고 연다 — 열린 모달의 사용자 입력을 비동기 로드가 덮지 않게(ADR-046 개정).
+  // consumed ref 로 1회 가드(재오픈 루프 방지). 신규 송장은 빈 값으로 열린다(정상 — #4 등록 직후).
+  const openInfoConsumed = useRef(false);
+  useEffect(() => {
+    if (openInfoConsumed.current || openInfoParam !== "1" || !infoLoaded) return;
+    openInfoConsumed.current = true;
+    prefillDrafts({ memo, category, amount });
     setInfoModal(true);
-  }, [memo, category, amount]);
+  }, [openInfoParam, infoLoaded, memo, category, amount, prefillDrafts]);
+
+  const openInfo = useCallback(() => {
+    // 헤더 진입 — 현재 live 값으로 재-prefill(재오픈 시 미저장 편집 폐기 유지 — ADR-046 회귀 락).
+    prefillDrafts({ memo, category, amount });
+    setInfoModal(true);
+  }, [memo, category, amount, prefillDrafts]);
 
   // 금액 입력 오류(비어있지 않은데 0 이상 정수가 아님) — 인라인 안내 + 저장 차단.
   const amountInvalid = amountDraft.trim() !== "" && parseAmount(amountDraft) === undefined;
@@ -141,30 +179,107 @@ export default function DetailScreen() {
   // ── 캡처로 채우기(v1.1.2) — 직접 입력의 **보조**(ADR-039). 모달 드래프트를 자동 채움(편집 가능). ──
   // 파이프라인: ① 이미지 선택+OCR(기기 내) → ② 마스킹(PII 제거) → ③ 분류(마스킹 텍스트만 전송) → ④ 매핑.
   // 어느 단계가 실패해도 직접 입력·저장 흐름은 안 멈춘다(폴백 안내만). 이미지·원문 PII 는 기기를 안 떠난다(ADR-036).
+
+  // 진행률 추정 램프(ADR-045) — captureStage 동안 ceiling(OCR 45·분류 90)으로 이징 점근(완료 전 100% 금지).
+  // 단계 전환 시 cleanup→재시작(progress 유지·새 ceiling 으로 계속), stage null·언마운트 시 clearInterval(누수 방지).
+  useEffect(() => {
+    if (captureStage === null) return;
+    const ceiling = captureStage === "ocr" ? 45 : 90;
+    captureTimerRef.current = setInterval(() => {
+      setCaptureProgress((p) => (p >= ceiling ? p : p + Math.max(1, Math.round((ceiling - p) * 0.08))));
+    }, 120);
+    return () => {
+      if (captureTimerRef.current) {
+        clearInterval(captureTimerRef.current);
+        captureTimerRef.current = null;
+      }
+    };
+  }, [captureStage]);
+
+  // 언마운트 정리(#6·P-12 F2) — mounted=false 로 async 재개를 차단 + hold setTimeout 정리(램프 interval 은 위 ramp effect cleanup 이 정리).
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      if (captureHoldRef.current) clearTimeout(captureHoldRef.current);
+    },
+    [],
+  );
+
+  // 즉시 클리어(취소·empty·실패·모달 닫힘) — 오버레이 제거·% 0·타이머·재진입 가드 전부 정리(teardown 단일 출처 #10).
+  // setCaptureStage(null) 이 램프 effect cleanup 도 발동. captureBusy=false 로 in-flight 런의 live() 도 거짓이 된다(#2/#3).
+  const clearCapture = useCallback(() => {
+    if (captureTimerRef.current) {
+      clearInterval(captureTimerRef.current);
+      captureTimerRef.current = null;
+    }
+    if (captureHoldRef.current) {
+      clearTimeout(captureHoldRef.current);
+      captureHoldRef.current = null;
+    }
+    captureBusy.current = false;
+    setCaptureStage(null);
+    setCaptureProgress(0);
+  }, []);
+
+  // "택배 정보" 모달 닫기 = 캡처 파이프라인 취소(#3·P-12 F3) — 오버레이가 ✕·취소를 덮고 분류엔 타임아웃이 없어,
+  // 닫는 모든 경로가 clearCapture 도 호출해 갇힘·닫힌 모달 위 폴백 Alert 을 막는다(네트워크 타임아웃 도입은 범위 밖).
+  const closeInfoModal = useCallback(() => {
+    clearCapture();
+    setInfoModal(false);
+  }, [clearCapture]);
+
   const onCaptureFill = useCallback(async () => {
-    if (capturing) return;
-    setCapturing(true);
+    // 동기 재진입 가드(#2·P-12 F1) — capturing 은 captureStage 파생이라 onImagePicked 전엔 거짓이다. ref 로 즉시 막는다.
+    if (captureBusy.current || capturing) return;
+    captureBusy.current = true;
+    // 이 캡처 런이 여전히 살아있나(언마운트 안 됨·취소/모달 닫힘 안 됨) — await 재개마다 확인(#3/#6·P-12 F2·F3).
+    const live = () => mounted.current && captureBusy.current;
     try {
-      const cap = await capturePurchaseText(); // ① 이미지 선택 + 온디바이스 OCR
-      if (cap.kind === "canceled") return; // 사용자 취소 — 조용히
+      // 진행률·오버레이는 picker 가 사진을 반환한 직후(onImagePicked·OCR 시작)부터 — picker 여는 동안엔
+      // 안 뜬다(ADR-045 개정 2: 사진 고르는 시간에 램프가 미리 돌던 버그 수정). 취소 시 onImagePicked 미발화 → 오버레이 안 뜸.
+      const cap = await capturePurchaseText({
+        onImagePicked: () => {
+          setCaptureProgress(0);
+          setCaptureStage("ocr"); // ① OCR 구간 — 오버레이 "이미지 인식 중…"·램프 0→45
+        },
+      }); // ① 이미지 선택 + 온디바이스 OCR
+      if (!live()) return; // 언마운트·취소(모달 닫힘) 후엔 setState/Alert 금지
+      if (cap.kind === "canceled") {
+        clearCapture(); // 사용자 취소 — 조용히(% 0·오버레이 제거·busy 해제)
+        return;
+      }
       if (cap.kind === "empty") {
+        clearCapture();
         Alert.alert("글자를 인식하지 못했어요", "주문 상세가 잘 보이게 다시 촬영해 주세요.");
         return;
       }
       const masked = maskPurchaseText(cap.text); // ② PII 마스킹 — 외부엔 마스킹 텍스트만(ADR-038·005)
+      setCaptureStage("classify"); // ② 분류 구간 — 오버레이 "상품 분석 중…"·램프 45→90(classifyPurchase 전, ADR-045)
       const result = await classifyPurchase(masked, apiDeps); // ③ 분류(Worker, 요청 시)
+      if (!live()) return; // ★ 분류 직후 가드(P-12 F2·F3) — 언마운트/취소 후 setState·hold 타이머 생성 금지
       const mapped = mapClassificationToInfo(result); // ④ 검증 통과 필드만 매핑(CATEGORIES 강제·금액 검증)
       // 드래프트 자동 채움 — 매핑된 필드만 덮어쓴다(미분류/미인식 필드는 사용자 입력 보존). 확정 아닌 편집 초안.
       if (mapped.memo !== undefined) setMemoDraft(mapped.memo);
       if (mapped.amount !== undefined) setAmountDraft(String(mapped.amount));
       if (mapped.category !== undefined) setCategoryDraft(mapped.category);
+      // 성공 hold 진입(#2) — 재진입 가드 해제(hold 동안엔 capturing 이 계속 막음). 램프 interval 은 즉시 정리(헛도는 tick 제거 #9).
+      captureBusy.current = false;
+      setCaptureProgress(100); // 100% 스냅 후 ~250ms 유지하고 종료(완료 신호)
+      if (captureTimerRef.current) {
+        clearInterval(captureTimerRef.current);
+        captureTimerRef.current = null;
+      }
+      captureHoldRef.current = setTimeout(() => {
+        if (!mounted.current) return; // 언마운트 후 setState 금지
+        clearCapture(); // teardown 일원화(#10) — stage null·% 0·타이머 정리
+      }, 250);
     } catch {
       // OCR 실패·분류 503(한도초과·타임아웃)·네트워크 등 — 직접 입력 폴백(흐름 유지). 원문·에러 미로그(ADR-005).
+      if (!live()) return; // 언마운트·취소(모달 닫힘) 후엔 폴백 Alert 금지(닫힌 모달 위 Alert 방지 — #3)
+      clearCapture();
       Alert.alert("지금은 캡처로 채울 수 없어요", "직접 입력해 주세요.");
-    } finally {
-      setCapturing(false);
     }
-  }, [capturing]);
+  }, [capturing, clearCapture]);
 
   // ── 운송장 수정(택배사·번호) = 재등록(ADR-027) ────────────────
   const openEdit = useCallback(() => {
@@ -429,7 +544,7 @@ export default function DetailScreen() {
       )}
 
       {/* 택배 정보 편집 모달 — 헤더 연필로만 진입(본문 인라인 박스 없음·회귀 락). 메모+카테고리+금액(모두 로컬 전용·ADR-024). */}
-      <Modal visible={infoModal} transparent animationType="fade" onRequestClose={() => setInfoModal(false)}>
+      <Modal visible={infoModal} transparent animationType="fade" onRequestClose={closeInfoModal}>
         {/* 바깥 탭 = 키보드만 접기(닫기 아님 — ADR-034 회귀 락). 카드는 KeyboardAvoidingView 로 키보드 회피(P-9). */}
         <Pressable style={styles.modalBackdrop} onPress={() => Keyboard.dismiss()}>
           <KeyboardAvoidingView
@@ -437,7 +552,8 @@ export default function DetailScreen() {
             style={styles.modalAvoider}
           >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
-            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>택배 정보</Text>
+            {/* 제목 + 닫기(✕) 헤더 + 구분선(ADR-040 ①②). ✕ = 취소와 동일하게 모달 닫기(바깥 탭의 Keyboard.dismiss 와 구분 — ADR-034). 닫기 = 캡처 취소(#3). */}
+            <ModalHeader title="택배 정보" onClose={closeInfoModal} />
             {/* 캡처로 채우기 — 직접 입력의 보조(ADR-039). 주문 상세 스크린샷 → OCR·마스킹·분류 → 아래 필드 자동 채움(편집 가능). */}
             <Pressable
               onPress={() => void onCaptureFill()}
@@ -447,14 +563,9 @@ export default function DetailScreen() {
               accessibilityLabel="캡처로 채우기"
               accessibilityState={{ disabled: capturing, busy: capturing }}
             >
-              {capturing ? (
-                <ActivityIndicator size="small" color={tokens.accent} />
-              ) : (
-                <Camera size={18} color={tokens.accent} />
-              )}
-              <Text style={[styles.captureLabel, { color: tokens.accent }]}>
-                {capturing ? "분석 중…" : "캡처로 채우기"}
-              </Text>
+              {/* 진행 표시는 카드 오버레이가 담당(ADR-045) — 버튼은 분석 중 비활성·흐림만. */}
+              <Camera size={18} color={tokens.accent} />
+              <Text style={[styles.captureLabel, { color: tokens.accent }]}>캡처로 채우기</Text>
             </Pressable>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* 메모 — 기존 textarea 동작 보존. 빈 메모는 저장 시 memo 필드 삭제(setInfo 계약). */}
@@ -542,26 +653,20 @@ export default function DetailScreen() {
                 </Text>
               ) : null}
             </ScrollView>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setInfoModal(false)} hitSlop={8} accessibilityRole="button">
-                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
-              </Pressable>
-              <Pressable
-                onPress={saveInfo}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: amountInvalid }}
-              >
-                <Text
-                  style={[
-                    styles.modalSave,
-                    { color: amountInvalid ? tokens.text.disabled : tokens.text.primary },
-                  ]}
-                >
-                  저장
+            <ModalActions onCancel={closeInfoModal} onSave={saveInfo} saveDisabled={amountInvalid} />
+            {/* 캡처 분석 진행 오버레이(ADR-045) — captureStage(OCR/분류)일 때만 카드를 덮어 단계 스피너 표시.
+                분석 중 필드 오터치 차단. 폴백 Alert 은 네이티브라 이 위에 뜸(가림 없음). 단계는 두 경계로만. */}
+            {capturing ? (
+              <View style={styles.captureOverlay}>
+                <View style={[styles.captureOverlayBg, { backgroundColor: tokens.bg.surface }]} />
+                <ActivityIndicator size="large" color={tokens.accent} />
+                {/* 추정 진행률 큰 숫자(ADR-045 개정) — 완료 전엔 천장(45/90)에 점근, 성공 시에만 100%. 추정치. */}
+                <Text style={[styles.capturePercent, { color: tokens.accent }]}>{captureProgress}%</Text>
+                <Text style={[styles.captureStageText, { color: tokens.text.body }]}>
+                  {captureStage === "ocr" ? "이미지 인식 중…" : "상품 분석 중…"}
                 </Text>
-              </Pressable>
-            </View>
+              </View>
+            ) : null}
           </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
@@ -576,7 +681,8 @@ export default function DetailScreen() {
             style={styles.modalAvoider}
           >
           <Pressable style={[styles.modalCard, { backgroundColor: tokens.bg.surface }]} onPress={() => {}}>
-            <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>운송장 수정</Text>
+            {/* 제목 + 닫기(✕) 헤더 + 구분선(ADR-040 ①②). ✕ = 취소와 동일하게 모달 닫기(ADR-034 바깥 탭과 구분). */}
+            <ModalHeader title="운송장 수정" onClose={() => setEditModal(false)} />
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* 운송장 번호 — 변경 시 carrierDraft 초기화(번호 바뀌면 택배사 자동선택 정책 재적용·ADR-026). */}
               <Text style={[styles.fieldLabel, { color: tokens.text.secondary }]}>운송장 번호</Text>
@@ -622,27 +728,11 @@ export default function DetailScreen() {
                 번호를 바꾸면 새 운송장으로 다시 추적해요.
               </Text>
             </ScrollView>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setEditModal(false)} hitSlop={8} accessibilityRole="button">
-                <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void saveEdit()}
-                hitSlop={8}
-                disabled={editDisabled}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: editDisabled }}
-              >
-                <Text
-                  style={[
-                    styles.modalSave,
-                    { color: editDisabled ? tokens.text.disabled : tokens.text.primary },
-                  ]}
-                >
-                  저장
-                </Text>
-              </Pressable>
-            </View>
+            <ModalActions
+              onCancel={() => setEditModal(false)}
+              onSave={() => void saveEdit()}
+              saveDisabled={editDisabled}
+            />
           </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
@@ -658,6 +748,61 @@ function Retry({ message, onRetry }: { message: string; onRetry: () => void }) {
       <Text style={{ color: tokens.text.secondary }}>{message}</Text>
       <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button">
         <Text style={[styles.retryLabel, { color: tokens.text.body }]}>다시 시도</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** 입력 모달 공통 헤더 — 제목 + 닫기(✕) + 구분선(ADR-040 ①②). 두 모달이 modalCard 를 공유하므로 헤더도 공유. */
+function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  const { tokens } = useTheme();
+  return (
+    <>
+      <View style={styles.modalHeader}>
+        <Text style={[styles.modalTitle, { color: tokens.text.primary }]}>{title}</Text>
+        <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="닫기">
+          <Close size={22} color={tokens.text.secondary} />
+        </Pressable>
+      </View>
+      <View style={[styles.modalDivider, { borderBottomColor: tokens.border }]} />
+    </>
+  );
+}
+
+/**
+ * 입력 모달 공통 하단 액션 — 취소(텍스트) + 채움형 저장 버튼(ADR-040 ③). ModalHeader 와 대칭 추출(cleanup #7).
+ * 두 모달 footer 가 복붙이라 lockstep 드리프트를 막으려 공통화 — onCancel/onSave/saveDisabled 만 다름. 시각·동작 불변.
+ */
+function ModalActions({
+  onCancel,
+  onSave,
+  saveDisabled,
+}: {
+  onCancel: () => void;
+  onSave: () => void;
+  saveDisabled: boolean;
+}) {
+  const { tokens } = useTheme();
+  return (
+    <View style={styles.modalActions}>
+      <Pressable onPress={onCancel} hitSlop={8} accessibilityRole="button">
+        <Text style={[styles.modalCancel, { color: tokens.text.secondary }]}>취소</Text>
+      </Pressable>
+      <Pressable
+        onPress={onSave}
+        disabled={saveDisabled}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: saveDisabled }}
+        style={[
+          styles.modalSaveBtn,
+          { backgroundColor: saveDisabled ? tokens.bg.secondary : tokens.accent },
+        ]}
+      >
+        <Text
+          style={[styles.modalSave, { color: saveDisabled ? tokens.text.disabled : tokens.onAccent }]}
+        >
+          저장
+        </Text>
       </Pressable>
     </View>
   );
@@ -690,7 +835,10 @@ const styles = StyleSheet.create({
   // 카드 래퍼 — 중앙 정렬·좌우 패딩을 여기에 두어, KeyboardAvoidingView 가 키보드 높이만큼 줄인 영역 안에서 카드가 위로 재중앙된다(P-9).
   modalAvoider: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl },
   modalCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
-  modalTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold },
+  // 헤더 행(제목 좌·닫기 우) + 그 아래 얇은 구분선(ADR-040 ①②). 색은 인라인 토큰 주입.
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalDivider: { borderBottomWidth: 1 },
+  modalTitle: { fontSize: fontSize.title3, fontWeight: fontWeight.semibold },
   // 캡처로 채우기 버튼 — accent 보더의 보조 액션(채움 아님·outline). 직접 입력과 병행이라 강조 과하지 않게.
   captureBtn: {
     flexDirection: "row",
@@ -702,6 +850,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   captureLabel: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
+  // 캡처 분석 진행 오버레이(ADR-045) — 카드 전체(absolute)를 덮어 단계 스피너 표시 + 필드 오터치 차단(터치 흡수).
+  captureOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", gap: spacing.md },
+  // 반투명 표면색 베이스(별도 레이어 — opacity 가 스피너/텍스트엔 안 걸리게). 카드 라운드에 맞춤.
+  captureOverlayBg: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius.lg, opacity: 0.92 },
+  // 추정 진행률 큰 숫자(ADR-045 개정) — accent 색, 단계 텍스트 위. % 는 추정치(완료 전 100% 금지).
+  capturePercent: { fontSize: fontSize.display2, fontWeight: fontWeight.bold },
+  captureStageText: { fontSize: fontSize.callout, fontWeight: fontWeight.medium },
   // 필드가 길어질 수 있어(메모+카테고리 칩+금액) 내부 스크롤 — 작은 화면·키보드에서도 액션 버튼이 가려지지 않게.
   modalScroll: { maxHeight: 360 },
   fieldLabel: { fontSize: fontSize.footnote, fontWeight: fontWeight.medium, marginBottom: spacing.sm },
@@ -713,9 +868,11 @@ const styles = StyleSheet.create({
   amountPrefix: { fontSize: fontSize.base, marginRight: spacing.sm },
   amountInput: { flex: 1, paddingVertical: 10, fontSize: fontSize.base },
   errorText: { fontSize: fontSize.footnote, marginTop: spacing.xs },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.xl },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: spacing.lg },
   modalCancel: { fontSize: fontSize.callout },
-  modalSave: { fontSize: fontSize.callout, fontWeight: fontWeight.bold },
+  // 채움형 1차 액션(저장) — accent 배경, onAccent 라벨(ADR-040 ③). 비활성 색은 호출부에서 분기.
+  modalSaveBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.md },
+  modalSave: { fontSize: fontSize.callout, fontWeight: fontWeight.semibold },
   retry: { gap: spacing.sm, alignItems: "flex-start" },
   retryLabel: { fontSize: fontSize.body, fontWeight: fontWeight.semibold },
   deleteBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, alignItems: "center" },

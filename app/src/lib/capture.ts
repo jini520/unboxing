@@ -24,8 +24,14 @@ export type CaptureResult =
 /**
  * 사진 라이브러리에서 주문 상세 스크린샷 1장을 골라 한국어 OCR 로 텍스트를 추출한다.
  * 실패(picker·OCR throw)는 그대로 던져 호출부가 "직접 입력" 폴백(흐름 안 멈춤, ADR-039).
+ *
+ * @param opts.onImagePicked picker 가 uri 를 반환한 직후·OCR(recognizeText) 전에 1회 호출.
+ *   호출부가 진행률 램프·오버레이를 **사진 선택 시점(=OCR 시작)** 부터 켜기 위함(ADR-045 개정 2 —
+ *   picker 여는 동안 램프가 돌아 사진 선택 시점에 이미 % 가 올라가 있던 버그 수정). 취소 시 미발화.
  */
-export async function capturePurchaseText(): Promise<CaptureResult> {
+export async function capturePurchaseText(opts?: {
+  onImagePicked?: () => void;
+}): Promise<CaptureResult> {
   const picked = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
     allowsMultipleSelection: false,
@@ -33,6 +39,8 @@ export async function capturePurchaseText(): Promise<CaptureResult> {
   });
   const uri = picked.canceled ? undefined : picked.assets?.[0]?.uri;
   if (!uri) return { kind: "canceled" };
+
+  opts?.onImagePicked?.(); // 사진 선택 직후·OCR 전 — 진행률 램프 시작 신호(ADR-045 개정 2)
 
   // 온디바이스 OCR(iOS Apple Vision / Android ML Kit·한국어). 이미지 URI 는 기기 로컬 — 외부 전송 없음(ADR-036).
   const text = (await recognizeText(uri)).trim();

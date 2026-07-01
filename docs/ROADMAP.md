@@ -46,6 +46,23 @@ QA 이후 런타임 버그·UX 수정(main 머지):
 - 구현: 확정 후 harness phase 정의. #1 은 순수 로직 TDD, #2~#4 는 `shipment/[id].tsx`·`settings.tsx` UI(시뮬/실기기 재캡처 검증).
 - **분리: 구매내역 캡처 → v1.1.2** — 기능 규모 + 미해결 PII 블로커(🔴)로 v1.1.1과 묶지 않음(ADR-035). 계획·미해결 → `docs/PLAN_PURCHASE_CAPTURE.md`. §8 #1 PII 마스킹 강화·#4 쇼핑몰 일반화 먼저 해소 후 별도 설계 사이클.
 
+**v1.1.3 (2026-06-30 — UX 개선 묶음 · 패치 · #1~#5 구현(feat-v1_1_3) 완료·#6 추가 중):** v1.1.2 머지·배포 후 사용자 요청 5건 + 캡처 진행 스피너(#6). **서버·D1 무변경**(클라이언트/빌드 설정만). 설계 SoT: `PRD`/`ADR-040~045`/`UI_GUIDE` "v1.1.3"/`ARCHITECTURE` "v1.1.3"/`ENGINEERING` P-11. 버전 정책 ADR-035(다음 패치 v1.1.3 — 요청 제목 "v1.1.1"은 라벨, app.json 은 이미 1.1.2).
+- **#1 입력 모달 디자인 정련**(택배 정보·운송장 수정) — 제목+닫기 헤더·구분선·채움형 저장 버튼. 중앙 카드·ADR-034 동작 불변(ADR-040).
+- **#2 송장 카드 카테고리 칩 이동** — 독립 줄 → 택배사·번호 줄 우측, 4줄→3줄(ADR-041).
+- **#3 송장 등록 FAB** — 대시보드·택배함 우하단 원형(accent), 헤더 '+' 병존(ADR-042). 신규 `Fab.tsx`.
+- **#4 등록 후 택배 정보 입력 확인** — 등록 성공 → 확인 → 새 상세 + 모달 자동 오픈(priming 우선·멱등 스킵, ADR-043).
+- **#5 앱 언어(시스템 UI) 한국어** — `expo-localization` supportedLocales `ko`(ADR-044·P-11). **config plugin → 네이티브 리빌드 필요**(EAS/dev build).
+- **#6 캡처 분석 진행 스피너** — 캡처(OCR→분류) 중 모달 오버레이+단계 텍스트(`이미지 인식 중…`→`상품 분석 중…`), 인라인 "분석 중…" 대체(ADR-045).
+- **#7 택배 정보 저장값 prefill** — "택배 정보" 모달 열기(헤더·#4 자동오픈) 시 저장된 메모·카테고리·금액 채움. #4 자동오픈 빈칸 수정(ADR-046).
+- 구현: **step0~9 feat-v1_1_3 실행 완료(verify green·미머지, 2026-06-30)** — #1~#6(#6 은 진행%·시작시점 보강으로 step6·8·9 분할)·#7(step7). 네이티브 스모크(#1 키보드·#4 자동오픈·#5 편집메뉴·#6 캡처 오버레이 + OCR 실동작)는 dev build 게이트.
+- **코드리뷰 반영 (2026-06-30 · 머지 전 · step 10~15 `feat-v1_1_3` append · pending):** step 0~9 후 xhigh 코드리뷰에서 정확성 5 + 정리 4 검출 → 같은 `v1_1_3` 디렉토리에 step append(원칙 8), execute.py 재실행. **전부 클라이언트·서버/D1 무변경.**
+  - **step10 `info-draft-prefill-fix`** — #1 draft 미러 레이스(자동오픈 모달에 타이핑 중 늦은 `getInfo` 가 덮음) + #7 prefill 일원화(`prefillDrafts`·자동오픈은 로드 후 오픈). (ADR-046 개정)
+  - **step11 `capture-pipeline-robustness`** — #2 동기 재진입 ref 가드 + #6 언마운트 active 가드 + #3 모달 닫기=캡처 취소(오버레이 탈출구) + 성공 시 interval clear·teardown 일원화. (ADR-045 개정3·ENGINEERING P-12)
+  - **step12 `fab-list-clearance`** — #4 FAB 가 마지막 항목 가림 → 스크롤 컨테이너 `paddingBottom`. (ADR-042 개정)
+  - **step13 `register-priming-robust`** — #5 priming 영속 실패가 등록 성공을 오인 → best-effort 영속. (ADR-043 개정)
+  - **step14 `modal-actions-dedup`** — 두 모달 푸터 복붙 → `ModalActions` 추출(정리). (ADR-040 개정)
+  - **step15 `smoke-fixes`(qa)** — `npm run verify` green 재확인 + ENGINEERING 체크리스트 #7(P-12) dev build 스모크 게이트.
+
 **열린 이슈(GitHub):**
 - `#8` (P3) 알림 그룹화/요약 — 과알림 방지.
 - `#9` (P3) 푸시 **title** 의 택배사 id(`kr.cjlogistics`) → 한글명. (목록·상세는 PR #18에서 해결, **푸시 발송 문구는 worker `buildMessage` 쪽 별개** — **`v1_1_0` step1에 포함**.)
